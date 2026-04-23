@@ -5,7 +5,7 @@ use conduit_core::{
     context::{ExecutionMetadata, NodeContext},
 };
 use conduit_engine::run_workflow;
-use conduit_types::{ExecutionId, IdentifierError};
+use conduit_types::ExecutionId;
 use conduit_workflow::WorkflowDefinition;
 
 struct PrintExecutor;
@@ -23,11 +23,9 @@ impl NodeExecutor for PrintExecutor {
 }
 
 fn main() -> Result<()> {
-    let workflow: WorkflowDefinition = WorkflowDefinition::empty("conduit-scaffold")
-        .map_err(|err: IdentifierError| err.to_string())?;
-    let execution: ExecutionMetadata = ExecutionMetadata::first_attempt(
-        ExecutionId::new("scaffold-run").map_err(|err: IdentifierError| err.to_string())?,
-    );
+    let workflow: WorkflowDefinition = WorkflowDefinition::empty("conduit-scaffold")?;
+    let execution: ExecutionMetadata =
+        ExecutionMetadata::first_attempt(ExecutionId::new("scaffold-run")?);
     let executor: PrintExecutor = PrintExecutor;
     run_workflow(&workflow, &execution, &executor)?;
     println!("conduit workspace scaffold is ready");

@@ -2,13 +2,18 @@
 
 pub mod capability;
 pub mod context;
+pub mod error;
 pub mod lifecycle;
 pub mod message;
 
 use context::NodeContext;
+pub use error::{
+    CancellationError, ConduitError, ErrorCode, ErrorVisibility, ExecutionError, LifecycleError,
+    RetryDisposition, ValidationError,
+};
 
-/// Shared result type for scaffolded APIs.
-pub type Result<T> = std::result::Result<T, String>;
+/// Shared result type for runtime-facing APIs.
+pub type Result<T> = std::result::Result<T, ConduitError>;
 
 /// Minimal node interface for the first runtime skeleton.
 pub trait NodeExecutor {
