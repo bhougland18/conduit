@@ -1,0 +1,33 @@
+[workspace]
+members = [
+  "crates/conduit-cli",
+  "crates/conduit-core",
+  "crates/conduit-engine",
+  "crates/conduit-runtime",
+  "crates/conduit-types",
+  "crates/conduit-workflow",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+publish = false
+version = "0.1.0"
+
+[workspace.dependencies]
+conduit-core = { path = "crates/conduit-core" }
+conduit-engine = { path = "crates/conduit-engine" }
+conduit-runtime = { path = "crates/conduit-runtime" }
+conduit-types = { path = "crates/conduit-types" }
+conduit-workflow = { path = "crates/conduit-workflow" }
+
+[workspace.metadata.dylint]
+libraries = [
+  { path = "/home/ben/code/highland-labs-lints/lints/*" },
+]
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+

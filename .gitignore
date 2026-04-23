@@ -1,0 +1,6 @@
+.direnv/
+.cache/
+.envrc.local
+target/
+result
+result-*

@@ -1,0 +1,16 @@
+[package]
+name = "conduit-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+conduit-core.workspace = true
+conduit-runtime.workspace = true
+conduit-types.workspace = true
+conduit-workflow.workspace = true
+
+[lints]
+workspace = true
+

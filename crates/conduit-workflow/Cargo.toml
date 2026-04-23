@@ -1,0 +1,13 @@
+[package]
+name = "conduit-workflow"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+conduit-types.workspace = true
+
+[lints]
+workspace = true
+
