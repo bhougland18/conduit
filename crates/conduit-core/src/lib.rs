@@ -1,5 +1,6 @@
 //! Core traits and contracts for Conduit.
 
+pub mod capability;
 pub mod context;
 pub mod lifecycle;
 pub mod message;
