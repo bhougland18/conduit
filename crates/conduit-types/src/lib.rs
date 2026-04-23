@@ -9,6 +9,10 @@ use std::str::FromStr;
 pub enum IdentifierKind {
     /// A workflow identifier.
     Workflow,
+    /// An execution identifier for one workflow run.
+    Execution,
+    /// A message identifier for one envelope.
+    Message,
     /// A node identifier within a workflow graph.
     Node,
     /// A port identifier on a node.
@@ -19,6 +23,8 @@ impl IdentifierKind {
     const fn label(self) -> &'static str {
         match self {
             Self::Workflow => "workflow id",
+            Self::Execution => "execution id",
+            Self::Message => "message id",
             Self::Node => "node id",
             Self::Port => "port id",
         }
@@ -134,6 +140,16 @@ id_type!(
     "Stable workflow identifier."
 );
 id_type!(
+    ExecutionId,
+    IdentifierKind::Execution,
+    "Stable identifier for one workflow execution."
+);
+id_type!(
+    MessageId,
+    IdentifierKind::Message,
+    "Stable identifier for one message envelope."
+);
+id_type!(
     NodeId,
     IdentifierKind::Node,
     "Stable node identifier inside a workflow graph."
@@ -166,6 +182,28 @@ mod tests {
             err,
             IdentifierError::Whitespace {
                 kind: IdentifierKind::Node
+            }
+        );
+    }
+
+    #[test]
+    fn execution_id_rejects_empty_values() {
+        let err = ExecutionId::new(" ").expect_err("blank identifiers must fail");
+        assert_eq!(
+            err,
+            IdentifierError::Empty {
+                kind: IdentifierKind::Execution
+            }
+        );
+    }
+
+    #[test]
+    fn message_id_rejects_control_characters() {
+        let err = MessageId::new("msg\u{001f}one").expect_err("control characters must fail");
+        assert_eq!(
+            err,
+            IdentifierError::Control {
+                kind: IdentifierKind::Message
             }
         );
     }

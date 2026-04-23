@@ -1,15 +1,10 @@
 //! Core traits and contracts for Conduit.
 
-use conduit_types::{NodeId, WorkflowId};
+pub mod context;
+pub mod lifecycle;
+pub mod message;
 
-/// Minimal execution context passed to runtime-managed nodes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeContext {
-    /// Workflow currently being executed.
-    pub workflow_id: WorkflowId,
-    /// Node currently being executed.
-    pub node_id: NodeId,
-}
+use context::NodeContext;
 
 /// Shared result type for scaffolded APIs.
 pub type Result<T> = std::result::Result<T, String>;

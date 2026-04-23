@@ -1,6 +1,6 @@
 //! Runtime mechanics such as supervision and backpressure primitives.
 
-use conduit_core::{NodeContext, NodeExecutor, Result};
+use conduit_core::{NodeExecutor, Result, context::NodeContext};
 
 /// Execute a single node through the runtime boundary.
 ///
