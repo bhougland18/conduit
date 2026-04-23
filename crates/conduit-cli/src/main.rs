@@ -15,9 +15,8 @@ impl NodeExecutor for PrintExecutor {
 }
 
 fn main() -> Result<()> {
-    let workflow: WorkflowDefinition =
-        WorkflowDefinition::empty("conduit-scaffold")
-            .map_err(|err: IdentifierError| err.to_string())?;
+    let workflow: WorkflowDefinition = WorkflowDefinition::empty("conduit-scaffold")
+        .map_err(|err: IdentifierError| err.to_string())?;
     let executor: PrintExecutor = PrintExecutor;
     run_workflow(&workflow, &executor)?;
     println!("conduit workspace scaffold is ready");
