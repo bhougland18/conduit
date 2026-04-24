@@ -459,6 +459,18 @@ fn reject_duplicate_ports(
 mod tests {
     use super::*;
     use conduit_types::IdentifierKind;
+    use proptest::{collection::hash_set, prelude::*};
+
+    fn valid_identifier_strategy() -> impl Strategy<Value = String> {
+        prop::collection::vec(
+            any::<char>().prop_filter(
+                "identifier characters must not be whitespace or control",
+                |ch| !ch.is_whitespace() && !ch.is_control(),
+            ),
+            1..16,
+        )
+        .prop_map(|chars: Vec<char>| chars.into_iter().collect())
+    }
 
     fn workflow_id(value: &str) -> WorkflowId {
         WorkflowId::new(value).expect("valid workflow id")
@@ -649,5 +661,53 @@ mod tests {
                 expected: PortDirection::Input
             }
         );
+    }
+
+    fn build_linear_workflow(node_names: &[String]) -> WorkflowDefinition {
+        let mut nodes: Vec<NodeDefinition> = Vec::new();
+        let mut edges: Vec<EdgeDefinition> = Vec::new();
+
+        for (index, node_name) in node_names.iter().enumerate() {
+            let mut input_ports: Vec<PortId> = Vec::new();
+            let mut output_ports: Vec<PortId> = Vec::new();
+
+            if index > 0 {
+                input_ports.push(port_id("in"));
+            }
+
+            if index + 1 < node_names.len() {
+                output_ports.push(port_id("out"));
+            }
+
+            nodes.push(
+                NodeDefinition::new(node_id(node_name), input_ports, output_ports)
+                    .expect("linear workflow nodes must be valid"),
+            );
+        }
+
+        for edge in node_names.windows(2) {
+            edges.push(EdgeDefinition::new(
+                endpoint(&edge[0], "out"),
+                endpoint(&edge[1], "in"),
+            ));
+        }
+
+        WorkflowDefinition::from_parts(workflow_id("flow"), nodes, edges)
+            .expect("linear workflow must be valid")
+    }
+
+    proptest! {
+        #[test]
+        fn linear_workflows_with_unique_valid_node_ids_validate(
+            node_names in hash_set(valid_identifier_strategy(), 1..6)
+        ) {
+            let mut node_names: Vec<String> = node_names.into_iter().collect();
+            node_names.sort();
+
+            let workflow: WorkflowDefinition = build_linear_workflow(&node_names);
+
+            prop_assert_eq!(workflow.nodes().len(), node_names.len());
+            prop_assert_eq!(workflow.edges().len(), node_names.len().saturating_sub(1));
+        }
     }
 }

@@ -4,6 +4,7 @@ members = [
   "crates/conduit-core",
   "crates/conduit-engine",
   "crates/conduit-runtime",
+  "crates/conduit-test-kit",
   "crates/conduit-types",
   "crates/conduit-workflow",
 ]
@@ -19,8 +20,10 @@ version = "0.1.0"
 conduit-core = { path = "crates/conduit-core" }
 conduit-engine = { path = "crates/conduit-engine" }
 conduit-runtime = { path = "crates/conduit-runtime" }
+conduit-test-kit = { path = "crates/conduit-test-kit" }
 conduit-types = { path = "crates/conduit-types" }
 conduit-workflow = { path = "crates/conduit-workflow" }
+proptest = "1.6.0"
 
 [workspace.metadata.dylint]
 libraries = [
@@ -30,4 +33,3 @@ libraries = [
 [workspace.lints.rust]
 missing_docs = "warn"
 unsafe_code = "forbid"
-

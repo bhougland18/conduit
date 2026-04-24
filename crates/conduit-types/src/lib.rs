@@ -163,6 +163,26 @@ id_type!(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    fn valid_identifier_strategy() -> impl Strategy<Value = String> {
+        prop::collection::vec(
+            any::<char>().prop_filter(
+                "identifier characters must not be whitespace or control",
+                |ch| !ch.is_whitespace() && !ch.is_control(),
+            ),
+            1..16,
+        )
+        .prop_map(|chars: Vec<char>| chars.into_iter().collect())
+    }
+
+    fn assert_identifier_round_trip<T>(value: &str)
+    where
+        T: FromStr<Err = IdentifierError> + AsRef<str>,
+    {
+        let parsed: T = value.parse().expect("generated identifier must parse");
+        assert_eq!(parsed.as_ref(), value);
+    }
 
     #[test]
     fn workflow_id_rejects_empty_values() {
@@ -227,5 +247,25 @@ mod tests {
                 kind: IdentifierKind::Workflow
             }
         ));
+    }
+
+    proptest! {
+        #[test]
+        fn generated_valid_identifiers_are_accepted(value in valid_identifier_strategy()) {
+            assert_identifier_round_trip::<WorkflowId>(&value);
+            assert_identifier_round_trip::<ExecutionId>(&value);
+            assert_identifier_round_trip::<MessageId>(&value);
+            assert_identifier_round_trip::<NodeId>(&value);
+            assert_identifier_round_trip::<PortId>(&value);
+        }
+
+        #[test]
+        fn generated_valid_identifiers_reject_appended_whitespace(value in valid_identifier_strategy()) {
+            let invalid: String = format!("{value} ");
+            prop_assert_eq!(
+                WorkflowId::new(invalid),
+                Err(IdentifierError::Whitespace { kind: IdentifierKind::Workflow })
+            );
+        }
     }
 }

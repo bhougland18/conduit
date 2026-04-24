@@ -8,9 +8,10 @@ publish.workspace = true
 [dependencies]
 conduit-core.workspace = true
 conduit-runtime.workspace = true
-conduit-types.workspace = true
 conduit-workflow.workspace = true
+
+[dev-dependencies]
+conduit-test-kit.workspace = true
 
 [lints]
 workspace = true
-
