@@ -1,60 +1,69 @@
 # AI Auditor Onboarding Guide
 
 ## 1. Initial Setup
-1. Read `Documents/AGENTS.md` to understand repository requirements and how to use the rust_beads task database.
-2. Review `Documents/conduit_proposal.md` for the purpose of this rust library
+1. Read `docs/AGENTS.md` to understand repository requirements and local bead workflow conventions.
+2. Review `docs/conduit_proposal.md` for the project direction and intended runtime model.
+3. Review the relevant epic plan in `docs/epics/` before grading proposed-versus-implemented scope.
 
 ## 2. Repository Analysis
+
 ### 2.1 Structure Audit
-- Confirm standard Rust project layout:
-  - `src/` directory
-  - `Cargo.toml`
-  - `README.md`
-  - `LICENSE`
+- Confirm the workspace layout is coherent for a multi-crate Rust project:
+  - repo-root `Cargo.toml`
+  - repo-root `README.md`
+  - repo-root `LICENSE`
+  - member crates under `crates/*/src/`
+  - project docs under `docs/`
 - Check for:
-  - Missing documentation
-  - Improper directory organization
-  - Inconsistent naming conventions
+  - missing or stale documentation
+  - inconsistent crate or directory naming
+  - repo metadata that conflicts with the workspace manifest
 
 ### 2.2 Proposal Review
-- Analyze `Documents/proposal.md`:
-  - Clarity of objectives
-  - Technical feasibility
-  - Alignment with code structure
-  - Missing requirements
+- Analyze `docs/conduit_proposal.md`:
+  - clarity of objectives
+  - technical feasibility
+  - alignment with current code structure
+  - missing requirements or unresolved design decisions
+- Use the active epic docs to distinguish:
+  - intentional scaffold gaps
+  - genuine drift from the planned bead sequence
 
 ### 2.3 Code Quality Assessment
-- Review all files in `crates/`:
-  - Look for:
-    - Implementation of proposal objectives
-    - Unused imports
-    - Missing documentation
-    - Potential bugs (e.g., null pointer dereferences)
-    - Inefficient algorithms
-    - Security vulnerabilities
-  - Check for:
-    - Proper error handling
-    - Unit tests coverage
+- Review all relevant code in `crates/`:
+  - implementation of current-bead objectives
+  - missing documentation on public items
+  - unused or dead code
+  - weak error handling
+  - correctness bugs
+  - inefficient algorithms where they materially matter
+  - security issues if the code crosses trust boundaries
+- Check for:
+  - unit test coverage
+  - property-based tests where invariants are non-trivial
+  - lint and formatting health when practical
 
 ## 3. Assessment Output
-Create `Documents/assessment.md` with:
+- Write the audit as a dated file under `docs/audits/`, using the pattern `Audit_YYYY_MM_DD.md` or the repo's current dated naming convention.
+- Include:
 
 ### 3.1 Summary
-- Overall repository health score
-- Key findings
+- overall repository health score
+- key findings
 
 ### 3.2 Detailed Findings
-- **Proposal Issues**:
-  - [Example: Missing requirement X]
-- **Code Issues**:
-  - [Example: Unused import in `crates/utils.rs`]
-  - [Example: Potential panic in `crates/core/lib.rs`]
+- proposal or planning issues
+- code issues with file references
+- testing gaps
+- documentation drift
 
 ### 3.3 Recommendations
-- [Specific task: Add documentation to `crates/api`]
-- [Specific task: Implement unit tests for `crates/utils`]
-- [Specific task: Refactor `crates/core` for better modularity]
+- concrete remediation items that could become future beads
+- clear separation between:
+  - immediate follow-up work
+  - deferred future-epic work
 
-## 4. Task Database Integration
-- Document all findings in `task_database.md`
-- Use `task_database.md` for tracking remediation progress
+## 4. Beads Integration
+- Record remediation suggestions in the audit document itself unless the human explicitly asks for direct Beads creation.
+- When proposing follow-up work, reference the Beads issue tracker in `.beads/issues.jsonl` and existing bead IDs where relevant.
+- Do not assume a separate `task_database.md` exists in this repo.
