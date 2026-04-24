@@ -16,6 +16,15 @@
 //! duplication is intentional even though later validation must keep the two in
 //! sync.
 //!
+//! ## Fragment: capability-workflow-cross-validation
+//!
+//! Cross-validation lives here rather than in the workflow crate because a
+//! mismatch is still fundamentally a capability problem: the workflow only
+//! promises that a port exists, while this module decides whether a node's
+//! declared permissions line up with that topology. The validator therefore
+//! consumes a `WorkflowDefinition` as read-only structure and keeps the
+//! capability error vocabulary as the single place callers inspect.
+//!
 //! ## Fragment: capability-effect-taxonomy
 //!
 //! The current `EffectCapability` enum is intentionally modest and concrete.
@@ -29,6 +38,7 @@ use std::error::Error;
 use std::fmt;
 
 use conduit_types::{NodeId, PortId};
+use conduit_workflow::{NodeDefinition, WorkflowDefinition};
 
 /// Direction of message flow a node claims for a port.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,6 +130,29 @@ pub enum CapabilityValidationError {
         /// Port with conflicting direction claims.
         port_id: PortId,
     },
+    /// A capability descriptor referenced a node absent from the workflow.
+    UnknownCapabilityNode {
+        /// Node whose capability descriptor does not match the workflow.
+        node_id: NodeId,
+    },
+    /// A capability descriptor referenced a port absent from the workflow node.
+    UnknownCapabilityPort {
+        /// Node whose capability descriptor does not match the workflow.
+        node_id: NodeId,
+        /// Port claimed by the capability descriptor.
+        port_id: PortId,
+    },
+    /// A capability descriptor claimed the wrong direction for a declared port.
+    CapabilityDirectionMismatch {
+        /// Node whose capability descriptor does not match the workflow.
+        node_id: NodeId,
+        /// Port whose workflow direction and capability claim disagree.
+        port_id: PortId,
+        /// Direction claimed by the capability descriptor.
+        claimed: PortCapabilityDirection,
+        /// Direction declared by the workflow topology.
+        declared: PortCapabilityDirection,
+    },
 }
 
 impl fmt::Display for CapabilityValidationError {
@@ -143,6 +176,25 @@ impl fmt::Display for CapabilityValidationError {
             Self::ConflictingPortDirection { node_id, port_id } => write!(
                 f,
                 "node `{node_id}` declares port `{port_id}` for both receive and emit"
+            ),
+            Self::UnknownCapabilityNode { node_id } => write!(
+                f,
+                "capability descriptor references unknown workflow node `{node_id}`"
+            ),
+            Self::UnknownCapabilityPort { node_id, port_id } => write!(
+                f,
+                "node `{node_id}` capability references unknown workflow port `{port_id}`"
+            ),
+            Self::CapabilityDirectionMismatch {
+                node_id,
+                port_id,
+                claimed,
+                declared,
+            } => write!(
+                f,
+                "node `{node_id}` capability claims port `{port_id}` may {} but workflow declares {}",
+                claimed.label(),
+                declared.label()
             ),
         }
     }
@@ -216,6 +268,60 @@ impl NodeCapabilities {
     }
 }
 
+/// Validate that node capability descriptors align with one workflow topology.
+///
+/// # Errors
+///
+/// Returns an error if a capability descriptor references an unknown node,
+/// references an unknown port on a known node, or claims a direction that
+/// disagrees with the workflow declaration.
+pub fn validate_workflow_capabilities(
+    workflow: &WorkflowDefinition,
+    capabilities: &[NodeCapabilities],
+) -> Result<(), CapabilityValidationError> {
+    for capability in capabilities {
+        let node: &NodeDefinition = workflow
+            .nodes()
+            .iter()
+            .find(|node: &&NodeDefinition| node.id() == capability.node_id())
+            .ok_or_else(|| CapabilityValidationError::UnknownCapabilityNode {
+                node_id: capability.node_id().clone(),
+            })?;
+
+        for port in capability.ports() {
+            let declared: PortCapabilityDirection = workflow_direction_for(node, port.port_id())
+                .ok_or_else(|| CapabilityValidationError::UnknownCapabilityPort {
+                    node_id: capability.node_id().clone(),
+                    port_id: port.port_id().clone(),
+                })?;
+
+            if port.direction() != declared {
+                return Err(CapabilityValidationError::CapabilityDirectionMismatch {
+                    node_id: capability.node_id().clone(),
+                    port_id: port.port_id().clone(),
+                    claimed: port.direction(),
+                    declared,
+                });
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn workflow_direction_for(
+    node: &NodeDefinition,
+    port_id: &PortId,
+) -> Option<PortCapabilityDirection> {
+    if node.input_ports().contains(port_id) {
+        Some(PortCapabilityDirection::Receive)
+    } else if node.output_ports().contains(port_id) {
+        Some(PortCapabilityDirection::Emit)
+    } else {
+        None
+    }
+}
+
 fn reject_duplicate_effects(
     node_id: &NodeId,
     effects: &[EffectCapability],
@@ -269,6 +375,7 @@ fn reject_invalid_port_capabilities(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use conduit_types::WorkflowId;
 
     fn node_id(value: &str) -> NodeId {
         NodeId::new(value).expect("valid node id")
@@ -284,6 +391,20 @@ mod tests {
 
     fn emit(port: &str) -> PortCapability {
         PortCapability::new(port_id(port), PortCapabilityDirection::Emit)
+    }
+
+    fn workflow() -> WorkflowDefinition {
+        WorkflowDefinition::from_parts(
+            WorkflowId::new("flow").expect("valid workflow id"),
+            [
+                NodeDefinition::new(node_id("source"), Vec::new(), [port_id("out")])
+                    .expect("valid source"),
+                NodeDefinition::new(node_id("sink"), [port_id("in")], Vec::new())
+                    .expect("valid sink"),
+            ],
+            Vec::new(),
+        )
+        .expect("valid workflow")
     }
 
     #[test]
@@ -355,6 +476,104 @@ mod tests {
             CapabilityValidationError::ConflictingPortDirection {
                 node_id: node_id("router"),
                 port_id: port_id("data")
+            }
+        );
+    }
+
+    #[test]
+    fn workflow_capabilities_accept_matching_node_ports() {
+        let workflow: WorkflowDefinition = workflow();
+        let capabilities: Vec<NodeCapabilities> = vec![
+            NodeCapabilities::new(
+                node_id("source"),
+                [emit("out")],
+                Vec::<EffectCapability>::new(),
+            )
+            .expect("valid source capabilities"),
+            NodeCapabilities::new(
+                node_id("sink"),
+                [receive("in")],
+                Vec::<EffectCapability>::new(),
+            )
+            .expect("valid sink capabilities"),
+        ];
+
+        validate_workflow_capabilities(&workflow, &capabilities)
+            .expect("matching workflow capabilities should validate");
+    }
+
+    #[test]
+    fn workflow_capabilities_reject_unknown_node() {
+        let workflow: WorkflowDefinition = workflow();
+        let capabilities: Vec<NodeCapabilities> = vec![
+            NodeCapabilities::new(
+                node_id("ghost"),
+                [emit("out")],
+                Vec::<EffectCapability>::new(),
+            )
+            .expect("self-consistent capability descriptor"),
+        ];
+
+        let err: CapabilityValidationError =
+            validate_workflow_capabilities(&workflow, &capabilities)
+                .expect_err("unknown workflow node must fail");
+
+        assert_eq!(
+            err,
+            CapabilityValidationError::UnknownCapabilityNode {
+                node_id: node_id("ghost")
+            }
+        );
+    }
+
+    #[test]
+    fn workflow_capabilities_reject_unknown_port() {
+        let workflow: WorkflowDefinition = workflow();
+        let capabilities: Vec<NodeCapabilities> = vec![
+            NodeCapabilities::new(
+                node_id("sink"),
+                [receive("missing")],
+                Vec::<EffectCapability>::new(),
+            )
+            .expect("self-consistent capability descriptor"),
+        ];
+
+        let err: CapabilityValidationError =
+            validate_workflow_capabilities(&workflow, &capabilities)
+                .expect_err("unknown workflow port must fail");
+
+        assert_eq!(
+            err,
+            CapabilityValidationError::UnknownCapabilityPort {
+                node_id: node_id("sink"),
+                port_id: port_id("missing")
+            }
+        );
+    }
+
+    #[test]
+    fn workflow_capabilities_reject_direction_mismatch() {
+        let workflow: WorkflowDefinition = workflow();
+        let capabilities: Vec<NodeCapabilities> = vec![
+            NodeCapabilities::new(
+                node_id("sink"),
+                [emit("in")],
+                Vec::<EffectCapability>::new(),
+            )
+            .expect("self-consistent capability descriptor"),
+        ];
+
+        let err: CapabilityValidationError =
+            validate_workflow_capabilities(&workflow, &capabilities)
+                .expect_err("direction mismatch must fail");
+
+        assert_eq!(
+            err,
+            CapabilityValidationError::CapabilityDirectionMismatch {
+                node_id: node_id("sink"),
+                port_id: port_id("in"),
+                claimed: PortCapabilityDirection::Emit,
+                declared: PortCapabilityDirection::Receive,
             }
         );
     }
