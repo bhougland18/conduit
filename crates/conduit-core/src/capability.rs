@@ -1,4 +1,28 @@
 //! Capability descriptors that constrain runtime behavior without owning graph shape.
+//!
+//! ## Fragment: capability-structure-vs-boundary
+//!
+//! Workflow shape and node capability are intentionally modeled in separate
+//! crates. The workflow model answers "what ports exist and how are they
+//! connected?", while this module answers "what is a node allowed to receive,
+//! emit, or ask the runtime to do?" Keeping those concerns apart prevents the
+//! graph model from quietly becoming a security or isolation policy surface.
+//!
+//! ## Fragment: capability-port-claims
+//!
+//! Port capabilities are duplicated as claims instead of reusing workflow port
+//! declarations directly because they serve a different purpose. Workflow ports
+//! describe topology; capability ports describe permitted runtime behavior. The
+//! duplication is intentional even though later validation must keep the two in
+//! sync.
+//!
+//! ## Fragment: capability-effect-taxonomy
+//!
+//! The current `EffectCapability` enum is intentionally modest and concrete.
+//! It names host effects the runtime can plausibly mediate today without
+//! pretending that native nodes are sandboxed. For native execution these
+//! capabilities are advisory metadata; for future WASM or process-backed nodes
+//! they become part of a real enforcement boundary.
 
 use std::collections::BTreeSet;
 use std::error::Error;

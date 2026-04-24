@@ -1,4 +1,26 @@
 //! Shared error types for Conduit runtime-facing APIs.
+//!
+//! ## Fragment: error-taxonomy
+//!
+//! The foundation layer uses one shared error enum because downstream crates
+//! already need a consistent contract, but the taxonomy is still kept narrow:
+//! validation, execution, cancellation, and lifecycle observation. That is
+//! enough to remove stringly-typed errors without inventing categories the
+//! runtime has not earned yet.
+//!
+//! ## Fragment: error-code-stability
+//!
+//! Error codes are explicit instead of being derived from enum names so logs,
+//! tests, and future CLI or API surfaces can depend on stable identifiers even
+//! if wording changes. The code surface is intentionally small and can grow
+//! only when a new externally meaningful error condition appears.
+//!
+//! ## Fragment: error-visibility-and-retry
+//!
+//! Visibility and retry guidance live next to the error variants because they
+//! are part of the policy, not just formatting. A validation failure should be
+//! safe to show and not worth retrying, while an execution or lifecycle failure
+//! is mostly diagnostic until the runtime grows more concrete recovery rules.
 
 use std::error::Error;
 use std::fmt;

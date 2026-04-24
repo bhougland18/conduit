@@ -1,4 +1,17 @@
 //! Lifecycle events and observer hooks at the runtime boundary.
+//!
+//! ## Fragment: lifecycle-observer-seam
+//!
+//! The lifecycle surface exists before the runtime fully uses it because
+//! observability is part of the public direction of Conduit, not an afterthought.
+//! The current seam is intentionally thin: it names the events that matter and
+//! leaves registration, fan-out, and buffering policy to later runtime beads.
+//!
+//! ## Fragment: lifecycle-event-vocabulary
+//!
+//! The event kinds are phrased around runtime transitions rather than around
+//! implementation details. That keeps the vocabulary stable if the execution
+//! engine changes from a sequential scaffold to structured concurrency later.
 
 use crate::{Result, context::NodeContext};
 

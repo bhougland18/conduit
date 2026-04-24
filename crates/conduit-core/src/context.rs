@@ -1,4 +1,26 @@
 //! Execution context and cancellation boundary types.
+//!
+//! ## Fragment: context-runtime-boundary
+//!
+//! This module keeps the runtime-facing context deliberately small: workflow
+//! identity, node identity, execution identity, and cancellation state. That
+//! is enough for the foundation beads to define what a node is executing
+//! without prematurely choosing an async runtime, scheduler, or transport.
+//!
+//! ## Fragment: context-cancellation-shape
+//!
+//! Cancellation is represented as visible state rather than as an active
+//! signaling primitive. That keeps the current boundary honest: the scaffolded
+//! runtime can express that cancellation was requested, but it does not yet
+//! claim to support cross-task interruption or supervisor-driven propagation.
+//! When `asupersync` arrives, the signaling mechanism may change, but the node
+//! surface should still read as "this execution may already be cancelled."
+//!
+//! ## Fragment: context-attempt-numbering
+//!
+//! Execution attempts are one-based on purpose. Retry counts are usually read
+//! by humans in logs and diagnostics, and `attempt = 1` is less error-prone
+//! than forcing every downstream consumer to translate from zero-based storage.
 
 use std::num::NonZeroU32;
 

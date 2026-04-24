@@ -1,11 +1,27 @@
 //! External workflow definitions and validation entrypoints.
 //!
+//! ## Fragment: workflow-structural-boundary
+//!
 //! This crate owns the static workflow graph shape. It validates structural
 //! facts that must be true before any runtime can reason about execution:
 //! nodes are uniquely named, ports are uniquely named within a node, and edges
 //! connect declared output ports to declared input ports. Runtime concerns such
 //! as scheduling policy, cycles, payload compatibility, cancellation, and
 //! backpressure are intentionally left to later layers.
+//!
+//! ## Fragment: workflow-validation-scope
+//!
+//! The validation rules stop at structural honesty on purpose. A graph can be
+//! structurally valid and still semantically wrong for a later runtime or data
+//! model. Keeping that line clear prevents the workflow crate from accumulating
+//! scheduling, typing, or capability policy that belongs elsewhere.
+//!
+//! ## Fragment: workflow-deterministic-errors
+//!
+//! Validation uses ordered maps and sets so duplicate detection and missing-edge
+//! errors are reported deterministically. The graphs are small enough that this
+//! tradeoff favors stable diagnostics and test output over marginal hash-table
+//! speed.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
