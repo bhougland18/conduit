@@ -5,6 +5,7 @@ pub mod context;
 pub mod error;
 pub mod lifecycle;
 pub mod message;
+pub mod metadata;
 pub mod ports;
 
 use std::future::Future;
@@ -12,8 +13,9 @@ use std::future::Future;
 use context::NodeContext;
 pub use error::{
     CancellationError, ConduitError, ErrorCode, ErrorVisibility, ExecutionError, LifecycleError,
-    RetryDisposition, ValidationError,
+    MetadataError, RetryDisposition, ValidationError,
 };
+pub use metadata::{MetadataRecord, MetadataSink, NoopMetadataSink};
 pub use ports::{PortsIn, PortsOut};
 
 /// Shared result type for runtime-facing APIs.

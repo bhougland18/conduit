@@ -31,7 +31,10 @@
 //! It names host effects the runtime can plausibly mediate today without
 //! pretending that native nodes are sandboxed. For native execution these
 //! capabilities are advisory metadata; for future WASM or process-backed nodes
-//! they become part of a real enforcement boundary.
+//! they become part of a real enforcement boundary. Observability concerns such
+//! as logging, tracing, and metadata collection are deliberately excluded unless
+//! a node asks the host to write to an external sink; routine runtime telemetry
+//! belongs to the metadata layer.
 
 use std::collections::BTreeSet;
 use std::error::Error;

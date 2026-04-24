@@ -22,6 +22,8 @@ Conduit is a **Flow-Based Programming (FBP) execution engine** designed for:
 
 Built on `asupersync`:
 
+Source: <https://github.com/Dicklesworthstone/asupersync>
+
 * workflows form a **task tree**
 * child tasks are bound to parent lifetimes
 * cancellation propagates deterministically
@@ -72,6 +74,16 @@ All execution produces metadata:
 * timing + failures
 * node contracts
 
+Metadata remains split by source:
+
+* execution context metadata identifies a node boundary
+* message metadata travels with payloads
+* lifecycle metadata records runtime transitions
+
+A metadata sink/collector API is the collection boundary. It does not replace
+the source-specific metadata types, and it does not make logging/tracing a node
+capability by default.
+
 Designed for:
 
 * reproducibility
@@ -115,6 +127,10 @@ Capabilities include:
 * CPU/memory limits
 * execution time
 * determinism flags
+
+Routine runtime observability is not an `EffectCapability`. Logging, tracing,
+and metadata collection stay in the runtime/metadata layers unless a node asks
+the host to write to an external sink that should be permissioned explicitly.
 
 ---
 
@@ -275,6 +291,12 @@ Tracks:
 * timing
 * failures
 * schemas
+
+Initial implementation shape:
+
+* keep context, message, and lifecycle metadata as distinct source types
+* expose a metadata sink for runtime collection
+* defer storage, fan-out, buffering, and graph/RDF projection policy
 
 ---
 

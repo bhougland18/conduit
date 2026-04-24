@@ -39,5 +39,5 @@ nix develop . --command cargo-dylint-nightly --all
 - `docs/conduit_proposal.md` - architecture and requirements proposal
 - `docs/epics/epic-1-foundation.md` - completed foundation bead plan
 - `docs/audits/Audit_4_23.md` - latest audit findings and follow-on ideas
-- `docs/handoff_2026-04-24_evening.md` - latest handoff snapshot
+- `docs/handoff_2026-04-24_late.md` - latest handoff snapshot
 - `docs/AGENTS.md` - repo-local working conventions for coding agents

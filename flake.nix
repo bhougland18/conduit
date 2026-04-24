@@ -5,6 +5,8 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
     crane.url = "github:ipetkov/crane";
+    codex-cli-nix.url = "github:sadjow/codex-cli-nix";
+    llm-agents.url = "github:numtide/llm-agents.nix";
     fenix = {
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -15,6 +17,8 @@
     inputs@{
       flake-parts,
       nixpkgs,
+      codex-cli-nix,
+      llm-agents,
       crane,
       fenix,
       ...
@@ -132,7 +136,7 @@
         in
         {
           _module.args = {
-            inherit pkgs fenixToolchain fenixRustSrc craneLib;
+            inherit pkgs fenixToolchain fenixRustSrc craneLib codex-cli-nix llm-agents;
           };
 
           dendritic.devShell = {

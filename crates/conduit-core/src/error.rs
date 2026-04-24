@@ -4,9 +4,9 @@
 //!
 //! The foundation layer uses one shared error enum because downstream crates
 //! already need a consistent contract, but the taxonomy is still kept narrow:
-//! validation, execution, cancellation, and lifecycle observation. That is
-//! enough to remove stringly-typed errors without inventing categories the
-//! runtime has not earned yet.
+//! validation, execution, cancellation, lifecycle observation, and metadata
+//! collection. That is enough to remove stringly-typed errors without
+//! inventing categories the runtime has not earned yet.
 //!
 //! ## Fragment: error-code-stability
 //!
@@ -42,6 +42,8 @@ pub enum ErrorCode {
     ExecutionCancelled,
     /// Runtime lifecycle observation failed.
     LifecycleObservationFailed,
+    /// Runtime metadata collection failed.
+    MetadataCollectionFailed,
 }
 
 impl ErrorCode {
@@ -54,6 +56,7 @@ impl ErrorCode {
             Self::NodeExecutionFailed => "CDT-EXEC-001",
             Self::ExecutionCancelled => "CDT-CANCEL-001",
             Self::LifecycleObservationFailed => "CDT-LIFE-001",
+            Self::MetadataCollectionFailed => "CDT-META-001",
         }
     }
 }
@@ -216,6 +219,36 @@ impl fmt::Display for LifecycleError {
 
 impl Error for LifecycleError {}
 
+/// Failure while collecting runtime metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetadataError {
+    message: String,
+}
+
+impl MetadataError {
+    /// Create a metadata collection failure.
+    #[must_use]
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+
+    /// Human-readable metadata failure message.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl fmt::Display for MetadataError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "metadata collection failed: {}", self.message)
+    }
+}
+
+impl Error for MetadataError {}
+
 /// Shared runtime-facing error for the Conduit foundation layer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConduitError {
@@ -227,6 +260,8 @@ pub enum ConduitError {
     Cancellation(CancellationError),
     /// Runtime failed while observing lifecycle transitions.
     Lifecycle(LifecycleError),
+    /// Runtime failed while collecting metadata records.
+    Metadata(MetadataError),
 }
 
 impl ConduitError {
@@ -248,6 +283,12 @@ impl ConduitError {
         Self::Lifecycle(LifecycleError::new(message))
     }
 
+    /// Create a metadata collection error.
+    #[must_use]
+    pub fn metadata(message: impl Into<String>) -> Self {
+        Self::Metadata(MetadataError::new(message))
+    }
+
     /// Stable error code for this failure.
     #[must_use]
     pub const fn code(&self) -> ErrorCode {
@@ -256,6 +297,7 @@ impl ConduitError {
             Self::Execution(_) => ErrorCode::NodeExecutionFailed,
             Self::Cancellation(_) => ErrorCode::ExecutionCancelled,
             Self::Lifecycle(_) => ErrorCode::LifecycleObservationFailed,
+            Self::Metadata(_) => ErrorCode::MetadataCollectionFailed,
         }
     }
 
@@ -264,7 +306,9 @@ impl ConduitError {
     pub const fn visibility(&self) -> ErrorVisibility {
         match self {
             Self::Validation(_) | Self::Cancellation(_) => ErrorVisibility::User,
-            Self::Execution(_) | Self::Lifecycle(_) => ErrorVisibility::Internal,
+            Self::Execution(_) | Self::Lifecycle(_) | Self::Metadata(_) => {
+                ErrorVisibility::Internal
+            }
         }
     }
 
@@ -273,7 +317,9 @@ impl ConduitError {
     pub const fn retry_disposition(&self) -> RetryDisposition {
         match self {
             Self::Validation(_) => RetryDisposition::Never,
-            Self::Execution(_) | Self::Lifecycle(_) => RetryDisposition::Unknown,
+            Self::Execution(_) | Self::Lifecycle(_) | Self::Metadata(_) => {
+                RetryDisposition::Unknown
+            }
             Self::Cancellation(_) => RetryDisposition::Safe,
         }
     }
@@ -286,6 +332,7 @@ impl fmt::Display for ConduitError {
             Self::Execution(err) => write!(f, "{}: {err}", self.code().as_str()),
             Self::Cancellation(err) => write!(f, "{}: {err}", self.code().as_str()),
             Self::Lifecycle(err) => write!(f, "{}: {err}", self.code().as_str()),
+            Self::Metadata(err) => write!(f, "{}: {err}", self.code().as_str()),
         }
     }
 }
@@ -297,6 +344,7 @@ impl Error for ConduitError {
             Self::Execution(err) => Some(err),
             Self::Cancellation(err) => Some(err),
             Self::Lifecycle(err) => Some(err),
+            Self::Metadata(err) => Some(err),
         }
     }
 }
@@ -334,6 +382,12 @@ impl From<CancellationError> for ConduitError {
 impl From<LifecycleError> for ConduitError {
     fn from(value: LifecycleError) -> Self {
         Self::Lifecycle(value)
+    }
+}
+
+impl From<MetadataError> for ConduitError {
+    fn from(value: MetadataError) -> Self {
+        Self::Metadata(value)
     }
 }
 
@@ -401,6 +455,19 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "CDT-CANCEL-001: execution cancelled: shutdown requested"
+        );
+    }
+
+    #[test]
+    fn metadata_errors_are_internal_with_unknown_retry_safety() {
+        let err: ConduitError = ConduitError::metadata("collector unavailable");
+
+        assert_eq!(err.code(), ErrorCode::MetadataCollectionFailed);
+        assert_eq!(err.visibility(), ErrorVisibility::Internal);
+        assert_eq!(err.retry_disposition(), RetryDisposition::Unknown);
+        assert_eq!(
+            err.to_string(),
+            "CDT-META-001: metadata collection failed: collector unavailable"
         );
     }
 }

@@ -103,7 +103,7 @@ The older midday handoff now lives at:
 
 Use this file as the current restart document instead:
 
-- `docs/handoff_2026-04-24_evening.md`
+- `docs/handoff_2026-04-24_late.md`
 
 ## Where To Start Next
 

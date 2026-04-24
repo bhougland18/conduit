@@ -58,13 +58,23 @@ impl LifecycleEvent {
 }
 
 /// Observer hook for runtime lifecycle transitions.
-pub trait LifecycleHook {
+pub trait LifecycleHook: Sync {
     /// Observe one lifecycle event.
     ///
     /// # Errors
     ///
     /// Returns an error when the observer cannot record or react to the event.
     fn observe(&self, event: &LifecycleEvent) -> Result<()>;
+}
+
+/// Default lifecycle hook that intentionally records nothing.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoopLifecycleHook;
+
+impl LifecycleHook for NoopLifecycleHook {
+    fn observe(&self, _event: &LifecycleEvent) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -97,5 +107,16 @@ mod tests {
 
         assert_eq!(event.kind(), LifecycleEventKind::NodeStarted);
         assert_eq!(event.context().node_id().as_str(), "node");
+    }
+
+    #[test]
+    fn noop_lifecycle_hook_accepts_events() {
+        let context: NodeContext =
+            NodeContext::new(workflow_id("flow"), node_id("node"), execution());
+        let event: LifecycleEvent = LifecycleEvent::new(LifecycleEventKind::NodeCompleted, context);
+
+        NoopLifecycleHook
+            .observe(&event)
+            .expect("noop hook should accept lifecycle events");
     }
 }

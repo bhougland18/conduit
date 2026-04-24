@@ -17,6 +17,7 @@ publish = false
 version = "0.1.0"
 
 [workspace.dependencies]
+asupersync = "0.2.9"
 conduit-core = { path = "crates/conduit-core" }
 conduit-engine = { path = "crates/conduit-engine" }
 conduit-runtime = { path = "crates/conduit-runtime" }

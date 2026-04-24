@@ -6,8 +6,12 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+asupersync.workspace = true
 conduit-core.workspace = true
+
+[dev-dependencies]
+conduit-test-kit.workspace = true
+futures.workspace = true
 
 [lints]
 workspace = true
-
