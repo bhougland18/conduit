@@ -220,6 +220,8 @@ trait NodeExecutor {
 
 Key properties:
 
+* current scaffold note: `PortsIn` / `PortsOut` are placeholder handles that
+  expose declared port identities until channel-backed runtime wiring lands
 * nodes do not create channels
 * engine wires all connections
 * nodes operate continuously

@@ -10,6 +10,7 @@ conduit-core.workspace = true
 conduit-engine.workspace = true
 conduit-types.workspace = true
 conduit-workflow.workspace = true
+futures.workspace = true
 
 [lints]
 workspace = true

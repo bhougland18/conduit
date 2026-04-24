@@ -1,9 +1,12 @@
 //! Reusable builders, test doubles, and property strategies for Conduit tests.
 
-use std::cell::RefCell;
+use std::{
+    future::{Ready, ready},
+    sync::Mutex,
+};
 
 use conduit_core::{
-    ConduitError, NodeExecutor, Result,
+    ConduitError, NodeExecutor, PortsIn, PortsOut, Result,
     context::{ExecutionMetadata, NodeContext},
 };
 use conduit_types::{ExecutionId, NodeId, PortId, WorkflowId};
@@ -161,14 +164,24 @@ impl WorkflowBuilder {
 /// Executor test double that records the visited node order.
 #[derive(Debug, Default)]
 pub struct RecordingExecutor {
-    contexts: RefCell<Vec<NodeContext>>,
+    contexts: Mutex<Vec<NodeContext>>,
+    inputs: Mutex<Vec<PortsIn>>,
+    outputs: Mutex<Vec<PortsOut>>,
 }
 
 impl RecordingExecutor {
     /// Return the visited node contexts in call order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal recording lock has been poisoned by an earlier
+    /// failing test thread.
     #[must_use]
     pub fn visited_contexts(&self) -> Vec<NodeContext> {
-        self.contexts.borrow().clone()
+        self.contexts
+            .lock()
+            .expect("recording executor contexts lock should not be poisoned")
+            .clone()
     }
 
     /// Return the visited node identifiers in call order.
@@ -188,12 +201,57 @@ impl RecordingExecutor {
             .map(|node: NodeId| node.to_string())
             .collect()
     }
+
+    /// Return the visited input-port names in call order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal recording lock has been poisoned by an earlier
+    /// failing test thread.
+    #[must_use]
+    pub fn visited_input_port_names(&self) -> Vec<Vec<String>> {
+        self.inputs
+            .lock()
+            .expect("recording executor inputs lock should not be poisoned")
+            .iter()
+            .map(|ports: &PortsIn| ports.port_ids().iter().map(ToString::to_string).collect())
+            .collect()
+    }
+
+    /// Return the visited output-port names in call order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal recording lock has been poisoned by an earlier
+    /// failing test thread.
+    #[must_use]
+    pub fn visited_output_port_names(&self) -> Vec<Vec<String>> {
+        self.outputs
+            .lock()
+            .expect("recording executor outputs lock should not be poisoned")
+            .iter()
+            .map(|ports: &PortsOut| ports.port_ids().iter().map(ToString::to_string).collect())
+            .collect()
+    }
 }
 
 impl NodeExecutor for RecordingExecutor {
-    fn run(&self, ctx: &NodeContext) -> Result<()> {
-        self.contexts.borrow_mut().push(ctx.clone());
-        Ok(())
+    type RunFuture<'a> = Ready<Result<()>>;
+
+    fn run(&self, ctx: NodeContext, inputs: PortsIn, outputs: PortsOut) -> Self::RunFuture<'_> {
+        self.contexts
+            .lock()
+            .expect("recording executor contexts lock should not be poisoned")
+            .push(ctx);
+        self.inputs
+            .lock()
+            .expect("recording executor inputs lock should not be poisoned")
+            .push(inputs);
+        self.outputs
+            .lock()
+            .expect("recording executor outputs lock should not be poisoned")
+            .push(outputs);
+        ready(Ok(()))
     }
 }
 
@@ -218,8 +276,10 @@ impl FailingExecutor {
 }
 
 impl NodeExecutor for FailingExecutor {
-    fn run(&self, _ctx: &NodeContext) -> Result<()> {
-        Err(self.error.clone())
+    type RunFuture<'a> = Ready<Result<()>>;
+
+    fn run(&self, _ctx: NodeContext, _inputs: PortsIn, _outputs: PortsOut) -> Self::RunFuture<'_> {
+        ready(Err(self.error.clone()))
     }
 }
 
@@ -254,7 +314,10 @@ mod tests {
             node_id("node"),
             execution_metadata("run-1"),
         );
-        let err: ConduitError = executor.run(&ctx).expect_err("executor must fail");
+        let err: ConduitError = executor
+            .run(ctx, PortsIn::default(), PortsOut::default())
+            .into_inner()
+            .expect_err("executor must fail");
 
         assert_eq!(err.code(), ErrorCode::NodeExecutionFailed);
     }

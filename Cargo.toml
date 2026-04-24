@@ -23,6 +23,7 @@ conduit-runtime = { path = "crates/conduit-runtime" }
 conduit-test-kit = { path = "crates/conduit-test-kit" }
 conduit-types = { path = "crates/conduit-types" }
 conduit-workflow = { path = "crates/conduit-workflow" }
+futures = "0.3.31"
 proptest = "1.6.0"
 
 [workspace.metadata.dylint]
