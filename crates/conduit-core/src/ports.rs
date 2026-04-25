@@ -7,6 +7,15 @@
 //! backpressure machinery. These types therefore carry only the declared port
 //! identities for a node. That keeps the public signature pointed in the right
 //! direction without claiming that streaming transport already exists.
+//!
+//! ## Fragment: port-adapter-boundary
+//!
+//! Future implementations should back these handles with cancel-safe bounded
+//! channel adapters, but callers should still depend on Conduit port semantics
+//! rather than on the concrete async runtime. In practice that means
+//! `asupersync` concepts such as task context, send permits, and channel errors
+//! belong behind `PortsIn` and `PortsOut`, with explicit Conduit error and
+//! cancellation mapping at the boundary.
 
 use conduit_types::PortId;
 

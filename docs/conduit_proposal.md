@@ -46,6 +46,15 @@ This replaces DAG execution with:
 
 > **Reactive flow graphs with backpressure**
 
+Runtime boundary:
+
+* Conduit owns workflow topology, node contracts, port abstractions, metadata,
+  capability descriptors, and introspection
+* `asupersync` provides task execution, cancellation, and async primitives under
+  those Conduit-owned abstractions
+* public node APIs should not expose raw `asupersync` task context or channel
+  types without an explicit design decision
+
 ---
 
 ### 2.3 AI-First System Design

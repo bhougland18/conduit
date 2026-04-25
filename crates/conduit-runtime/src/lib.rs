@@ -7,6 +7,16 @@
 //! `asupersync::runtime::RuntimeBuilder` to provide a task-tree-backed entry
 //! point for one node execution at a time. It deliberately does not claim
 //! workflow scheduling, channel wiring, or full FBP semantics yet.
+//!
+//! ## Fragment: runtime-asupersync-boundary
+//!
+//! `asupersync` is the runtime substrate, not the public FBP model. Conduit
+//! owns graph validation, node contracts, port handles, metadata, capability
+//! descriptors, and introspection. Runtime adapters may use `asupersync`
+//! contexts, bounded channels, cancellation, and task handles internally, but
+//! those types should not leak through `NodeExecutor`, `NodeContext`,
+//! `PortsIn`, or `PortsOut` unless a later bead explicitly revisits the
+//! boundary.
 
 use asupersync::runtime::{Runtime, RuntimeBuilder};
 use conduit_core::{

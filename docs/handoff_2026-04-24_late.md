@@ -41,9 +41,10 @@ Decision after resuming:
 - A first-class metadata sink API is the collection boundary, not a replacement metadata model.
 - `asupersync` remains a thin bootstrap wrapper until lifecycle and metadata observation are stable.
 - Introspection should come before deeper task-tree orchestration.
+- `asupersync` task context, channel, permit, and join types should stay behind Conduit-owned adapters unless a future bead explicitly changes the public FBP boundary.
 
 ## Suggested Resume Point
 
 1. Review the important docs above.
 2. Review the metadata sink and lifecycle observer wiring in `conduit-core` and `conduit-runtime`.
-3. Start the next bead with a lightweight read-only introspection API over node contracts, capabilities, and metadata surfaces.
+3. Continue with `cdt-rtb.4` for bounded async port handles, or `cdt-rtb.8` for deterministic runtime tests.
