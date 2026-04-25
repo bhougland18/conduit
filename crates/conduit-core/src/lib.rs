@@ -16,7 +16,10 @@ pub use error::{
     MetadataError, RetryDisposition, ValidationError,
 };
 pub use metadata::{MetadataRecord, MetadataSink, NoopMetadataSink};
-pub use ports::{PortsIn, PortsOut};
+pub use ports::{
+    InputPortHandle, OutputPortHandle, PortPacket, PortRecvError, PortSendError, PortsIn, PortsOut,
+    bounded_edge_channel,
+};
 
 /// Shared result type for runtime-facing APIs.
 pub type Result<T> = std::result::Result<T, ConduitError>;
@@ -24,9 +27,9 @@ pub type Result<T> = std::result::Result<T, ConduitError>;
 /// Async node interface for the first runtime skeleton.
 ///
 /// The trait matches the proposal's intended boundary shape early, but the
-/// current `PortsIn` and `PortsOut` values only expose declared port identity.
-/// Later runtime beads will replace that placeholder wiring with live channel
-/// handles without needing to revisit every executor signature first.
+/// `PortsIn` and `PortsOut` values remain Conduit-owned adapters. Runtime
+/// beads can change the transport behind those handles without leaking raw
+/// async runtime primitives into every executor signature.
 pub trait NodeExecutor: Sync {
     /// Future returned by one node execution attempt.
     type RunFuture<'a>: Future<Output = Result<()>> + Send + 'a

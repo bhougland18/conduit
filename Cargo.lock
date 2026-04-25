@@ -161,6 +161,7 @@ dependencies = [
 name = "conduit-core"
 version = "0.1.0"
 dependencies = [
+ "asupersync",
  "conduit-types",
  "conduit-workflow",
 ]
@@ -172,6 +173,7 @@ dependencies = [
  "conduit-core",
  "conduit-runtime",
  "conduit-test-kit",
+ "conduit-types",
  "conduit-workflow",
  "futures",
 ]

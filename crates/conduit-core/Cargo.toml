@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+asupersync.workspace = true
 conduit-types.workspace = true
 conduit-workflow.workspace = true
 
