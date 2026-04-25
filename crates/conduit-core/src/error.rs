@@ -21,13 +21,23 @@
 //! are part of the policy, not just formatting. A validation failure should be
 //! safe to show and not worth retrying, while an execution or lifecycle failure
 //! is mostly diagnostic until the runtime grows more concrete recovery rules.
+//!
+//! ## Fragment: asupersync-error-boundary
+//!
+//! `asupersync` errors are runtime substrate details. The shared Conduit error
+//! model maps them into cancellation or execution failures at the boundary so
+//! downstream node and workflow APIs do not grow a public dependency on raw
+//! channel or task error types.
 
 use std::error::Error;
 use std::fmt;
 
+use asupersync::channel::mpsc;
+use asupersync::runtime::JoinError;
 use conduit_types::IdentifierError;
 
 use crate::capability::CapabilityValidationError;
+use crate::ports::{PortRecvError, PortSendError};
 
 /// Stable machine-readable code for one Conduit error condition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -391,10 +401,63 @@ impl From<MetadataError> for ConduitError {
     }
 }
 
+impl From<JoinError> for ConduitError {
+    fn from(value: JoinError) -> Self {
+        match value {
+            JoinError::Cancelled(reason) => Self::cancelled(reason.to_string()),
+            JoinError::Panicked(payload) => {
+                Self::execution(format!("asupersync task panicked: {payload}"))
+            }
+            JoinError::PolledAfterCompletion => {
+                Self::execution("asupersync task join polled after completion")
+            }
+        }
+    }
+}
+
+impl<T> From<mpsc::SendError<T>> for ConduitError {
+    fn from(value: mpsc::SendError<T>) -> Self {
+        match value {
+            mpsc::SendError::Disconnected(_) => {
+                Self::execution("asupersync send failed: receiver disconnected")
+            }
+            mpsc::SendError::Cancelled(_) => Self::cancelled("asupersync send cancelled"),
+            mpsc::SendError::Full(_) => {
+                Self::execution("asupersync send failed: bounded channel full")
+            }
+        }
+    }
+}
+
+impl From<mpsc::RecvError> for ConduitError {
+    fn from(value: mpsc::RecvError) -> Self {
+        match value {
+            mpsc::RecvError::Disconnected => {
+                Self::execution("asupersync receive failed: sender disconnected")
+            }
+            mpsc::RecvError::Cancelled => Self::cancelled("asupersync receive cancelled"),
+            mpsc::RecvError::Empty => Self::execution("asupersync receive failed: channel empty"),
+        }
+    }
+}
+
+impl From<PortSendError> for ConduitError {
+    fn from(value: PortSendError) -> Self {
+        Self::execution(value.to_string())
+    }
+}
+
+impl From<PortRecvError> for ConduitError {
+    fn from(value: PortRecvError) -> Self {
+        Self::execution(value.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::capability::{EffectCapability, NodeCapabilities};
+    use asupersync::types::{CancelReason, PanicPayload};
     use conduit_types::NodeId;
 
     #[test]
@@ -468,6 +531,75 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "CDT-META-001: metadata collection failed: collector unavailable"
+        );
+    }
+
+    #[test]
+    fn asupersync_join_cancel_maps_to_cancellation() {
+        let err: ConduitError = JoinError::Cancelled(CancelReason::user("shutdown")).into();
+
+        assert_eq!(err.code(), ErrorCode::ExecutionCancelled);
+        assert_eq!(err.visibility(), ErrorVisibility::User);
+        assert_eq!(err.retry_disposition(), RetryDisposition::Safe);
+        assert!(err.to_string().contains("shutdown"));
+    }
+
+    #[test]
+    fn asupersync_join_panic_maps_to_execution_failure() {
+        let err: ConduitError = JoinError::Panicked(PanicPayload::new("boom")).into();
+
+        assert_eq!(err.code(), ErrorCode::NodeExecutionFailed);
+        assert_eq!(err.visibility(), ErrorVisibility::Internal);
+        assert_eq!(err.retry_disposition(), RetryDisposition::Unknown);
+        assert_eq!(
+            err.to_string(),
+            "CDT-EXEC-001: node execution failed: asupersync task panicked: panic: boom"
+        );
+    }
+
+    #[test]
+    fn asupersync_send_cancel_maps_to_cancellation() {
+        let err: ConduitError = mpsc::SendError::Cancelled(()).into();
+
+        assert_eq!(err.code(), ErrorCode::ExecutionCancelled);
+        assert_eq!(
+            err.to_string(),
+            "CDT-CANCEL-001: execution cancelled: asupersync send cancelled"
+        );
+    }
+
+    #[test]
+    fn asupersync_send_full_maps_to_execution_failure() {
+        let err: ConduitError = mpsc::SendError::Full(()).into();
+
+        assert_eq!(err.code(), ErrorCode::NodeExecutionFailed);
+        assert_eq!(
+            err.to_string(),
+            "CDT-EXEC-001: node execution failed: asupersync send failed: bounded channel full"
+        );
+    }
+
+    #[test]
+    fn asupersync_recv_disconnected_maps_to_execution_failure() {
+        let err: ConduitError = mpsc::RecvError::Disconnected.into();
+
+        assert_eq!(err.code(), ErrorCode::NodeExecutionFailed);
+        assert_eq!(
+            err.to_string(),
+            "CDT-EXEC-001: node execution failed: asupersync receive failed: sender disconnected"
+        );
+    }
+
+    #[test]
+    fn port_errors_map_to_execution_failures() {
+        let port_id: conduit_types::PortId =
+            conduit_types::PortId::new("out").expect("valid port id");
+        let err: ConduitError = PortSendError::Full { port_id }.into();
+
+        assert_eq!(err.code(), ErrorCode::NodeExecutionFailed);
+        assert_eq!(
+            err.to_string(),
+            "CDT-EXEC-001: node execution failed: output port `out` is full"
         );
     }
 }
