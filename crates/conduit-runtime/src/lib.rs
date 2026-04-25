@@ -20,8 +20,8 @@
 
 use asupersync::runtime::{Runtime, RuntimeBuilder};
 use conduit_core::{
-    CancellationError, ConduitError, NodeExecutor, PortsIn, PortsOut, Result,
-    context::NodeContext,
+    CancellationError, CancellationHandle, ConduitError, NodeExecutor, PortsIn, PortsOut, Result,
+    context::{CancellationState, NodeContext},
     lifecycle::{LifecycleEvent, LifecycleEventKind, LifecycleHook, NoopLifecycleHook},
     metadata::{MetadataRecord, MetadataSink, NoopMetadataSink},
 };
@@ -50,6 +50,12 @@ impl AsupersyncRuntime {
         Ok(Self { runtime })
     }
 
+    /// Create a Conduit-owned cancellation handle for runtime-managed contexts.
+    #[must_use]
+    pub fn cancellation_handle() -> CancellationHandle {
+        CancellationHandle::new()
+    }
+
     /// Execute one node on the owned runtime.
     ///
     /// # Errors
@@ -63,6 +69,28 @@ impl AsupersyncRuntime {
         inputs: PortsIn,
         outputs: PortsOut,
     ) -> Result<()> {
+        if let Some(err) = cancellation_error(&ctx) {
+            return Err(err);
+        }
+
+        self.runtime.block_on(run_node(node, ctx, inputs, outputs))
+    }
+
+    /// Execute one node with an externally drivable cancellation handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if cancellation was already requested or the node
+    /// executor reports one.
+    pub fn run_node_with_cancellation_handle<E: NodeExecutor + ?Sized>(
+        &self,
+        node: &E,
+        ctx: NodeContext,
+        inputs: PortsIn,
+        outputs: PortsOut,
+        cancellation: &CancellationHandle,
+    ) -> Result<()> {
+        let ctx: NodeContext = ctx.with_cancellation_token(cancellation.token());
         if let Some(err) = cancellation_error(&ctx) {
             return Err(err);
         }
@@ -231,8 +259,8 @@ where
 
 fn cancellation_error(ctx: &NodeContext) -> Option<ConduitError> {
     match ctx.cancellation() {
-        conduit_core::context::CancellationState::Active => None,
-        conduit_core::context::CancellationState::Requested(request) => {
+        CancellationState::Active => None,
+        CancellationState::Requested(request) => {
             Some(ConduitError::from(CancellationError::new(request.reason())))
         }
     }
@@ -241,6 +269,8 @@ fn cancellation_error(ctx: &NodeContext) -> Option<ConduitError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::future::Future;
+    use std::pin::Pin;
     use std::sync::Mutex;
 
     use conduit_core::{
@@ -340,6 +370,55 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct CancellingExecutor {
+        handle: CancellationHandle,
+        observations: Mutex<Vec<bool>>,
+    }
+
+    impl CancellingExecutor {
+        fn new(handle: CancellationHandle) -> Self {
+            Self {
+                handle,
+                observations: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn record(&self, value: bool) {
+            self.observations
+                .lock()
+                .expect("cancelling executor observations lock should not be poisoned")
+                .push(value);
+        }
+
+        fn observations(&self) -> Vec<bool> {
+            self.observations
+                .lock()
+                .expect("cancelling executor observations lock should not be poisoned")
+                .clone()
+        }
+    }
+
+    impl NodeExecutor for CancellingExecutor {
+        type RunFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            _inputs: PortsIn,
+            _outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                self.record(ctx.is_cancelled());
+                let _first_request: bool = self
+                    .handle
+                    .cancel(CancellationRequest::new("runtime supervisor stopped node"));
+                self.record(ctx.is_cancelled());
+                Ok(())
+            })
+        }
+    }
+
     fn context() -> NodeContext {
         NodeContext::new(
             workflow_id("flow"),
@@ -398,6 +477,59 @@ mod tests {
             ConduitError::from(CancellationError::new("shutdown requested"))
         );
         assert!(executor.visited_contexts().is_empty());
+    }
+
+    #[test]
+    fn asupersync_runtime_cancellation_handle_is_visible_inside_running_node() {
+        let runtime: AsupersyncRuntime = AsupersyncRuntime::new().expect("runtime should build");
+        let handle: CancellationHandle = AsupersyncRuntime::cancellation_handle();
+        let executor: CancellingExecutor = CancellingExecutor::new(handle.clone());
+
+        runtime
+            .run_node_with_cancellation_handle(
+                &executor,
+                context(),
+                PortsIn::default(),
+                PortsOut::default(),
+                &handle,
+            )
+            .expect("execution should succeed");
+
+        assert_eq!(executor.observations(), vec![false, true]);
+        assert!(handle.is_cancelled());
+    }
+
+    #[test]
+    fn asupersync_runtime_rejects_child_context_after_shared_cancellation() {
+        let runtime: AsupersyncRuntime = AsupersyncRuntime::new().expect("runtime should build");
+        let handle: CancellationHandle = AsupersyncRuntime::cancellation_handle();
+        let canceller: CancellingExecutor = CancellingExecutor::new(handle.clone());
+        let child: RecordingExecutor = RecordingExecutor::default();
+
+        runtime
+            .run_node_with_cancellation_handle(
+                &canceller,
+                context(),
+                PortsIn::default(),
+                PortsOut::default(),
+                &handle,
+            )
+            .expect("first execution should request cancellation");
+        let err: ConduitError = runtime
+            .run_node_with_cancellation_handle(
+                &child,
+                context(),
+                PortsIn::default(),
+                PortsOut::default(),
+                &handle,
+            )
+            .expect_err("shared cancellation should reject child execution");
+
+        assert_eq!(
+            err,
+            ConduitError::from(CancellationError::new("runtime supervisor stopped node"))
+        );
+        assert!(child.visited_contexts().is_empty());
     }
 
     #[test]

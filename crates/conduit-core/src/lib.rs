@@ -11,6 +11,7 @@ pub mod ports;
 use std::future::Future;
 
 use context::NodeContext;
+pub use context::{CancellationHandle, CancellationToken};
 pub use error::{
     CancellationError, ConduitError, ErrorCode, ErrorVisibility, ExecutionError, LifecycleError,
     MetadataError, RetryDisposition, ValidationError,

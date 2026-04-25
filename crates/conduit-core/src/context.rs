@@ -9,12 +9,11 @@
 //!
 //! ## Fragment: context-cancellation-shape
 //!
-//! Cancellation is represented as visible state rather than as an active
-//! signaling primitive. That keeps the current boundary honest: the scaffolded
-//! runtime can express that cancellation was requested, but it does not yet
-//! claim to support cross-task interruption or supervisor-driven propagation.
-//! When `asupersync` arrives, the signaling mechanism may change, but the node
-//! surface should still read as "this execution may already be cancelled."
+//! Cancellation is represented as a Conduit-owned shared signal rather than as
+//! an exposed async-runtime context. Runtime supervisors can request
+//! cancellation after a node starts, and cloned parent or child contexts observe
+//! the same request, but node APIs still see only Conduit `NodeContext`
+//! semantics rather than raw `asupersync::Cx`.
 //!
 //! ## Fragment: context-attempt-numbering
 //!
@@ -23,6 +22,7 @@
 //! than forcing every downstream consumer to translate from zero-based storage.
 
 use std::num::NonZeroU32;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use conduit_types::{ExecutionId, NodeId, WorkflowId};
 
@@ -125,35 +125,169 @@ impl CancellationState {
     }
 }
 
+#[derive(Debug, Default)]
+struct CancellationSignal {
+    request: Mutex<Option<CancellationRequest>>,
+}
+
+/// Read-only cancellation view carried by a node execution context.
+#[derive(Debug, Clone)]
+pub struct CancellationToken {
+    signal: Arc<CancellationSignal>,
+}
+
+impl CancellationToken {
+    /// Create an active cancellation token.
+    #[must_use]
+    pub fn active() -> Self {
+        Self {
+            signal: Arc::new(CancellationSignal::default()),
+        }
+    }
+
+    /// Create a token that already has cancellation requested.
+    #[must_use]
+    pub fn cancelled(request: CancellationRequest) -> Self {
+        let token: Self = Self::active();
+        let _first_request: bool = token.request_cancellation(request);
+        token
+    }
+
+    /// Return the current cancellation request, if any.
+    #[must_use]
+    pub fn request(&self) -> Option<CancellationRequest> {
+        self.signal
+            .request
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Return the current cancellation state.
+    #[must_use]
+    pub fn state(&self) -> CancellationState {
+        self.request()
+            .map_or(CancellationState::Active, |request: CancellationRequest| {
+                CancellationState::Requested(request)
+            })
+    }
+
+    /// Return whether cancellation has been requested.
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.request().is_some()
+    }
+
+    fn request_cancellation(&self, request: CancellationRequest) -> bool {
+        let mut guard: MutexGuard<'_, Option<CancellationRequest>> = self
+            .signal
+            .request
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+
+        if guard.is_some() {
+            return false;
+        }
+
+        *guard = Some(request);
+        true
+    }
+}
+
+impl Default for CancellationToken {
+    fn default() -> Self {
+        Self::active()
+    }
+}
+
+impl PartialEq for CancellationToken {
+    fn eq(&self, other: &Self) -> bool {
+        self.request() == other.request()
+    }
+}
+
+impl Eq for CancellationToken {}
+
+/// Runtime-owned handle that can request cancellation for shared contexts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CancellationHandle {
+    token: CancellationToken,
+}
+
+impl CancellationHandle {
+    /// Create a cancellation handle with an active token.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            token: CancellationToken::active(),
+        }
+    }
+
+    /// Return a read-only token suitable for attaching to a `NodeContext`.
+    #[must_use]
+    pub fn token(&self) -> CancellationToken {
+        self.token.clone()
+    }
+
+    /// Request cancellation for every context sharing this handle's token.
+    ///
+    /// Returns `true` when this call recorded the first cancellation request.
+    #[must_use]
+    pub fn cancel(&self, request: CancellationRequest) -> bool {
+        self.token.request_cancellation(request)
+    }
+
+    /// Return whether cancellation has been requested.
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.token.is_cancelled()
+    }
+
+    /// Return the current cancellation request, if any.
+    #[must_use]
+    pub fn request(&self) -> Option<CancellationRequest> {
+        self.token.request()
+    }
+}
+
+impl Default for CancellationHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Minimal execution context passed to runtime-managed nodes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeContext {
     workflow_id: WorkflowId,
     node_id: NodeId,
     execution: ExecutionMetadata,
-    cancellation: CancellationState,
+    cancellation: CancellationToken,
 }
 
 impl NodeContext {
     /// Create an active node context for one execution attempt.
     #[must_use]
-    pub const fn new(
-        workflow_id: WorkflowId,
-        node_id: NodeId,
-        execution: ExecutionMetadata,
-    ) -> Self {
+    pub fn new(workflow_id: WorkflowId, node_id: NodeId, execution: ExecutionMetadata) -> Self {
         Self {
             workflow_id,
             node_id,
             execution,
-            cancellation: CancellationState::Active,
+            cancellation: CancellationToken::active(),
         }
     }
 
     /// Create a copy of this context with cancellation requested.
     #[must_use]
     pub fn with_cancellation(mut self, request: CancellationRequest) -> Self {
-        self.cancellation = CancellationState::Requested(request);
+        self.cancellation = CancellationToken::cancelled(request);
+        self
+    }
+
+    /// Attach a shared cancellation token to this context.
+    #[must_use]
+    pub fn with_cancellation_token(mut self, token: CancellationToken) -> Self {
+        self.cancellation = token;
         self
     }
 
@@ -177,14 +311,20 @@ impl NodeContext {
 
     /// Cancellation state visible to this node.
     #[must_use]
-    pub const fn cancellation(&self) -> &CancellationState {
-        &self.cancellation
+    pub fn cancellation(&self) -> CancellationState {
+        self.cancellation.state()
+    }
+
+    /// Shared cancellation token visible to this node.
+    #[must_use]
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.cancellation.clone()
     }
 
     /// Return whether cancellation has been requested.
     #[must_use]
-    pub const fn is_cancelled(&self) -> bool {
-        self.cancellation.is_requested()
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation.is_cancelled()
     }
 }
 
@@ -227,6 +367,30 @@ mod tests {
         assert!(matches!(
             cancelled.cancellation(),
             CancellationState::Requested(request) if request.reason() == "shutdown requested"
+        ));
+    }
+
+    #[test]
+    fn shared_cancellation_handle_reaches_parent_and_child_contexts() {
+        let handle: CancellationHandle = CancellationHandle::new();
+        let parent: NodeContext =
+            NodeContext::new(workflow_id("flow"), node_id("parent"), execution())
+                .with_cancellation_token(handle.token());
+        let child: NodeContext =
+            NodeContext::new(workflow_id("flow"), node_id("child"), execution())
+                .with_cancellation_token(parent.cancellation_token());
+
+        assert!(!parent.is_cancelled());
+        assert!(!child.is_cancelled());
+
+        assert!(handle.cancel(CancellationRequest::new("supervisor shutdown")));
+        assert!(!handle.cancel(CancellationRequest::new("ignored duplicate")));
+
+        assert!(parent.is_cancelled());
+        assert!(child.is_cancelled());
+        assert!(matches!(
+            child.cancellation(),
+            CancellationState::Requested(request) if request.reason() == "supervisor shutdown"
         ));
     }
 }
