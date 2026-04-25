@@ -16,6 +16,14 @@
 //! `asupersync` concepts such as task context, send permits, and channel errors
 //! belong behind `PortsIn` and `PortsOut`, with explicit Conduit error and
 //! cancellation mapping at the boundary.
+//!
+//! ## Fragment: output-reserve-commit
+//!
+//! Output sends use a two-phase reserve/commit shape even before the fully
+//! async `Cx`-based API lands. Reserving capacity produces a Conduit-owned
+//! permit; committing enqueues the packet; dropping or aborting the permit
+//! releases capacity without creating a ghost message. This mirrors the
+//! `asupersync` channel contract while keeping runtime details hidden.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -211,7 +219,7 @@ impl OutputPortHandle {
         self.senders.first().map(mpsc::Sender::capacity)
     }
 
-    fn try_send(&self, packet: PortPacket) -> Result<(), PortSendError> {
+    fn try_reserve(&self) -> Result<OutputPortSendPermit<'_>, PortSendError> {
         let split_senders: Option<(&mpsc::Sender<PortPacket>, &[mpsc::Sender<PortPacket>])> =
             self.senders.split_last();
         let (last_sender, leading_senders): (
@@ -219,30 +227,90 @@ impl OutputPortHandle {
             &[mpsc::Sender<PortPacket>],
         ) = match split_senders {
             Some(value) => value,
-            None => return Ok(()),
+            None => {
+                return Ok(OutputPortSendPermit {
+                    permits: Vec::new(),
+                });
+            }
         };
 
+        let mut permits: Vec<mpsc::SendPermit<'_, PortPacket>> =
+            Vec::with_capacity(self.senders.len());
+
         for sender in leading_senders {
-            if let Err(err) = sender.try_send(packet.clone()) {
-                return Err(self.map_send_error(&err));
+            match sender.try_reserve() {
+                Ok(permit) => permits.push(permit),
+                Err(err) => {
+                    return Err(self.map_send_error(err));
+                }
             }
         }
 
-        last_sender
-            .try_send(packet)
-            .map_err(|err: mpsc::SendError<PortPacket>| self.map_send_error(&err))
+        match last_sender.try_reserve() {
+            Ok(permit) => {
+                permits.push(permit);
+                Ok(OutputPortSendPermit { permits })
+            }
+            Err(err) => Err(self.map_send_error(err)),
+        }
     }
 
-    fn map_send_error(&self, err: &mpsc::SendError<PortPacket>) -> PortSendError {
+    fn map_send_error(&self, err: mpsc::SendError<()>) -> PortSendError {
         match err {
-            mpsc::SendError::Disconnected(_) | mpsc::SendError::Cancelled(_) => {
+            mpsc::SendError::Disconnected(()) | mpsc::SendError::Cancelled(()) => {
                 PortSendError::Disconnected {
                     port_id: self.port_id.clone(),
                 }
             }
-            mpsc::SendError::Full(_) => PortSendError::Full {
+            mpsc::SendError::Full(()) => PortSendError::Full {
                 port_id: self.port_id.clone(),
             },
+        }
+    }
+}
+
+/// Reserved output capacity for one declared output port.
+#[derive(Debug)]
+#[must_use = "PortSendPermit must be committed with send() or explicitly aborted"]
+pub struct PortSendPermit<'a> {
+    inner: OutputPortSendPermit<'a>,
+}
+
+impl PortSendPermit<'_> {
+    /// Commit the reserved capacity and enqueue the packet.
+    pub fn send(self, packet: PortPacket) {
+        self.inner.send(packet);
+    }
+
+    /// Release the reserved capacity without enqueueing a packet.
+    pub fn abort(self) {
+        self.inner.abort();
+    }
+}
+
+#[derive(Debug)]
+struct OutputPortSendPermit<'a> {
+    permits: Vec<mpsc::SendPermit<'a, PortPacket>>,
+}
+
+impl OutputPortSendPermit<'_> {
+    fn send(mut self, packet: PortPacket) {
+        let last_permit: Option<mpsc::SendPermit<'_, PortPacket>> = self.permits.pop();
+        let last_permit: mpsc::SendPermit<'_, PortPacket> = match last_permit {
+            Some(permit) => permit,
+            None => return,
+        };
+        let leading_permits: Vec<mpsc::SendPermit<'_, PortPacket>> = self.permits;
+
+        for permit in leading_permits {
+            permit.send(packet.clone());
+        }
+        last_permit.send(packet);
+    }
+
+    fn abort(self) {
+        for permit in self.permits {
+            permit.abort();
         }
     }
 }
@@ -436,13 +504,28 @@ impl PortsOut {
     ///
     /// Unconnected declared output ports accept and drop packets. That keeps
     /// early scaffold nodes simple while later beads define explicit fan-out
-    /// and disconnected-edge policy.
+    /// and disconnected-edge policy. Connected sends reserve capacity before
+    /// committing the packet, so cancellation or drop between those phases
+    /// releases the reserved slots instead of creating partial messages.
     ///
     /// # Errors
     ///
     /// Returns an error if the port is undeclared, a downstream receiver has
     /// disconnected, or a bounded downstream edge is full.
     pub fn try_send(&self, port_id: &PortId, packet: PortPacket) -> Result<(), PortSendError> {
+        self.try_reserve(port_id)?.send(packet);
+        Ok(())
+    }
+
+    /// Try to reserve output capacity without committing a packet.
+    ///
+    /// Dropping the returned permit releases all reserved downstream slots.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the port is undeclared, a downstream receiver has
+    /// disconnected, or a bounded downstream edge is full.
+    pub fn try_reserve(&self, port_id: &PortId) -> Result<PortSendPermit<'_>, PortSendError> {
         let port: &OutputPortHandle = self
             .ports
             .iter()
@@ -450,7 +533,8 @@ impl PortsOut {
             .ok_or_else(|| PortSendError::UnknownPort {
                 port_id: port_id.clone(),
             })?;
-        port.try_send(packet)
+        port.try_reserve()
+            .map(|inner: OutputPortSendPermit<'_>| PortSendPermit { inner })
     }
 }
 
@@ -553,6 +637,89 @@ mod tests {
                 .expect("empty receive should not fail")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn reserved_output_capacity_commits_on_send() {
+        let (output, input): (OutputPortHandle, InputPortHandle) =
+            bounded_edge_channel(port_id("out"), port_id("in"), NonZeroUsize::MIN);
+        let mut inputs: PortsIn = PortsIn::from_handles([port_id("in")], [input]);
+        let outputs: PortsOut = PortsOut::from_handles([port_id("out")], [output]);
+
+        let permit: PortSendPermit<'_> = outputs
+            .try_reserve(&port_id("out"))
+            .expect("reservation should succeed");
+        let err: PortSendError = outputs
+            .try_send(&port_id("out"), packet(b"blocked"))
+            .expect_err("reserved capacity should block another send");
+
+        assert_eq!(
+            err,
+            PortSendError::Full {
+                port_id: port_id("out")
+            }
+        );
+
+        permit.send(packet(b"committed"));
+
+        let received: PortPacket = inputs
+            .try_recv(&port_id("in"))
+            .expect("receive should succeed")
+            .expect("committed packet should be queued");
+        assert_eq!(received.payload(), b"committed");
+    }
+
+    #[test]
+    fn dropped_output_permit_releases_capacity_without_message() {
+        let (output, input): (OutputPortHandle, InputPortHandle) =
+            bounded_edge_channel(port_id("out"), port_id("in"), NonZeroUsize::MIN);
+        let mut inputs: PortsIn = PortsIn::from_handles([port_id("in")], [input]);
+        let outputs: PortsOut = PortsOut::from_handles([port_id("out")], [output]);
+
+        let permit: PortSendPermit<'_> = outputs
+            .try_reserve(&port_id("out"))
+            .expect("reservation should succeed");
+        drop(permit);
+
+        assert!(
+            inputs
+                .try_recv(&port_id("in"))
+                .expect("dropped permit should not disconnect")
+                .is_none()
+        );
+
+        outputs
+            .try_send(&port_id("out"), packet(b"after-drop"))
+            .expect("dropped permit should release capacity");
+        let received: PortPacket = inputs
+            .try_recv(&port_id("in"))
+            .expect("receive should succeed")
+            .expect("new packet should be queued");
+
+        assert_eq!(received.payload(), b"after-drop");
+    }
+
+    #[test]
+    fn aborted_output_permit_releases_capacity_without_message() {
+        let (output, input): (OutputPortHandle, InputPortHandle) =
+            bounded_edge_channel(port_id("out"), port_id("in"), NonZeroUsize::MIN);
+        let mut inputs: PortsIn = PortsIn::from_handles([port_id("in")], [input]);
+        let outputs: PortsOut = PortsOut::from_handles([port_id("out")], [output]);
+
+        outputs
+            .try_reserve(&port_id("out"))
+            .expect("reservation should succeed")
+            .abort();
+
+        assert!(
+            inputs
+                .try_recv(&port_id("in"))
+                .expect("aborted permit should not disconnect")
+                .is_none()
+        );
+        outputs
+            .try_send(&port_id("out"), packet(b"after-abort"))
+            .expect("aborted permit should release capacity");
     }
 
     #[test]

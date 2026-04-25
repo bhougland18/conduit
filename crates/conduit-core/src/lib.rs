@@ -17,8 +17,8 @@ pub use error::{
 };
 pub use metadata::{MetadataRecord, MetadataSink, NoopMetadataSink};
 pub use ports::{
-    InputPortHandle, OutputPortHandle, PortPacket, PortRecvError, PortSendError, PortsIn, PortsOut,
-    bounded_edge_channel,
+    InputPortHandle, OutputPortHandle, PortPacket, PortRecvError, PortSendError, PortSendPermit,
+    PortsIn, PortsOut, bounded_edge_channel,
 };
 
 /// Shared result type for runtime-facing APIs.
