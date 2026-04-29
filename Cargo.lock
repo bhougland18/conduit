@@ -342,6 +342,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "conduit-introspection"
+version = "0.1.0"
+dependencies = [
+ "conduit-contract",
+ "conduit-core",
+ "conduit-test-kit",
+ "conduit-types",
+ "conduit-workflow",
+]
+
+[[package]]
 name = "conduit-runtime"
 version = "0.1.0"
 dependencies = [

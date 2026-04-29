@@ -4,6 +4,7 @@ members = [
   "crates/conduit-core",
   "crates/conduit-contract",
   "crates/conduit-engine",
+  "crates/conduit-introspection",
   "crates/conduit-runtime",
   "crates/conduit-test-kit",
   "crates/conduit-types",
@@ -27,6 +28,7 @@ bytes = "1.10.1"
 conduit-core = { path = "crates/conduit-core" }
 conduit-contract = { path = "crates/conduit-contract" }
 conduit-engine = { path = "crates/conduit-engine" }
+conduit-introspection = { path = "crates/conduit-introspection" }
 conduit-runtime = { path = "crates/conduit-runtime" }
 conduit-test-kit = { path = "crates/conduit-test-kit" }
 conduit-types = { path = "crates/conduit-types" }
