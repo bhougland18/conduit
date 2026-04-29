@@ -397,6 +397,198 @@ const fn enforcement_for(execution_mode: ExecutionMode) -> EnforcementLevel {
     }
 }
 
+/// Build a stable JSON value for AI and CLI inspection consumers.
+#[cfg(feature = "serde")]
+#[must_use]
+pub fn workflow_introspection_to_json_value(
+    introspection: &WorkflowIntrospection,
+) -> serde_json::Value {
+    serde_json::json!({
+        "workflow_id": introspection.workflow_id().as_str(),
+        "nodes": introspection
+            .nodes()
+            .iter()
+            .map(node_to_json)
+            .collect::<Vec<serde_json::Value>>(),
+        "edges": introspection
+            .edges()
+            .iter()
+            .map(edge_to_json)
+            .collect::<Vec<serde_json::Value>>(),
+    })
+}
+
+/// Render workflow introspection as stable, pretty-printed JSON.
+///
+/// # Errors
+///
+/// Returns an error if `serde_json` cannot encode the generated JSON value.
+#[cfg(feature = "serde")]
+pub fn workflow_introspection_to_json_string(
+    introspection: &WorkflowIntrospection,
+) -> Result<String, IntrospectionJsonError> {
+    serde_json::to_string_pretty(&workflow_introspection_to_json_value(introspection))
+        .map_err(|source: serde_json::Error| IntrospectionJsonError { source })
+}
+
+/// Error returned when workflow introspection JSON cannot be encoded.
+#[cfg(feature = "serde")]
+#[derive(Debug)]
+pub struct IntrospectionJsonError {
+    source: serde_json::Error,
+}
+
+#[cfg(feature = "serde")]
+impl IntrospectionJsonError {
+    /// Underlying JSON encoder error.
+    #[must_use]
+    pub const fn source_error(&self) -> &serde_json::Error {
+        &self.source
+    }
+}
+
+#[cfg(feature = "serde")]
+impl std::fmt::Display for IntrospectionJsonError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "failed to encode workflow introspection JSON: {}",
+            self.source
+        )
+    }
+}
+
+#[cfg(feature = "serde")]
+impl std::error::Error for IntrospectionJsonError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
+#[cfg(feature = "serde")]
+fn node_to_json(node: &NodeIntrospection) -> serde_json::Value {
+    serde_json::json!({
+        "node_id": node.node_id().as_str(),
+        "execution_mode": execution_mode_label(node.execution_mode()),
+        "enforcement": enforcement_label(node.enforcement()),
+        "determinism": determinism_label(node.determinism()),
+        "retry": retry_label(node.retry()),
+        "effects": node
+            .effects()
+            .iter()
+            .map(|effect: &EffectCapability| effect_label(*effect))
+            .collect::<Vec<&'static str>>(),
+        "ports": node
+            .ports()
+            .iter()
+            .map(port_to_json)
+            .collect::<Vec<serde_json::Value>>(),
+    })
+}
+
+#[cfg(feature = "serde")]
+fn port_to_json(port: &PortIntrospection) -> serde_json::Value {
+    serde_json::json!({
+        "port_id": port.port_id().as_str(),
+        "direction": port_direction_label(port.direction()),
+        "schema": port.schema().map(SchemaRef::as_str),
+        "capability": port_capability_label(port.capability()),
+    })
+}
+
+#[cfg(feature = "serde")]
+fn edge_to_json(edge: &EdgeIntrospection) -> serde_json::Value {
+    serde_json::json!({
+        "source": endpoint_to_json(edge.source()),
+        "target": endpoint_to_json(edge.target()),
+        "capacity": edge_capacity_to_json(edge.capacity()),
+        "source_schema": edge.source_schema().map(SchemaRef::as_str),
+        "target_schema": edge.target_schema().map(SchemaRef::as_str),
+    })
+}
+
+#[cfg(feature = "serde")]
+fn endpoint_to_json(endpoint: &EndpointIntrospection) -> serde_json::Value {
+    serde_json::json!({
+        "node_id": endpoint.node_id().as_str(),
+        "port_id": endpoint.port_id().as_str(),
+    })
+}
+
+#[cfg(feature = "serde")]
+fn edge_capacity_to_json(capacity: EdgeCapacity) -> serde_json::Value {
+    match capacity {
+        EdgeCapacity::Default => serde_json::json!({ "kind": "default" }),
+        EdgeCapacity::Explicit(value) => {
+            serde_json::json!({ "kind": "explicit", "value": value.get() })
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+const fn execution_mode_label(execution_mode: ExecutionMode) -> &'static str {
+    match execution_mode {
+        ExecutionMode::Native => "native",
+        ExecutionMode::Wasm => "wasm",
+        ExecutionMode::Process => "process",
+    }
+}
+
+#[cfg(feature = "serde")]
+const fn enforcement_label(enforcement: EnforcementLevel) -> &'static str {
+    match enforcement {
+        EnforcementLevel::Advisory => "advisory",
+        EnforcementLevel::Strict => "strict",
+    }
+}
+
+#[cfg(feature = "serde")]
+const fn determinism_label(determinism: Determinism) -> &'static str {
+    match determinism {
+        Determinism::Deterministic => "deterministic",
+        Determinism::NonDeterministic => "non_deterministic",
+        Determinism::Unknown => "unknown",
+    }
+}
+
+#[cfg(feature = "serde")]
+const fn retry_label(retry: RetryDisposition) -> &'static str {
+    match retry {
+        RetryDisposition::Never => "never",
+        RetryDisposition::Safe => "safe",
+        RetryDisposition::Unknown => "unknown",
+    }
+}
+
+#[cfg(feature = "serde")]
+const fn port_direction_label(direction: PortDirection) -> &'static str {
+    match direction {
+        PortDirection::Input => "input",
+        PortDirection::Output => "output",
+    }
+}
+
+#[cfg(feature = "serde")]
+const fn port_capability_label(capability: PortCapabilityDirection) -> &'static str {
+    match capability {
+        PortCapabilityDirection::Receive => "receive",
+        PortCapabilityDirection::Emit => "emit",
+    }
+}
+
+#[cfg(feature = "serde")]
+const fn effect_label(effect: EffectCapability) -> &'static str {
+    match effect {
+        EffectCapability::FileSystemRead => "filesystem_read",
+        EffectCapability::FileSystemWrite => "filesystem_write",
+        EffectCapability::NetworkOutbound => "network_outbound",
+        EffectCapability::ProcessSpawn => "process_spawn",
+        EffectCapability::EnvironmentRead => "environment_read",
+        EffectCapability::EnvironmentWrite => "environment_write",
+        EffectCapability::Clock => "clock",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
@@ -436,6 +628,59 @@ mod tests {
     ) -> NodeCapabilities {
         NodeCapabilities::new(node_id(node), ports, effects)
             .expect("test capabilities must be valid")
+    }
+
+    #[cfg(feature = "serde")]
+    fn sample_linear_introspection() -> WorkflowIntrospection {
+        let capacity = NonZeroUsize::new(8).expect("non-zero capacity");
+        let workflow = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .node(NodeBuilder::new("sink").input("in").build())
+            .edge_with_capacity("source", "out", "sink", "in", capacity)
+            .build();
+        let contracts = vec![
+            contract(
+                "source",
+                vec![PortContract::new(
+                    port_id("out"),
+                    PortDirection::Output,
+                    Some(schema("schema://packet")),
+                )],
+                ExecutionMode::Native,
+                Determinism::Deterministic,
+            ),
+            contract(
+                "sink",
+                vec![PortContract::new(
+                    port_id("in"),
+                    PortDirection::Input,
+                    Some(schema("schema://packet")),
+                )],
+                ExecutionMode::Native,
+                Determinism::NonDeterministic,
+            ),
+        ];
+        let capabilities = vec![
+            capabilities(
+                "source",
+                vec![PortCapability::new(
+                    port_id("out"),
+                    PortCapabilityDirection::Emit,
+                )],
+                vec![EffectCapability::Clock],
+            ),
+            capabilities(
+                "sink",
+                vec![PortCapability::new(
+                    port_id("in"),
+                    PortCapabilityDirection::Receive,
+                )],
+                Vec::new(),
+            ),
+        ];
+
+        introspect_workflow(&workflow, &contracts, &capabilities)
+            .expect("matching introspection inputs must validate")
     }
 
     #[test]
@@ -621,5 +866,73 @@ mod tests {
         assert_eq!(view.nodes()[0].execution_mode(), ExecutionMode::Wasm);
         assert_eq!(view.nodes()[0].enforcement(), EnforcementLevel::Strict);
         assert_eq!(view.nodes()[0].determinism(), Determinism::Unknown);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn introspection_json_has_stable_ai_facing_shape() {
+        let view = sample_linear_introspection();
+        let json =
+            workflow_introspection_to_json_string(&view).expect("introspection JSON should encode");
+
+        insta::assert_snapshot!(json, @r###"
+        {
+          "edges": [
+            {
+              "capacity": {
+                "kind": "explicit",
+                "value": 8
+              },
+              "source": {
+                "node_id": "source",
+                "port_id": "out"
+              },
+              "source_schema": "schema://packet",
+              "target": {
+                "node_id": "sink",
+                "port_id": "in"
+              },
+              "target_schema": "schema://packet"
+            }
+          ],
+          "nodes": [
+            {
+              "determinism": "deterministic",
+              "effects": [
+                "clock"
+              ],
+              "enforcement": "advisory",
+              "execution_mode": "native",
+              "node_id": "source",
+              "ports": [
+                {
+                  "capability": "emit",
+                  "direction": "output",
+                  "port_id": "out",
+                  "schema": "schema://packet"
+                }
+              ],
+              "retry": "safe"
+            },
+            {
+              "determinism": "non_deterministic",
+              "effects": [],
+              "enforcement": "advisory",
+              "execution_mode": "native",
+              "node_id": "sink",
+              "ports": [
+                {
+                  "capability": "receive",
+                  "direction": "input",
+                  "port_id": "in",
+                  "schema": "schema://packet"
+                }
+              ],
+              "retry": "safe"
+            }
+          ],
+          "workflow_id": "flow"
+        }
+        "###);
     }
 }
