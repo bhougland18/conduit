@@ -10,6 +10,11 @@ conduit-types.workspace = true
 conduit-workflow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+toml = { workspace = true, optional = true }
+
+[features]
+default = []
+toml = ["dep:toml"]
 
 [lints]
 workspace = true

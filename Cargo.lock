@@ -410,6 +410,7 @@ dependencies = [
  "conduit-workflow",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
