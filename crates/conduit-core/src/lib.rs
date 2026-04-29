@@ -20,7 +20,8 @@ pub use error::{
 };
 pub use message::PacketPayload;
 pub use metadata::{
-    MessageBoundaryKind, MessageBoundaryRecord, MetadataRecord, MetadataSink, NoopMetadataSink,
+    JsonlMetadataSink, MessageBoundaryKind, MessageBoundaryRecord, MetadataRecord, MetadataSink,
+    NoopMetadataSink, metadata_record_to_json_value,
 };
 pub use ports::{
     InputPortHandle, OutputPortHandle, PortPacket, PortRecvError, PortSendError, PortSendPermit,
