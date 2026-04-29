@@ -156,6 +156,13 @@ pub enum CapabilityValidationError {
         /// Direction declared by the workflow topology.
         declared: PortCapabilityDirection,
     },
+    /// A strict runtime boundary cannot enforce a declared effect capability.
+    UnenforceableEffectCapability {
+        /// Node whose effect cannot be enforced.
+        node_id: NodeId,
+        /// Effect that is not enforceable for the node's execution boundary.
+        effect: EffectCapability,
+    },
 }
 
 impl fmt::Display for CapabilityValidationError {
@@ -199,6 +206,10 @@ impl fmt::Display for CapabilityValidationError {
                 claimed.label(),
                 declared.label()
             ),
+            Self::UnenforceableEffectCapability { node_id, effect } => write!(
+                f,
+                "node `{node_id}` declares effect capability `{effect:?}` that is not enforceable by its execution boundary"
+            ),
         }
     }
 }
@@ -236,6 +247,19 @@ impl NodeCapabilities {
             ports,
             effects,
         })
+    }
+
+    /// Create a validated native descriptor with no external effects.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the descriptor repeats a port-direction claim or
+    /// declares one port as both receiving and emitting.
+    pub fn native_passive(
+        node_id: NodeId,
+        ports: impl Into<Vec<PortCapability>>,
+    ) -> Result<Self, CapabilityValidationError> {
+        Self::new(node_id, ports, Vec::<EffectCapability>::new())
     }
 
     /// Node constrained by this capability descriptor.
@@ -426,6 +450,16 @@ mod tests {
     }
 
     #[test]
+    fn native_passive_capabilities_have_no_effects() {
+        let capabilities: NodeCapabilities =
+            NodeCapabilities::native_passive(node_id("reader"), [receive("input")])
+                .expect("valid passive capabilities");
+
+        assert_eq!(capabilities.effects(), []);
+        assert!(capabilities.allows_port(&port_id("input"), PortCapabilityDirection::Receive));
+    }
+
+    #[test]
     fn duplicate_effects_are_rejected() {
         let err: CapabilityValidationError = NodeCapabilities::new(
             node_id("reader"),
@@ -579,5 +613,16 @@ mod tests {
                 declared: PortCapabilityDirection::Receive,
             }
         );
+    }
+
+    #[test]
+    fn unenforceable_effect_capability_is_a_capability_error() {
+        let err: CapabilityValidationError =
+            CapabilityValidationError::UnenforceableEffectCapability {
+                node_id: node_id("wasm"),
+                effect: EffectCapability::Clock,
+            };
+
+        assert!(err.to_string().contains("not enforceable"));
     }
 }

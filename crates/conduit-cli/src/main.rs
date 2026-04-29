@@ -5,12 +5,10 @@ use conduit_core::{
     context::{ExecutionMetadata, NodeContext},
 };
 use conduit_engine::run_workflow;
+use conduit_runtime::AsupersyncRuntime;
 use conduit_types::ExecutionId;
 use conduit_workflow::WorkflowDefinition;
-use futures::{
-    executor::block_on,
-    future::{Ready, ready},
-};
+use futures::future::{Ready, ready};
 
 struct PrintExecutor;
 
@@ -31,11 +29,12 @@ impl NodeExecutor for PrintExecutor {
 }
 
 fn main() -> Result<()> {
+    let runtime: AsupersyncRuntime = AsupersyncRuntime::new()?;
     let workflow: WorkflowDefinition = WorkflowDefinition::empty("conduit-scaffold")?;
     let execution: ExecutionMetadata =
         ExecutionMetadata::first_attempt(ExecutionId::new("scaffold-run")?);
     let executor: PrintExecutor = PrintExecutor;
-    block_on(run_workflow(&workflow, &execution, &executor))?;
+    runtime.block_on(run_workflow(&workflow, &execution, &executor))?;
     println!("conduit workspace scaffold is ready");
     Ok(())
 }

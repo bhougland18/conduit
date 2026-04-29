@@ -1,5 +1,6 @@
 //! Core traits and contracts for Conduit.
 
+pub mod batch;
 pub mod capability;
 pub mod context;
 pub mod error;
@@ -10,13 +11,17 @@ pub mod ports;
 
 use std::future::Future;
 
+pub use batch::{BatchExecutor, BatchInputs, BatchOutputs, WasmModule};
 use context::NodeContext;
 pub use context::{CancellationHandle, CancellationToken};
 pub use error::{
     CancellationError, ConduitError, ErrorCode, ErrorVisibility, ExecutionError, LifecycleError,
     MetadataError, RetryDisposition, ValidationError,
 };
-pub use metadata::{MetadataRecord, MetadataSink, NoopMetadataSink};
+pub use message::PacketPayload;
+pub use metadata::{
+    MessageBoundaryKind, MessageBoundaryRecord, MetadataRecord, MetadataSink, NoopMetadataSink,
+};
 pub use ports::{
     InputPortHandle, OutputPortHandle, PortPacket, PortRecvError, PortSendError, PortSendPermit,
     PortsIn, PortsOut, bounded_edge_channel,

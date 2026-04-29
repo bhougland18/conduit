@@ -4,11 +4,50 @@
 //!
 //! Metadata remains split by source type: context metadata identifies an
 //! execution attempt, message metadata travels with payloads, and lifecycle
-//! metadata records runtime transitions. The sink below is only the collection
-//! seam. It lets runtime code report those existing facts without collapsing
-//! them into a premature storage, tracing, or graph model.
+//! metadata records runtime transitions. Message boundary records describe
+//! send, receive, and drop observations at the port seam. The sink below is
+//! only the collection seam. It lets runtime code report those existing facts
+//! without collapsing them into a premature storage, tracing, or graph model.
 
 use crate::{Result, context::NodeContext, lifecycle::LifecycleEvent, message::MessageMetadata};
+
+/// Where a message was observed at the port boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MessageBoundaryKind {
+    /// The message entered an output boundary.
+    Enqueued,
+    /// The message left an input boundary.
+    Dequeued,
+    /// The message was dropped at an output boundary.
+    Dropped,
+}
+
+/// One message observation at a runtime boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageBoundaryRecord {
+    kind: MessageBoundaryKind,
+    metadata: MessageMetadata,
+}
+
+impl MessageBoundaryRecord {
+    /// Create a message boundary observation.
+    #[must_use]
+    pub const fn new(kind: MessageBoundaryKind, metadata: MessageMetadata) -> Self {
+        Self { kind, metadata }
+    }
+
+    /// Kind of port-boundary observation.
+    #[must_use]
+    pub const fn kind(&self) -> MessageBoundaryKind {
+        self.kind
+    }
+
+    /// Message metadata observed at the boundary.
+    #[must_use]
+    pub const fn metadata(&self) -> &MessageMetadata {
+        &self.metadata
+    }
+}
 
 /// One metadata fact observed at a runtime boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,12 +56,12 @@ pub enum MetadataRecord {
     ExecutionContext(NodeContext),
     /// Lifecycle transition emitted by the runtime.
     Lifecycle(LifecycleEvent),
-    /// Message metadata attached to a payload.
-    Message(MessageMetadata),
+    /// Message metadata observed at a port boundary.
+    Message(MessageBoundaryRecord),
 }
 
 /// Collection sink for runtime metadata records.
-pub trait MetadataSink: Sync {
+pub trait MetadataSink: Send + Sync {
     /// Record one metadata fact.
     ///
     /// # Errors
@@ -45,7 +84,7 @@ impl MetadataSink for NoopMetadataSink {
 mod tests {
     use super::*;
     use crate::context::ExecutionMetadata;
-    use conduit_types::{ExecutionId, NodeId, WorkflowId};
+    use conduit_types::{ExecutionId, MessageId, NodeId, PortId, WorkflowId};
 
     fn execution_id(value: &str) -> ExecutionId {
         ExecutionId::new(value).expect("valid execution id")
@@ -84,5 +123,30 @@ mod tests {
         NoopMetadataSink
             .record(&record)
             .expect("noop metadata sink should accept records");
+    }
+
+    #[test]
+    fn message_boundary_record_keeps_shape_intact() {
+        let target: crate::message::MessageEndpoint = crate::message::MessageEndpoint::new(
+            node_id("sink"),
+            PortId::new("in").expect("valid port id"),
+        );
+        let route: crate::message::MessageRoute = crate::message::MessageRoute::new(None, target);
+        let metadata: MessageMetadata = MessageMetadata::new(
+            MessageId::new("msg-1").expect("valid message id"),
+            workflow_id("flow"),
+            ExecutionMetadata::first_attempt(execution_id("run-1")),
+            route,
+        );
+        let record: MessageBoundaryRecord =
+            MessageBoundaryRecord::new(MessageBoundaryKind::Enqueued, metadata);
+
+        assert!(matches!(
+            record,
+            MessageBoundaryRecord {
+                kind: MessageBoundaryKind::Enqueued,
+                ..
+            }
+        ));
     }
 }

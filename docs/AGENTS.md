@@ -153,7 +153,7 @@ After any substantive code changes, verify the codebase is still healthy:
 cargo check --all-targets
 cargo fmt --check
 cargo clippy --all-targets -- -W clippy::pedantic -W clippy::nursery
-cargo dylint --all
+nix develop . --command cargo-dylint-nightly --all
 ```
 
 Treat warnings as actionable unless the human explicitly says otherwise.

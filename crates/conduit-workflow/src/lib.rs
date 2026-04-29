@@ -26,6 +26,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
+use std::num::NonZeroUsize;
 
 use conduit_types::{IdentifierError, NodeId, PortId, WorkflowId};
 
@@ -102,6 +103,11 @@ pub enum WorkflowValidationError {
         /// Direction required by this endpoint.
         expected: PortDirection,
     },
+    /// The graph contains a directed cycle.
+    CycleDetected {
+        /// One detected cycle, reported in traversal order.
+        cycle: Vec<NodeId>,
+    },
 }
 
 impl fmt::Display for WorkflowValidationError {
@@ -134,6 +140,13 @@ impl fmt::Display for WorkflowValidationError {
                 endpoint.label(),
                 expected.label()
             ),
+            Self::CycleDetected { cycle } => {
+                write!(f, "workflow graph contains a cycle involving")?;
+                for node_id in cycle {
+                    write!(f, " `{node_id}`")?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -167,18 +180,57 @@ impl EdgeEndpoint {
     }
 }
 
+/// Capacity policy for a workflow edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EdgeCapacity {
+    /// Use the engine default capacity.
+    Default,
+    /// Use an explicit bounded capacity.
+    Explicit(NonZeroUsize),
+}
+
+impl EdgeCapacity {
+    /// Resolve this capacity policy against the runtime default.
+    #[must_use]
+    pub const fn resolve(self, default: NonZeroUsize) -> NonZeroUsize {
+        match self {
+            Self::Default => default,
+            Self::Explicit(capacity) => capacity,
+        }
+    }
+}
+
 /// Directed connection from one output port to one input port.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EdgeDefinition {
     source: EdgeEndpoint,
     target: EdgeEndpoint,
+    capacity: EdgeCapacity,
 }
 
 impl EdgeDefinition {
     /// Create an edge from an upstream endpoint to a downstream endpoint.
     #[must_use]
     pub const fn new(source: EdgeEndpoint, target: EdgeEndpoint) -> Self {
-        Self { source, target }
+        Self {
+            source,
+            target,
+            capacity: EdgeCapacity::Default,
+        }
+    }
+
+    /// Create an edge with an explicit bounded capacity.
+    #[must_use]
+    pub const fn with_capacity(
+        source: EdgeEndpoint,
+        target: EdgeEndpoint,
+        capacity: NonZeroUsize,
+    ) -> Self {
+        Self {
+            source,
+            target,
+            capacity: EdgeCapacity::Explicit(capacity),
+        }
     }
 
     /// Upstream output endpoint.
@@ -191,6 +243,12 @@ impl EdgeDefinition {
     #[must_use]
     pub const fn target(&self) -> &EdgeEndpoint {
         &self.target
+    }
+
+    /// Capacity policy for this edge.
+    #[must_use]
+    pub const fn capacity(&self) -> EdgeCapacity {
+        self.capacity
     }
 }
 
@@ -256,18 +314,27 @@ impl WorkflowGraph {
     ///
     /// # Errors
     ///
-    /// Returns an error when nodes or ports are duplicated, or when an edge
-    /// references an undeclared node or the wrong port direction.
+    /// Returns an error when nodes or ports are duplicated, when an edge
+    /// references an undeclared node or the wrong port direction, or when the
+    /// graph contains a directed cycle.
     pub fn new(
         nodes: impl Into<Vec<NodeDefinition>>,
         edges: impl Into<Vec<EdgeDefinition>>,
     ) -> Result<Self, WorkflowValidationError> {
-        let graph: Self = Self {
-            nodes: nodes.into(),
-            edges: edges.into(),
-        };
-        graph.validate()?;
-        Ok(graph)
+        Self::build(nodes, edges, false)
+    }
+
+    /// Create and validate a workflow graph while allowing cycles.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when nodes or ports are duplicated, or when an edge
+    /// references an undeclared node or the wrong port direction.
+    pub fn with_cycles_allowed(
+        nodes: impl Into<Vec<NodeDefinition>>,
+        edges: impl Into<Vec<EdgeDefinition>>,
+    ) -> Result<Self, WorkflowValidationError> {
+        Self::build(nodes, edges, true)
     }
 
     /// Create an empty graph with no nodes or edges.
@@ -291,25 +358,35 @@ impl WorkflowGraph {
         &self.edges
     }
 
-    fn validate(&self) -> Result<(), WorkflowValidationError> {
-        reject_duplicate_nodes(&self.nodes)?;
-        let topology: GraphTopology = GraphTopology::from_nodes(&self.nodes);
+    /// Return a deterministic topological order for the nodes in this graph.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the graph is structurally invalid or contains a
+    /// directed cycle.
+    pub fn topological_order(&self) -> Result<Vec<NodeId>, WorkflowValidationError> {
+        let topology: GraphTopology = GraphTopology::from_graph(&self.nodes, &self.edges)?;
+        topology.topological_order()
+    }
 
-        for (edge_index, edge) in self.edges.iter().enumerate() {
-            topology.validate_endpoint(
-                edge_index,
-                EdgeEndpointRole::Source,
-                edge.source(),
-                PortDirection::Output,
-            )?;
-            topology.validate_endpoint(
-                edge_index,
-                EdgeEndpointRole::Target,
-                edge.target(),
-                PortDirection::Input,
-            )?;
+    fn build(
+        nodes: impl Into<Vec<NodeDefinition>>,
+        edges: impl Into<Vec<EdgeDefinition>>,
+        allow_cycles: bool,
+    ) -> Result<Self, WorkflowValidationError> {
+        let graph: Self = Self {
+            nodes: nodes.into(),
+            edges: edges.into(),
+        };
+        graph.validate(allow_cycles)?;
+        Ok(graph)
+    }
+
+    fn validate(&self, allow_cycles: bool) -> Result<(), WorkflowValidationError> {
+        let topology: GraphTopology = GraphTopology::from_graph(&self.nodes, &self.edges)?;
+        if !allow_cycles {
+            topology.topological_order()?;
         }
-
         Ok(())
     }
 }
@@ -377,30 +454,87 @@ impl WorkflowDefinition {
 }
 
 struct GraphTopology {
+    node_ids: Vec<NodeId>,
     inputs_by_node: BTreeMap<NodeId, BTreeSet<PortId>>,
     outputs_by_node: BTreeMap<NodeId, BTreeSet<PortId>>,
+    outgoing_by_node: BTreeMap<NodeId, BTreeSet<NodeId>>,
+    indegree_by_node: BTreeMap<NodeId, usize>,
 }
 
 impl GraphTopology {
-    fn from_nodes(nodes: &[NodeDefinition]) -> Self {
+    fn from_graph(
+        nodes: &[NodeDefinition],
+        edges: &[EdgeDefinition],
+    ) -> Result<Self, WorkflowValidationError> {
+        reject_duplicate_nodes(nodes)?;
+
         let mut inputs_by_node: BTreeMap<NodeId, BTreeSet<PortId>> = BTreeMap::new();
         let mut outputs_by_node: BTreeMap<NodeId, BTreeSet<PortId>> = BTreeMap::new();
+        let mut outgoing_by_node: BTreeMap<NodeId, BTreeSet<NodeId>> = BTreeMap::new();
+        let mut indegree_by_node: BTreeMap<NodeId, usize> = BTreeMap::new();
+        let mut node_ids: Vec<NodeId> = Vec::with_capacity(nodes.len());
 
         for node in nodes {
+            let node_id: NodeId = node.id().clone();
+            node_ids.push(node_id.clone());
             inputs_by_node.insert(
-                node.id().clone(),
+                node_id.clone(),
                 node.input_ports().iter().cloned().collect(),
             );
             outputs_by_node.insert(
-                node.id().clone(),
+                node_id.clone(),
                 node.output_ports().iter().cloned().collect(),
             );
+            outgoing_by_node.insert(node_id.clone(), BTreeSet::new());
+            indegree_by_node.insert(node_id, 0);
         }
 
-        Self {
+        let mut topology: Self = Self {
+            node_ids,
             inputs_by_node,
             outputs_by_node,
+            outgoing_by_node,
+            indegree_by_node,
+        };
+
+        for (edge_index, edge) in edges.iter().enumerate() {
+            topology.validate_endpoint(
+                edge_index,
+                EdgeEndpointRole::Source,
+                edge.source(),
+                PortDirection::Output,
+            )?;
+            topology.validate_endpoint(
+                edge_index,
+                EdgeEndpointRole::Target,
+                edge.target(),
+                PortDirection::Input,
+            )?;
+
+            let Some(outgoing): Option<&mut BTreeSet<NodeId>> =
+                topology.outgoing_by_node.get_mut(edge.source().node_id())
+            else {
+                return Err(WorkflowValidationError::UnknownNode {
+                    edge_index,
+                    endpoint: EdgeEndpointRole::Source,
+                    node_id: edge.source().node_id().clone(),
+                });
+            };
+            outgoing.insert(edge.target().node_id().clone());
+
+            let Some(indegree): Option<&mut usize> =
+                topology.indegree_by_node.get_mut(edge.target().node_id())
+            else {
+                return Err(WorkflowValidationError::UnknownNode {
+                    edge_index,
+                    endpoint: EdgeEndpointRole::Target,
+                    node_id: edge.target().node_id().clone(),
+                });
+            };
+            *indegree += 1;
         }
+
+        Ok(topology)
     }
 
     fn validate_endpoint(
@@ -435,6 +569,121 @@ impl GraphTopology {
         }
 
         Ok(())
+    }
+
+    fn topological_order(&self) -> Result<Vec<NodeId>, WorkflowValidationError> {
+        let mut indegree_by_node: BTreeMap<NodeId, usize> = self.indegree_by_node.clone();
+        let mut ready: BTreeSet<NodeId> = indegree_by_node
+            .iter()
+            .filter_map(|(node_id, indegree): (&NodeId, &usize)| {
+                (*indegree == 0).then_some(node_id.clone())
+            })
+            .collect();
+        let mut order: Vec<NodeId> = Vec::with_capacity(indegree_by_node.len());
+
+        while let Some(node_id) = ready.pop_first() {
+            order.push(node_id.clone());
+
+            let Some(children): Option<&BTreeSet<NodeId>> = self.outgoing_by_node.get(&node_id)
+            else {
+                continue;
+            };
+
+            for child in children {
+                let Some(indegree): Option<&mut usize> = indegree_by_node.get_mut(child) else {
+                    continue;
+                };
+                *indegree -= 1;
+                if *indegree == 0 {
+                    ready.insert(child.clone());
+                }
+            }
+        }
+
+        if order.len() == self.node_ids.len() {
+            return Ok(order);
+        }
+
+        let remaining: BTreeSet<NodeId> = self
+            .node_ids
+            .iter()
+            .filter(|node_id: &&NodeId| !order.contains(node_id))
+            .cloned()
+            .collect();
+        let cycle: Vec<NodeId> = self.find_cycle(&remaining);
+        Err(WorkflowValidationError::CycleDetected { cycle })
+    }
+
+    fn find_cycle(&self, remaining: &BTreeSet<NodeId>) -> Vec<NodeId> {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum VisitState {
+            Visiting,
+            Visited,
+        }
+
+        fn dfs(
+            node_id: &NodeId,
+            topology: &GraphTopology,
+            remaining: &BTreeSet<NodeId>,
+            states: &mut BTreeMap<NodeId, VisitState>,
+            stack: &mut Vec<NodeId>,
+        ) -> Option<Vec<NodeId>> {
+            states.insert(node_id.clone(), VisitState::Visiting);
+            stack.push(node_id.clone());
+
+            let Some(children): Option<&BTreeSet<NodeId>> = topology.outgoing_by_node.get(node_id)
+            else {
+                stack.pop();
+                states.insert(node_id.clone(), VisitState::Visited);
+                return None;
+            };
+
+            for child in children {
+                if !remaining.contains(child) {
+                    continue;
+                }
+
+                match states.get(child) {
+                    Some(VisitState::Visiting) => {
+                        if let Some(cycle) = cycle_from_stack(stack, child) {
+                            return Some(cycle);
+                        }
+                    }
+                    Some(VisitState::Visited) => {}
+                    None => {
+                        if let Some(cycle) = dfs(child, topology, remaining, states, stack) {
+                            return Some(cycle);
+                        }
+                    }
+                }
+            }
+
+            stack.pop();
+            states.insert(node_id.clone(), VisitState::Visited);
+            None
+        }
+
+        fn cycle_from_stack(stack: &[NodeId], child: &NodeId) -> Option<Vec<NodeId>> {
+            let start_index: usize = stack.iter().position(|entry: &NodeId| entry == child)?;
+            let mut cycle: Vec<NodeId> = stack.iter().skip(start_index).cloned().collect();
+            cycle.push(child.clone());
+            Some(cycle)
+        }
+
+        let mut states: BTreeMap<NodeId, VisitState> = BTreeMap::new();
+        let mut stack: Vec<NodeId> = Vec::new();
+
+        for node_id in &self.node_ids {
+            if !remaining.contains(node_id) || states.contains_key(node_id) {
+                continue;
+            }
+
+            if let Some(cycle) = dfs(node_id, self, remaining, &mut states, &mut stack) {
+                return cycle;
+            }
+        }
+
+        remaining.iter().cloned().collect()
     }
 }
 
@@ -476,6 +725,7 @@ mod tests {
     use super::*;
     use conduit_types::IdentifierKind;
     use proptest::{collection::hash_set, prelude::*};
+    use std::num::NonZeroUsize;
 
     fn valid_identifier_strategy() -> impl Strategy<Value = String> {
         prop::collection::vec(
@@ -550,6 +800,92 @@ mod tests {
         assert_eq!(workflow.id().as_str(), "ingest");
         assert_eq!(workflow.nodes().len(), 2);
         assert_eq!(workflow.edges().len(), 1);
+    }
+
+    #[test]
+    fn edge_capacity_defaults_to_engine_default_policy() {
+        let edge = EdgeDefinition::new(endpoint("producer", "records"), endpoint("consumer", "in"));
+
+        assert_eq!(edge.capacity(), EdgeCapacity::Default);
+        assert_eq!(
+            edge.capacity()
+                .resolve(NonZeroUsize::new(7).expect("nonzero")),
+            NonZeroUsize::new(7).expect("nonzero")
+        );
+    }
+
+    #[test]
+    fn edge_capacity_round_trips_explicit_value() {
+        let capacity: NonZeroUsize = NonZeroUsize::new(3).expect("nonzero");
+        let edge = EdgeDefinition::with_capacity(
+            endpoint("producer", "records"),
+            endpoint("consumer", "in"),
+            capacity,
+        );
+
+        assert_eq!(edge.capacity(), EdgeCapacity::Explicit(capacity));
+        assert_eq!(
+            edge.capacity()
+                .resolve(NonZeroUsize::new(7).expect("nonzero")),
+            capacity
+        );
+    }
+
+    #[test]
+    fn topological_order_returns_sources_before_sinks() {
+        let producer =
+            NodeDefinition::new(node_id("producer"), Vec::<PortId>::new(), [port_id("out")])
+                .expect("valid producer");
+        let consumer =
+            NodeDefinition::new(node_id("consumer"), [port_id("in")], Vec::<PortId>::new())
+                .expect("valid consumer");
+        let edge = EdgeDefinition::new(endpoint("producer", "out"), endpoint("consumer", "in"));
+        let graph = WorkflowGraph::new([producer, consumer], [edge]).expect("valid graph");
+
+        assert_eq!(
+            graph
+                .topological_order()
+                .expect("acyclic graph should order"),
+            vec![node_id("producer"), node_id("consumer")]
+        );
+    }
+
+    #[test]
+    fn workflow_graph_rejects_cycles_by_default() {
+        let first = NodeDefinition::new(node_id("first"), [port_id("in")], [port_id("out")])
+            .expect("valid first node");
+        let second = NodeDefinition::new(node_id("second"), [port_id("in")], [port_id("out")])
+            .expect("valid second node");
+        let edges = [
+            EdgeDefinition::new(endpoint("first", "out"), endpoint("second", "in")),
+            EdgeDefinition::new(endpoint("second", "out"), endpoint("first", "in")),
+        ];
+
+        let err = WorkflowGraph::new([first, second], edges).expect_err("cycle must fail");
+
+        assert!(
+            matches!(err, WorkflowValidationError::CycleDetected { cycle } if cycle.contains(&node_id("first")) && cycle.contains(&node_id("second")))
+        );
+    }
+
+    #[test]
+    fn workflow_graph_with_cycles_allowed_keeps_ordering_diagnostics_available() {
+        let first = NodeDefinition::new(node_id("first"), [port_id("in")], [port_id("out")])
+            .expect("valid first node");
+        let second = NodeDefinition::new(node_id("second"), [port_id("in")], [port_id("out")])
+            .expect("valid second node");
+        let edges = [
+            EdgeDefinition::new(endpoint("first", "out"), endpoint("second", "in")),
+            EdgeDefinition::new(endpoint("second", "out"), endpoint("first", "in")),
+        ];
+
+        let graph = WorkflowGraph::with_cycles_allowed([first, second], edges)
+            .expect("cycle-allowed graph should build");
+
+        let err = graph
+            .topological_order()
+            .expect_err("cycle should still be reported by ordering");
+        assert!(matches!(err, WorkflowValidationError::CycleDetected { .. }));
     }
 
     #[test]

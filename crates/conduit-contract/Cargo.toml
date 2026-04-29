@@ -1,5 +1,5 @@
 [package]
-name = "conduit-cli"
+name = "conduit-contract"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,11 +7,11 @@ publish.workspace = true
 
 [dependencies]
 conduit-core.workspace = true
-conduit-engine.workspace = true
-conduit-runtime.workspace = true
 conduit-types.workspace = true
 conduit-workflow.workspace = true
-futures.workspace = true
+
+[dev-dependencies]
+conduit-test-kit.workspace = true
 
 [lints]
 workspace = true

@@ -4,13 +4,14 @@ use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 
 use conduit_core::{
-    InputPortHandle, NodeExecutor, OutputPortHandle, PortsIn, PortsOut, Result,
+    CancellationHandle, InputPortHandle, NodeExecutor, OutputPortHandle, PortsIn, PortsOut, Result,
     bounded_edge_channel,
-    context::{ExecutionMetadata, NodeContext},
+    context::{CancellationRequest, ExecutionMetadata, NodeContext},
 };
 use conduit_runtime::run_node;
 use conduit_types::NodeId;
 use conduit_workflow::WorkflowDefinition;
+use futures::stream::{FuturesUnordered, StreamExt};
 
 const DEFAULT_EDGE_CAPACITY: NonZeroUsize = NonZeroUsize::MIN;
 
@@ -25,10 +26,13 @@ pub async fn run_workflow<E: NodeExecutor + ?Sized>(
     executor: &E,
 ) -> Result<()> {
     let (mut inputs_by_node, mut outputs_by_node): PortWiring = build_port_wiring(workflow);
+    let cancellation: CancellationHandle = CancellationHandle::new();
 
+    let mut node_runs: FuturesUnordered<_> = FuturesUnordered::new();
     for node in workflow.nodes() {
         let ctx: NodeContext =
-            NodeContext::new(workflow.id().clone(), node.id().clone(), execution.clone());
+            NodeContext::new(workflow.id().clone(), node.id().clone(), execution.clone())
+                .with_cancellation_token(cancellation.token());
         let inputs: PortsIn = PortsIn::from_handles(
             node.input_ports().to_vec(),
             inputs_by_node.remove(node.id()).unwrap_or_default(),
@@ -37,10 +41,22 @@ pub async fn run_workflow<E: NodeExecutor + ?Sized>(
             node.output_ports().to_vec(),
             outputs_by_node.remove(node.id()).unwrap_or_default(),
         );
-        run_node(executor, ctx, inputs, outputs).await?;
+        node_runs.push(run_node(executor, ctx, inputs, outputs));
     }
 
-    Ok(())
+    let mut first_error: Option<conduit_core::ConduitError> = None;
+    while let Some(result) = node_runs.next().await {
+        if let Err(err) = result
+            && first_error.is_none()
+        {
+            let _first_request: bool = cancellation.cancel(CancellationRequest::new(format!(
+                "node execution failed: {err}"
+            )));
+            first_error = Some(err);
+        }
+    }
+
+    first_error.map_or(Ok(()), Err)
 }
 
 type PortWiring = (
@@ -53,10 +69,11 @@ fn build_port_wiring(workflow: &WorkflowDefinition) -> PortWiring {
     let mut outputs_by_node: BTreeMap<NodeId, Vec<OutputPortHandle>> = BTreeMap::new();
 
     for edge in workflow.edges() {
+        let capacity: NonZeroUsize = edge.capacity().resolve(DEFAULT_EDGE_CAPACITY);
         let (output, input): (OutputPortHandle, InputPortHandle) = bounded_edge_channel(
             edge.source().port_id().clone(),
             edge.target().port_id().clone(),
-            DEFAULT_EDGE_CAPACITY,
+            capacity,
         );
         outputs_by_node
             .entry(edge.source().node_id().clone())
@@ -80,7 +97,7 @@ mod tests {
     };
 
     use conduit_core::{
-        ErrorCode, PortPacket,
+        ConduitError, ErrorCode, PacketPayload, PortPacket, PortRecvError,
         message::{MessageEndpoint, MessageMetadata, MessageRoute},
     };
     use conduit_test_kit::{
@@ -88,7 +105,9 @@ mod tests {
         node_id, port_id, workflow_id,
     };
     use conduit_types::{ExecutionId, MessageId};
+    use conduit_workflow::EdgeDefinition;
     use futures::executor::block_on;
+    use futures::future::BoxFuture;
 
     #[derive(Debug, Default)]
     struct ChannelExecutor {
@@ -105,7 +124,7 @@ mod tests {
     }
 
     impl NodeExecutor for ChannelExecutor {
-        type RunFuture<'a> = Ready<Result<()>>;
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
 
         fn run(
             &self,
@@ -113,22 +132,159 @@ mod tests {
             mut inputs: PortsIn,
             outputs: PortsOut,
         ) -> Self::RunFuture<'_> {
-            if ctx.node_id().as_str() == "source" {
-                outputs
-                    .try_send(&port_id("out"), packet(b"hello"))
-                    .expect("source output should accept packet");
-            } else if ctx.node_id().as_str() == "sink" {
-                let packet: PortPacket = inputs
-                    .try_recv(&port_id("in"))
-                    .expect("sink input should receive")
-                    .expect("source should have queued a packet");
-                self.received
-                    .lock()
-                    .expect("channel executor lock should not be poisoned")
-                    .push(packet.into_payload());
+            Box::pin(async move {
+                if ctx.node_id().as_str() == "source" {
+                    let cancellation = ctx.cancellation_token();
+                    outputs
+                        .send(&port_id("out"), packet(b"hello"), &cancellation)
+                        .await?;
+                    outputs
+                        .send(&port_id("out"), packet(b"world"), &cancellation)
+                        .await?;
+                } else if ctx.node_id().as_str() == "sink" {
+                    let cancellation = ctx.cancellation_token();
+                    for _packet_index in 0..2 {
+                        let packet: PortPacket = inputs
+                            .recv(&port_id("in"), &cancellation)
+                            .await?
+                            .expect("source should have queued a packet");
+                        self.received
+                            .lock()
+                            .expect("channel executor lock should not be poisoned")
+                            .push(
+                                packet
+                                    .into_payload()
+                                    .as_bytes()
+                                    .expect("channel test sends bytes")
+                                    .to_vec(),
+                            );
+                    }
+                }
+
+                Ok(())
+            })
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct AggregateFailureExecutor {
+        visited: Mutex<Vec<String>>,
+    }
+
+    impl AggregateFailureExecutor {
+        fn visited_node_names(&self) -> Vec<String> {
+            self.visited
+                .lock()
+                .expect("aggregate failure executor lock should not be poisoned")
+                .clone()
+        }
+    }
+
+    impl NodeExecutor for AggregateFailureExecutor {
+        type RunFuture<'a> = Ready<Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            _inputs: PortsIn,
+            _outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            self.visited
+                .lock()
+                .expect("aggregate failure executor lock should not be poisoned")
+                .push(ctx.node_id().to_string());
+
+            if ctx.node_id().as_str() == "first" {
+                return ready(Err(ConduitError::execution("first failed")));
             }
 
             ready(Ok(()))
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct SiblingCancellationExecutor {
+        cancellation_observed: Mutex<bool>,
+    }
+
+    impl SiblingCancellationExecutor {
+        fn cancellation_observed(&self) -> bool {
+            *self
+                .cancellation_observed
+                .lock()
+                .expect("sibling cancellation executor lock should not be poisoned")
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct CapacityProbeExecutor {
+        observed: Mutex<Vec<Option<usize>>>,
+    }
+
+    impl CapacityProbeExecutor {
+        fn observed_capacities(&self) -> Vec<Option<usize>> {
+            self.observed
+                .lock()
+                .expect("capacity probe executor lock should not be poisoned")
+                .clone()
+        }
+    }
+
+    impl NodeExecutor for CapacityProbeExecutor {
+        type RunFuture<'a> = Ready<Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            inputs: PortsIn,
+            _outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            if ctx.node_id().as_str() == "probe" {
+                let capacity = inputs.capacity(&port_id("in"));
+                self.observed
+                    .lock()
+                    .expect("capacity probe executor lock should not be poisoned")
+                    .push(capacity);
+            }
+
+            ready(Ok(()))
+        }
+    }
+
+    impl NodeExecutor for SiblingCancellationExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            mut inputs: PortsIn,
+            _outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                if ctx.node_id().as_str() == "fail" {
+                    return Err(ConduitError::execution("fail requested"));
+                }
+
+                if ctx.node_id().as_str() == "worker" {
+                    let cancellation = ctx.cancellation_token();
+                    let result: std::result::Result<Option<PortPacket>, PortRecvError> =
+                        inputs.recv(&port_id("in"), &cancellation).await;
+                    if matches!(result, Err(PortRecvError::Cancelled { .. })) {
+                        *self
+                            .cancellation_observed
+                            .lock()
+                            .expect("sibling cancellation executor lock should not be poisoned") =
+                            true;
+                        return Ok(());
+                    }
+
+                    return Err(ConduitError::execution(
+                        "worker input should be cancelled after sibling failure",
+                    ));
+                }
+
+                Ok(())
+            })
         }
     }
 
@@ -148,7 +304,7 @@ mod tests {
         let metadata: MessageMetadata =
             MessageMetadata::new(message_id("msg-1"), workflow_id("flow"), execution, route);
 
-        PortPacket::new(metadata, value.to_vec())
+        PortPacket::new(metadata, PacketPayload::from(value.to_vec()))
     }
 
     #[test]
@@ -215,6 +371,71 @@ mod tests {
 
         block_on(run_workflow(&workflow, &execution, &executor)).expect("workflow should run");
 
-        assert_eq!(executor.received_payloads(), vec![b"hello".to_vec()]);
+        assert_eq!(
+            executor.received_payloads(),
+            vec![b"hello".to_vec(), b"world".to_vec()]
+        );
+    }
+
+    #[test]
+    fn run_workflow_uses_explicit_edge_capacity() {
+        let workflow: WorkflowDefinition = WorkflowDefinition::from_parts(
+            workflow_id("flow"),
+            [
+                NodeBuilder::new("source").output("out").build(),
+                NodeBuilder::new("probe").input("in").build(),
+            ],
+            [EdgeDefinition::with_capacity(
+                conduit_workflow::EdgeEndpoint::new(node_id("source"), port_id("out")),
+                conduit_workflow::EdgeEndpoint::new(node_id("probe"), port_id("in")),
+                NonZeroUsize::new(3).expect("nonzero"),
+            )],
+        )
+        .expect("workflow should be valid");
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: CapacityProbeExecutor = CapacityProbeExecutor::default();
+
+        block_on(run_workflow(&workflow, &execution, &executor)).expect("workflow should run");
+
+        assert_eq!(
+            executor.observed_capacities(),
+            vec![Some(NonZeroUsize::new(3).expect("nonzero").get())]
+        );
+    }
+
+    #[test]
+    fn run_workflow_aggregates_terminal_results_after_polling_all_nodes() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("first").build())
+            .node(NodeBuilder::new("second").build())
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: AggregateFailureExecutor = AggregateFailureExecutor::default();
+
+        let err = block_on(run_workflow(&workflow, &execution, &executor))
+            .expect_err("workflow should surface executor failures");
+
+        assert_eq!(err.code(), ErrorCode::NodeExecutionFailed);
+        assert_eq!(
+            executor.visited_node_names(),
+            vec![String::from("first"), String::from("second")]
+        );
+    }
+
+    #[test]
+    fn run_workflow_cancels_siblings_after_first_node_failure() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("worker").input("in").build())
+            .node(NodeBuilder::new("fail").output("out").build())
+            .edge("fail", "out", "worker", "in")
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: SiblingCancellationExecutor = SiblingCancellationExecutor::default();
+
+        let err = block_on(run_workflow(&workflow, &execution, &executor))
+            .expect_err("workflow should surface the first node failure");
+
+        assert_eq!(err.code(), ErrorCode::NodeExecutionFailed);
+        assert!(executor.cancellation_observed());
     }
 }

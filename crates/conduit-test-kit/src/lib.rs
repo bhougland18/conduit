@@ -2,6 +2,7 @@
 
 use std::{
     future::{Ready, ready},
+    num::NonZeroUsize,
     sync::Mutex,
 };
 
@@ -149,6 +150,24 @@ impl WorkflowBuilder {
         self
     }
 
+    /// Add a validated edge between two node ports with an explicit capacity.
+    #[must_use]
+    pub fn edge_with_capacity(
+        mut self,
+        source_node: &str,
+        source_port: &str,
+        target_node: &str,
+        target_port: &str,
+        capacity: NonZeroUsize,
+    ) -> Self {
+        self.edges.push(EdgeDefinition::with_capacity(
+            EdgeEndpoint::new(node_id(source_node), port_id(source_port)),
+            EdgeEndpoint::new(node_id(target_node), port_id(target_port)),
+            capacity,
+        ));
+        self
+    }
+
     /// Build a validated workflow definition.
     ///
     /// # Panics
@@ -162,7 +181,7 @@ impl WorkflowBuilder {
 }
 
 /// Executor test double that records the visited node order.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct RecordingExecutor {
     contexts: Mutex<Vec<NodeContext>>,
     inputs: Mutex<Vec<PortsIn>>,

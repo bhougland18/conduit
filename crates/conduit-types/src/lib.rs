@@ -4,6 +4,12 @@ use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
 
+/// Maximum identifier length in raw UTF-8 bytes.
+///
+/// Internal identifiers are opaque slugs, not user-facing text; the cap
+/// protects transport and storage boundaries rather than display width.
+pub const MAX_IDENTIFIER_LEN: usize = 256;
+
 /// Kinds of opaque identifiers used by Conduit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdentifierKind {
@@ -49,6 +55,13 @@ pub enum IdentifierError {
         /// Kind of identifier that failed validation.
         kind: IdentifierKind,
     },
+    /// The identifier exceeded the maximum allowed length.
+    TooLong {
+        /// Kind of identifier that failed validation.
+        kind: IdentifierKind,
+        /// Maximum allowed byte length.
+        limit: usize,
+    },
 }
 
 impl fmt::Display for IdentifierError {
@@ -59,6 +72,9 @@ impl fmt::Display for IdentifierError {
             Self::Control { kind } => {
                 write!(f, "{} must not contain control characters", kind.label())
             }
+            Self::TooLong { kind, limit } => {
+                write!(f, "{} must not exceed {} bytes", kind.label(), limit)
+            }
         }
     }
 }
@@ -66,6 +82,13 @@ impl fmt::Display for IdentifierError {
 impl Error for IdentifierError {}
 
 fn validate_identifier(kind: IdentifierKind, value: &str) -> Result<(), IdentifierError> {
+    if value.len() > MAX_IDENTIFIER_LEN {
+        return Err(IdentifierError::TooLong {
+            kind,
+            limit: MAX_IDENTIFIER_LEN,
+        });
+    }
+
     if value.trim().is_empty() {
         return Err(IdentifierError::Empty { kind });
     }
@@ -249,6 +272,20 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn identifiers_reject_values_over_length_cap() {
+        let value: String = "a".repeat(MAX_IDENTIFIER_LEN + 1);
+        let err = PortId::new(value).expect_err("overlong identifiers must fail");
+
+        assert_eq!(
+            err,
+            IdentifierError::TooLong {
+                kind: IdentifierKind::Port,
+                limit: MAX_IDENTIFIER_LEN,
+            }
+        );
+    }
+
     proptest! {
         #[test]
         fn generated_valid_identifiers_are_accepted(value in valid_identifier_strategy()) {
@@ -266,6 +303,12 @@ mod tests {
                 WorkflowId::new(invalid),
                 Err(IdentifierError::Whitespace { kind: IdentifierKind::Workflow })
             );
+        }
+
+        #[test]
+        fn generated_valid_identifiers_respect_length_cap(value in valid_identifier_strategy()) {
+            prop_assert!(value.len() <= MAX_IDENTIFIER_LEN);
+            prop_assert!(WorkflowId::new(value).is_ok());
         }
     }
 }

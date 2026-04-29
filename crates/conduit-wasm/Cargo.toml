@@ -1,5 +1,5 @@
 [package]
-name = "conduit-cli"
+name = "conduit-wasm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,11 +7,15 @@ publish.workspace = true
 
 [dependencies]
 conduit-core.workspace = true
-conduit-engine.workspace = true
-conduit-runtime.workspace = true
 conduit-types.workspace = true
+serde_json.workspace = true
+wasmtime.workspace = true
+
+[dev-dependencies]
+conduit-engine.workspace = true
 conduit-workflow.workspace = true
 futures.workspace = true
+wit-bindgen.workspace = true
 
 [lints]
 workspace = true

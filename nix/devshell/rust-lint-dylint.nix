@@ -7,6 +7,8 @@
       pkgs,
       craneLib,
       fenixToolchain,
+      dylintNightlyToolchain,
+      dylintNightlyChannel,
       ...
     }:
     let
@@ -15,7 +17,7 @@
         pkgs.openssl
         pkgs.zlib
       ];
-      buildToolchainName = "nightly-${pkgs.stdenv.hostPlatform.config}";
+      dylint-driver-toolchain = "${dylintNightlyChannel}-${pkgs.stdenv.hostPlatform.config}";
 
       mkCrateCli =
         {
@@ -99,15 +101,87 @@
         nativeBuildInputs = [ pkgs.makeWrapper ];
         postBuild = ''
           wrapProgram "$out/bin/dylint-link" \
-            --set-default RUSTUP_TOOLCHAIN ${lib.escapeShellArg pkgs.stdenv.hostPlatform.config}
+            --set-default RUSTUP_TOOLCHAIN ${lib.escapeShellArg dylint-driver-toolchain}
         '';
       };
+
+      rustup-shim = pkgs.writeShellScriptBin "rustup" ''
+        find_toolchain_file() {
+          local dir
+          dir="$PWD"
+
+          while [ "$dir" != "/" ]; do
+            if [ -f "$dir/rust-toolchain.toml" ]; then
+              printf '%s\n' "$dir/rust-toolchain.toml"
+              return 0
+            fi
+
+            if [ -f "$dir/rust-toolchain" ]; then
+              printf '%s\n' "$dir/rust-toolchain"
+              return 0
+            fi
+
+            dir="$(dirname "$dir")"
+          done
+
+          return 1
+        }
+
+        read_channel() {
+          local toolchain_file
+          toolchain_file="$1"
+
+          if grep -q '^\[toolchain\]' "$toolchain_file"; then
+            sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$toolchain_file" | head -n 1
+            return 0
+          fi
+
+          head -n 1 "$toolchain_file"
+        }
+
+        toolchain_file="$(find_toolchain_file || true)"
+
+        if [ -n "$toolchain_file" ]; then
+          toolchain="$(read_channel "$toolchain_file")"
+        else
+          toolchain=""
+        fi
+
+        if [ -z "$toolchain" ]; then
+          toolchain="stable"
+        fi
+
+        if [ "$1" = "show" ] && [ "$2" = "active-toolchain" ]; then
+          printf '%s (default)\n' "$toolchain"
+          exit 0
+        fi
+
+        if [ "$1" = "which" ] && [ "$2" = "rustc" ]; then
+          command -v rustc
+          exit 0
+        fi
+
+        echo "This dev shell provides a minimal rustup shim for Dylint consumption." >&2
+        echo "Supported commands: rustup show active-toolchain, rustup which rustc" >&2
+        exit 1
+      '';
+
+      cargo-dylint-nightly = pkgs.writeShellScriptBin "cargo-dylint-nightly" ''
+        export PATH="${dylintNightlyToolchain}/bin:${wrapped-dylint-link}/bin:$PATH"
+        export RUSTUP_TOOLCHAIN="${dylint-driver-toolchain}"
+        export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="dylint-link"
+        export DYLINT_DRIVER_PATH="$PWD/.cache/dylint-drivers"
+        export DYLINT_DRIVER_BUILD_ROOT="$PWD/.cache/dylint-driver-build"
+        exec cargo dylint "$@"
+      '';
 
       dylint-tools = pkgs.symlinkJoin {
         name = "dylint-tools";
         paths = [
           cargo-dylint
           wrapped-dylint-link
+          cargo-dylint-nightly
+          rustup-shim
         ];
       };
 
@@ -121,7 +195,7 @@
         ];
 
         dendritic.devShell.env = {
-          DYLINT_DRIVER_BUILD_TOOLCHAIN = buildToolchainName;
+          DYLINT_DRIVER_BUILD_TOOLCHAIN = dylint-driver-toolchain;
         };
 
         dendritic.devShell.shellHookFragments = [
@@ -129,10 +203,13 @@
             export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath nativeRuntimeDeps}:$LD_LIBRARY_PATH"
             export DYLINT_DRIVER_PATH="$PWD/.cache/dylint-drivers"
             export DYLINT_DRIVER_BUILD_ROOT="$PWD/.cache/dylint-driver-build"
+            dylint_driver_toolchain="$DYLINT_DRIVER_BUILD_TOOLCHAIN"
+            dylint_driver_channel="${dylintNightlyChannel}"
 
-            if [ -n "''${RUSTUP_TOOLCHAIN:-}" ]; then
-              mkdir -p "$DYLINT_DRIVER_PATH/$RUSTUP_TOOLCHAIN"
-              if [ ! -x "$DYLINT_DRIVER_PATH/$RUSTUP_TOOLCHAIN/dylint-driver" ]; then
+            if [ -n "$dylint_driver_toolchain" ]; then
+              mkdir -p "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain"
+              mkdir -p "$DYLINT_DRIVER_PATH/$dylint_driver_channel"
+              if [ ! -x "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain/dylint-driver" ] || ! "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain/dylint-driver" -V >/dev/null 2>&1; then
                 mkdir -p "$DYLINT_DRIVER_BUILD_ROOT/src"
 
                 if [ ! -f "$DYLINT_DRIVER_BUILD_ROOT/Cargo.toml" ]; then
@@ -215,18 +292,23 @@ EOF
 
                 (
                   cd "$DYLINT_DRIVER_BUILD_ROOT"
-                  export RUSTUP_TOOLCHAIN="$DYLINT_DRIVER_BUILD_TOOLCHAIN"
-                  export RUSTFLAGS="''${RUSTFLAGS:-} -C link-args=-Wl,-rpath,${fenixToolchain}/lib"
+                  export RUSTUP_TOOLCHAIN="$dylint_driver_toolchain"
+                  export PATH="${dylintNightlyToolchain}/bin:$PATH"
+                  export RUSTFLAGS="''${RUSTFLAGS:-} -C link-args=-Wl,-rpath,${dylintNightlyToolchain}/lib"
                   cargo build --quiet
                 )
 
                 ln -sfn \
                   "$DYLINT_DRIVER_BUILD_ROOT/target/debug/dylint-driver-runner" \
-                  "$DYLINT_DRIVER_PATH/$RUSTUP_TOOLCHAIN/dylint-driver"
+                  "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain/dylint-driver"
               fi
+
+              ln -sfn \
+                "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain/dylint-driver" \
+                "$DYLINT_DRIVER_PATH/$dylint_driver_channel/dylint-driver"
             fi
 
-            export RUSTFLAGS="-C linker=dylint-link-nightly ''${RUSTFLAGS:-}"
+            export RUSTFLAGS="-C linker=dylint-link ''${RUSTFLAGS:-}"
           ''
         ];
       };

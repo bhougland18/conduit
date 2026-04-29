@@ -17,6 +17,13 @@
 //! those types should not leak through `NodeExecutor`, `NodeContext`,
 //! `PortsIn`, or `PortsOut` unless a later bead explicitly revisits the
 //! boundary.
+//!
+//! ## Fragment: runtime-test-determinism
+//!
+//! Production construction intentionally keeps the default `asupersync`
+//! builder. Tests that assert ordering, cancellation, or failure propagation
+//! should use the deterministic current-thread constructor so those checks are
+//! about Conduit behavior rather than host scheduler timing.
 
 use asupersync::runtime::{Runtime, RuntimeBuilder};
 use conduit_core::{
@@ -25,6 +32,8 @@ use conduit_core::{
     lifecycle::{LifecycleEvent, LifecycleEventKind, LifecycleHook, NoopLifecycleHook},
     metadata::{MetadataRecord, MetadataSink, NoopMetadataSink},
 };
+use std::future::Future;
+use std::sync::Arc;
 
 /// Narrow runtime wrapper backed by `asupersync`.
 pub struct AsupersyncRuntime {
@@ -38,7 +47,11 @@ impl AsupersyncRuntime {
     ///
     /// Returns an error if the underlying runtime cannot be constructed.
     pub fn new() -> Result<Self> {
-        let runtime: Runtime = match RuntimeBuilder::new().build() {
+        Self::from_builder(RuntimeBuilder::new())
+    }
+
+    fn from_builder(builder: RuntimeBuilder) -> Result<Self> {
+        let runtime: Runtime = match builder.build() {
             Ok(runtime) => runtime,
             Err(err) => {
                 return Err(ConduitError::execution(format!(
@@ -48,6 +61,16 @@ impl AsupersyncRuntime {
         };
 
         Ok(Self { runtime })
+    }
+
+    /// Run a future on the owned runtime.
+    pub fn block_on<T>(&self, future: impl Future<Output = T>) -> T {
+        self.runtime.block_on(future)
+    }
+
+    #[cfg(test)]
+    fn deterministic_for_tests() -> Result<Self> {
+        Self::from_builder(RuntimeBuilder::current_thread().poll_budget(1))
     }
 
     /// Create a Conduit-owned cancellation handle for runtime-managed contexts.
@@ -111,11 +134,11 @@ impl AsupersyncRuntime {
         ctx: NodeContext,
         inputs: PortsIn,
         outputs: PortsOut,
-        metadata_sink: &M,
+        metadata_sink: Arc<M>,
     ) -> Result<()>
     where
         E: NodeExecutor + ?Sized,
-        M: MetadataSink + ?Sized,
+        M: MetadataSink + 'static,
     {
         if let Some(err) = cancellation_error(&ctx) {
             return Err(err);
@@ -149,7 +172,7 @@ pub async fn run_node<E: NodeExecutor + ?Sized>(
         inputs,
         outputs,
         &NoopLifecycleHook,
-        &NoopMetadataSink,
+        Arc::new(NoopMetadataSink),
     )
     .await
 }
@@ -171,7 +194,7 @@ where
     E: NodeExecutor + ?Sized,
     H: LifecycleHook + ?Sized,
 {
-    run_node_with_observers(node, ctx, inputs, outputs, hook, &NoopMetadataSink).await
+    run_node_with_observers(node, ctx, inputs, outputs, hook, Arc::new(NoopMetadataSink)).await
 }
 
 /// Execute a single node through the runtime boundary and collect metadata.
@@ -185,11 +208,11 @@ pub async fn run_node_with_metadata_sink<E, M>(
     ctx: NodeContext,
     inputs: PortsIn,
     outputs: PortsOut,
-    metadata_sink: &M,
+    metadata_sink: Arc<M>,
 ) -> Result<()>
 where
     E: NodeExecutor + ?Sized,
-    M: MetadataSink + ?Sized,
+    M: MetadataSink + 'static,
 {
     run_node_with_observers(
         node,
@@ -214,16 +237,19 @@ pub async fn run_node_with_observers<E, H, M>(
     inputs: PortsIn,
     outputs: PortsOut,
     hook: &H,
-    metadata_sink: &M,
+    metadata_sink: Arc<M>,
 ) -> Result<()>
 where
     E: NodeExecutor + ?Sized,
     H: LifecycleHook + ?Sized,
-    M: MetadataSink + ?Sized,
+    M: MetadataSink + 'static,
 {
+    let metadata_sink: Arc<dyn MetadataSink + Send + Sync> = metadata_sink.clone();
+    let inputs: PortsIn = inputs.with_metadata_sink(metadata_sink.clone());
+    let outputs: PortsOut = outputs.with_metadata_sink(metadata_sink.clone());
     observe_lifecycle(
         hook,
-        metadata_sink,
+        metadata_sink.as_ref(),
         LifecycleEventKind::NodeStarted,
         ctx.clone(),
     )?;
@@ -234,7 +260,8 @@ where
     } else {
         LifecycleEventKind::NodeFailed
     };
-    let terminal_observation: Result<()> = observe_lifecycle(hook, metadata_sink, kind, ctx);
+    let terminal_observation: Result<()> =
+        observe_lifecycle(hook, metadata_sink.as_ref(), kind, ctx);
 
     match (result, terminal_observation) {
         (Ok(()), Ok(())) => Ok(()),
@@ -427,9 +454,32 @@ mod tests {
         )
     }
 
+    fn deterministic_runtime() -> AsupersyncRuntime {
+        AsupersyncRuntime::deterministic_for_tests().expect("deterministic runtime should build")
+    }
+
+    #[test]
+    fn deterministic_runtime_for_tests_uses_current_thread_config() {
+        let runtime: AsupersyncRuntime = deterministic_runtime();
+
+        assert_eq!(runtime.runtime.config().worker_threads, 1);
+        assert_eq!(runtime.runtime.config().poll_budget, 1);
+    }
+
+    #[test]
+    fn production_runtime_builder_defaults_remain_separate_from_test_runtime() {
+        let production: AsupersyncRuntime =
+            AsupersyncRuntime::new().expect("production runtime should build");
+        let deterministic: AsupersyncRuntime = deterministic_runtime();
+
+        assert_eq!(production.runtime.config().poll_budget, 128);
+        assert_eq!(deterministic.runtime.config().worker_threads, 1);
+        assert_eq!(deterministic.runtime.config().poll_budget, 1);
+    }
+
     #[test]
     fn asupersync_runtime_runs_one_node() {
-        let runtime: AsupersyncRuntime = AsupersyncRuntime::new().expect("runtime should build");
+        let runtime: AsupersyncRuntime = deterministic_runtime();
         let executor: RecordingExecutor = RecordingExecutor::default();
 
         runtime
@@ -446,7 +496,7 @@ mod tests {
 
     #[test]
     fn asupersync_runtime_preserves_executor_failures() {
-        let runtime: AsupersyncRuntime = AsupersyncRuntime::new().expect("runtime should build");
+        let runtime: AsupersyncRuntime = deterministic_runtime();
         let executor: FailingExecutor = FailingExecutor::execution("boom");
 
         let err: ConduitError = runtime
@@ -463,7 +513,7 @@ mod tests {
 
     #[test]
     fn asupersync_runtime_rejects_pre_cancelled_contexts() {
-        let runtime: AsupersyncRuntime = AsupersyncRuntime::new().expect("runtime should build");
+        let runtime: AsupersyncRuntime = deterministic_runtime();
         let executor: RecordingExecutor = RecordingExecutor::default();
         let ctx: NodeContext =
             context().with_cancellation(CancellationRequest::new("shutdown requested"));
@@ -481,7 +531,7 @@ mod tests {
 
     #[test]
     fn asupersync_runtime_cancellation_handle_is_visible_inside_running_node() {
-        let runtime: AsupersyncRuntime = AsupersyncRuntime::new().expect("runtime should build");
+        let runtime: AsupersyncRuntime = deterministic_runtime();
         let handle: CancellationHandle = AsupersyncRuntime::cancellation_handle();
         let executor: CancellingExecutor = CancellingExecutor::new(handle.clone());
 
@@ -501,7 +551,7 @@ mod tests {
 
     #[test]
     fn asupersync_runtime_rejects_child_context_after_shared_cancellation() {
-        let runtime: AsupersyncRuntime = AsupersyncRuntime::new().expect("runtime should build");
+        let runtime: AsupersyncRuntime = deterministic_runtime();
         let handle: CancellationHandle = AsupersyncRuntime::cancellation_handle();
         let canceller: CancellingExecutor = CancellingExecutor::new(handle.clone());
         let child: RecordingExecutor = RecordingExecutor::default();
@@ -610,14 +660,14 @@ mod tests {
     #[test]
     fn run_node_with_metadata_sink_records_lifecycle_events() {
         let executor: RecordingExecutor = RecordingExecutor::default();
-        let sink: RecordingMetadataSink = RecordingMetadataSink::default();
+        let sink: Arc<RecordingMetadataSink> = Arc::new(RecordingMetadataSink::default());
 
         block_on(run_node_with_metadata_sink(
             &executor,
             context(),
             PortsIn::default(),
             PortsOut::default(),
-            &sink,
+            sink.clone(),
         ))
         .expect("execution should succeed");
 
@@ -632,9 +682,9 @@ mod tests {
 
     #[test]
     fn asupersync_runtime_can_collect_metadata() {
-        let runtime: AsupersyncRuntime = AsupersyncRuntime::new().expect("runtime should build");
+        let runtime: AsupersyncRuntime = deterministic_runtime();
         let executor: RecordingExecutor = RecordingExecutor::default();
-        let sink: RecordingMetadataSink = RecordingMetadataSink::default();
+        let sink: Arc<RecordingMetadataSink> = Arc::new(RecordingMetadataSink::default());
 
         runtime
             .run_node_with_metadata_sink(
@@ -642,7 +692,7 @@ mod tests {
                 context(),
                 PortsIn::default(),
                 PortsOut::default(),
-                &sink,
+                sink.clone(),
             )
             .expect("execution should succeed");
 
@@ -664,7 +714,7 @@ mod tests {
             context(),
             PortsIn::default(),
             PortsOut::default(),
-            &FailingMetadataSink,
+            Arc::new(FailingMetadataSink),
         ))
         .expect_err("metadata failure should surface");
 
@@ -684,7 +734,7 @@ mod tests {
             context(),
             PortsIn::default(),
             PortsOut::default(),
-            &FailingOnNodeFailedMetadataSink,
+            Arc::new(FailingOnNodeFailedMetadataSink),
         ))
         .expect_err("executor failure should surface");
 

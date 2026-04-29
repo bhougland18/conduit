@@ -1,8 +1,100 @@
 //! Message envelope and routing metadata types.
 
+use bytes::Bytes;
 use conduit_types::{MessageId, NodeId, PortId, WorkflowId};
+use serde_json::Value;
 
 use crate::context::ExecutionMetadata;
+
+/// Packet payload carried over runtime ports.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(not(feature = "arrow"), derive(Eq))]
+pub enum PacketPayload {
+    /// Ordinary byte payload.
+    Bytes(Bytes),
+    /// Control-plane payload for orchestration messages.
+    Control(Value),
+    /// Apache Arrow record batch payload.
+    #[cfg(feature = "arrow")]
+    Arrow(arrow_array::RecordBatch),
+}
+
+impl PacketPayload {
+    /// Create a byte payload.
+    #[must_use]
+    pub fn bytes(value: impl Into<Bytes>) -> Self {
+        Self::Bytes(value.into())
+    }
+
+    /// Create a control-plane payload.
+    #[must_use]
+    pub fn control(value: impl Into<Value>) -> Self {
+        Self::Control(value.into())
+    }
+
+    /// Borrow the payload as bytes when this is a byte payload.
+    #[must_use]
+    pub const fn as_bytes(&self) -> Option<&Bytes> {
+        match self {
+            Self::Bytes(bytes) => Some(bytes),
+            Self::Control(_) => None,
+            #[cfg(feature = "arrow")]
+            Self::Arrow(_) => None,
+        }
+    }
+
+    /// Borrow the payload as control data when this is a control payload.
+    #[must_use]
+    pub const fn as_control(&self) -> Option<&Value> {
+        match self {
+            Self::Bytes(_) => None,
+            Self::Control(value) => Some(value),
+            #[cfg(feature = "arrow")]
+            Self::Arrow(_) => None,
+        }
+    }
+
+    /// Borrow the payload as an Arrow record batch when this is an Arrow payload.
+    #[cfg(feature = "arrow")]
+    #[must_use]
+    pub const fn as_arrow(&self) -> Option<&arrow_array::RecordBatch> {
+        match self {
+            Self::Bytes(_) | Self::Control(_) => None,
+            Self::Arrow(batch) => Some(batch),
+        }
+    }
+}
+
+impl From<Bytes> for PacketPayload {
+    fn from(value: Bytes) -> Self {
+        Self::Bytes(value)
+    }
+}
+
+impl From<Vec<u8>> for PacketPayload {
+    fn from(value: Vec<u8>) -> Self {
+        Self::Bytes(Bytes::from(value))
+    }
+}
+
+impl From<&'static [u8]> for PacketPayload {
+    fn from(value: &'static [u8]) -> Self {
+        Self::Bytes(Bytes::from_static(value))
+    }
+}
+
+impl From<Value> for PacketPayload {
+    fn from(value: Value) -> Self {
+        Self::Control(value)
+    }
+}
+
+#[cfg(feature = "arrow")]
+impl From<arrow_array::RecordBatch> for PacketPayload {
+    fn from(value: arrow_array::RecordBatch) -> Self {
+        Self::Arrow(value)
+    }
+}
 
 /// Node/port endpoint for a message envelope.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,6 +247,7 @@ impl<P> MessageEnvelope<P> {
 mod tests {
     use super::*;
     use conduit_types::ExecutionId;
+    use serde_json::json;
 
     fn execution_id(value: &str) -> ExecutionId {
         ExecutionId::new(value).expect("valid execution id")
@@ -195,5 +288,63 @@ mod tests {
             mapped.metadata().route().target().node_id().as_str(),
             "consumer"
         );
+    }
+
+    #[test]
+    fn packet_payload_bytes_clone_and_slice_without_copying_user_data() {
+        let payload: PacketPayload = PacketPayload::bytes(Bytes::from_static(b"abcdef"));
+        let cloned: PacketPayload = payload.clone();
+        let sliced: Bytes = cloned
+            .as_bytes()
+            .expect("payload should contain bytes")
+            .slice(1..4);
+
+        assert_eq!(
+            payload
+                .as_bytes()
+                .expect("payload should contain bytes")
+                .as_ref(),
+            b"abcdef"
+        );
+        assert!(payload.as_control().is_none());
+        assert_eq!(sliced.as_ref(), b"bcd");
+    }
+
+    #[test]
+    fn packet_payload_control_carries_structured_values() {
+        let payload: PacketPayload = PacketPayload::control(json!({
+            "command": "flush",
+            "priority": 3,
+        }));
+        let control: &Value = payload
+            .as_control()
+            .expect("payload should contain control data");
+
+        assert_eq!(control["command"], "flush");
+        assert_eq!(control["priority"], 3);
+        assert!(payload.as_bytes().is_none());
+    }
+
+    #[cfg(feature = "arrow")]
+    #[test]
+    fn packet_payload_arrow_carries_record_batches() {
+        use std::sync::Arc;
+
+        use arrow_array::{Int32Array, RecordBatch};
+        use arrow_schema::{DataType, Field, Schema};
+
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int32,
+            false,
+        )]));
+        let values = Arc::new(Int32Array::from(vec![1, 2, 3]));
+        let batch: RecordBatch =
+            RecordBatch::try_new(schema, vec![values]).expect("record batch should be valid");
+        let payload: PacketPayload = PacketPayload::from(batch.clone());
+
+        assert_eq!(payload.as_arrow(), Some(&batch));
+        assert!(payload.as_bytes().is_none());
+        assert!(payload.as_control().is_none());
     }
 }

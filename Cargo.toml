@@ -2,11 +2,14 @@
 members = [
   "crates/conduit-cli",
   "crates/conduit-core",
+  "crates/conduit-contract",
   "crates/conduit-engine",
   "crates/conduit-runtime",
   "crates/conduit-test-kit",
   "crates/conduit-types",
+  "crates/conduit-wasm",
   "crates/conduit-workflow",
+  "crates/conduit-workflow-format",
 ]
 resolver = "2"
 
@@ -18,14 +21,24 @@ version = "0.1.0"
 
 [workspace.dependencies]
 asupersync = "0.2.9"
+arrow-array = "58.1.0"
+arrow-schema = "58.1.0"
+bytes = "1.10.1"
 conduit-core = { path = "crates/conduit-core" }
+conduit-contract = { path = "crates/conduit-contract" }
 conduit-engine = { path = "crates/conduit-engine" }
 conduit-runtime = { path = "crates/conduit-runtime" }
 conduit-test-kit = { path = "crates/conduit-test-kit" }
 conduit-types = { path = "crates/conduit-types" }
+conduit-wasm = { path = "crates/conduit-wasm" }
 conduit-workflow = { path = "crates/conduit-workflow" }
+conduit-workflow-format = { path = "crates/conduit-workflow-format" }
 futures = "0.3.31"
 proptest = "1.6.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+wasmtime = "43.0.0"
+wit-bindgen = "0.57.1"
 
 [workspace.metadata.dylint]
 libraries = [

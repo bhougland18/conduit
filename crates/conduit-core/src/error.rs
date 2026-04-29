@@ -443,13 +443,19 @@ impl From<mpsc::RecvError> for ConduitError {
 
 impl From<PortSendError> for ConduitError {
     fn from(value: PortSendError) -> Self {
-        Self::execution(value.to_string())
+        match value {
+            PortSendError::Cancelled { .. } => Self::cancelled(value.to_string()),
+            _ => Self::execution(value.to_string()),
+        }
     }
 }
 
 impl From<PortRecvError> for ConduitError {
     fn from(value: PortRecvError) -> Self {
-        Self::execution(value.to_string())
+        match value {
+            PortRecvError::Cancelled { .. } => Self::cancelled(value.to_string()),
+            _ => Self::execution(value.to_string()),
+        }
     }
 }
 
@@ -600,6 +606,19 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "CDT-EXEC-001: node execution failed: output port `out` is full"
+        );
+    }
+
+    #[test]
+    fn cancelled_port_errors_map_to_cancellation_failures() {
+        let port_id: conduit_types::PortId =
+            conduit_types::PortId::new("out").expect("valid port id");
+        let err: ConduitError = PortSendError::Cancelled { port_id }.into();
+
+        assert_eq!(err.code(), ErrorCode::ExecutionCancelled);
+        assert_eq!(
+            err.to_string(),
+            "CDT-CANCEL-001: execution cancelled: output port `out` send cancelled"
         );
     }
 }
