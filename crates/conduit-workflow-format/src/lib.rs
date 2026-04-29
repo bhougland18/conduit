@@ -238,6 +238,22 @@ pub enum WorkflowTomlError {
     },
 }
 
+/// Error returned while decoding optional YAML workflow documents.
+#[cfg(feature = "yaml")]
+#[derive(Debug)]
+pub enum WorkflowYamlError {
+    /// YAML decoding failed before raw workflow validation.
+    Decode {
+        /// YAML parser failure.
+        source: serde_yml::Error,
+    },
+    /// Raw workflow data failed format or domain validation.
+    Format {
+        /// Format validation failure.
+        source: WorkflowFormatError,
+    },
+}
+
 impl fmt::Display for WorkflowJsonError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -258,6 +274,16 @@ impl fmt::Display for WorkflowTomlError {
     }
 }
 
+#[cfg(feature = "yaml")]
+impl fmt::Display for WorkflowYamlError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Decode { source } => write!(f, "failed to decode workflow YAML: {source}"),
+            Self::Format { source } => write!(f, "workflow YAML is invalid: {source}"),
+        }
+    }
+}
+
 impl Error for WorkflowJsonError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -269,6 +295,16 @@ impl Error for WorkflowJsonError {
 
 #[cfg(feature = "toml")]
 impl Error for WorkflowTomlError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Decode { source } => Some(source),
+            Self::Format { source } => Some(source),
+        }
+    }
+}
+
+#[cfg(feature = "yaml")]
+impl Error for WorkflowYamlError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Decode { source } => Some(source),
@@ -320,6 +356,30 @@ pub fn workflow_from_toml_str(input: &str) -> Result<WorkflowDefinition, Workflo
     let raw: RawWorkflowDefinition = raw_workflow_from_toml_str(input)?;
     raw.to_workflow()
         .map_err(|source: WorkflowFormatError| WorkflowTomlError::Format { source })
+}
+
+/// Decode an optional YAML workflow document into raw workflow data.
+///
+/// # Errors
+///
+/// Returns a YAML decode error if the document does not match the canonical raw
+/// workflow shape.
+#[cfg(feature = "yaml")]
+pub fn raw_workflow_from_yaml_str(input: &str) -> Result<RawWorkflowDefinition, WorkflowYamlError> {
+    serde_yml::from_str(input)
+        .map_err(|source: serde_yml::Error| WorkflowYamlError::Decode { source })
+}
+
+/// Decode an optional YAML workflow document into a validated workflow.
+///
+/// # Errors
+///
+/// Returns YAML decode errors or typed workflow format/domain validation errors.
+#[cfg(feature = "yaml")]
+pub fn workflow_from_yaml_str(input: &str) -> Result<WorkflowDefinition, WorkflowYamlError> {
+    let raw: RawWorkflowDefinition = raw_workflow_from_yaml_str(input)?;
+    raw.to_workflow()
+        .map_err(|source: WorkflowFormatError| WorkflowYamlError::Format { source })
 }
 
 /// Encode raw workflow data as canonical pretty JSON.
@@ -903,5 +963,87 @@ extra = true
             raw_workflow_from_toml_str(input).expect_err("unknown field should fail");
 
         assert!(matches!(err, WorkflowTomlError::Decode { .. }));
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn yaml_workflow_decodes_to_validated_domain_workflow() {
+        let input: &str = r#"
+conduit_version: "1"
+id: flow
+nodes:
+  - id: source
+    inputs: []
+    outputs:
+      - out
+  - id: sink
+    inputs:
+      - in
+    outputs: []
+edges:
+  - source:
+      node: source
+      port: out
+    target:
+      node: sink
+      port: in
+    capacity: 4
+"#;
+
+        let workflow: WorkflowDefinition =
+            workflow_from_yaml_str(input).expect("YAML workflow should validate");
+
+        assert_eq!(workflow.id().as_str(), "flow");
+        assert_eq!(workflow.nodes().len(), 2);
+        assert_eq!(
+            workflow.edges()[0].capacity(),
+            EdgeCapacity::Explicit(NonZeroUsize::new(4).expect("nonzero"))
+        );
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn yaml_missing_version_keeps_typed_format_diagnostic() {
+        let input: &str = r"
+id: flow
+nodes: []
+edges: []
+";
+
+        let err: WorkflowYamlError =
+            workflow_from_yaml_str(input).expect_err("version is required");
+
+        assert!(matches!(
+            err,
+            WorkflowYamlError::Format {
+                source: WorkflowFormatError::MissingVersion
+            }
+        ));
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn yaml_decode_errors_stay_separate_from_format_errors() {
+        let err: WorkflowYamlError =
+            workflow_from_yaml_str("id: [").expect_err("malformed YAML should fail");
+
+        assert!(matches!(err, WorkflowYamlError::Decode { .. }));
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn yaml_unknown_fields_are_rejected() {
+        let input: &str = r#"
+conduit_version: "1"
+id: flow
+nodes: []
+edges: []
+extra: true
+"#;
+
+        let err: WorkflowYamlError =
+            raw_workflow_from_yaml_str(input).expect_err("unknown field should fail");
+
+        assert!(matches!(err, WorkflowYamlError::Decode { .. }));
     }
 }
