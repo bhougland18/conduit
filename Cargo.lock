@@ -298,12 +298,11 @@ dependencies = [
 name = "conduit-cli"
 version = "0.1.0"
 dependencies = [
+ "conduit-contract",
  "conduit-core",
- "conduit-engine",
- "conduit-runtime",
- "conduit-types",
+ "conduit-introspection",
  "conduit-workflow",
- "futures",
+ "conduit-workflow-format",
 ]
 
 [[package]]
