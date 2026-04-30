@@ -14,6 +14,11 @@ futures.workspace = true
 
 [dev-dependencies]
 conduit-test-kit.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "backpressure_capacity"
+harness = false
 
 [lints]
 workspace = true

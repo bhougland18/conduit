@@ -429,6 +429,7 @@ dependencies = [
  "conduit-test-kit",
  "conduit-types",
  "conduit-workflow",
+ "criterion",
  "futures",
 ]
 
