@@ -300,7 +300,10 @@ version = "0.1.0"
 dependencies = [
  "conduit-contract",
  "conduit-core",
+ "conduit-engine",
  "conduit-introspection",
+ "conduit-runtime",
+ "conduit-types",
  "conduit-workflow",
  "conduit-workflow-format",
 ]

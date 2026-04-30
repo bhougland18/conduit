@@ -1,14 +1,14 @@
 //! High-level workflow orchestration for Conduit.
 
-use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
+use std::{collections::BTreeMap, sync::Arc};
 
 use conduit_core::{
-    CancellationHandle, InputPortHandle, NodeExecutor, OutputPortHandle, PortsIn, PortsOut, Result,
-    bounded_edge_channel,
+    CancellationHandle, InputPortHandle, MetadataSink, NodeExecutor, OutputPortHandle, PortsIn,
+    PortsOut, Result, bounded_edge_channel,
     context::{CancellationRequest, ExecutionMetadata, NodeContext},
 };
-use conduit_runtime::run_node;
+use conduit_runtime::{run_node, run_node_with_metadata_sink};
 use conduit_types::NodeId;
 use conduit_workflow::WorkflowDefinition;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -42,6 +42,61 @@ pub async fn run_workflow<E: NodeExecutor + ?Sized>(
             outputs_by_node.remove(node.id()).unwrap_or_default(),
         );
         node_runs.push(run_node(executor, ctx, inputs, outputs));
+    }
+
+    let mut first_error: Option<conduit_core::ConduitError> = None;
+    while let Some(result) = node_runs.next().await {
+        if let Err(err) = result
+            && first_error.is_none()
+        {
+            let _first_request: bool = cancellation.cancel(CancellationRequest::new(format!(
+                "node execution failed: {err}"
+            )));
+            first_error = Some(err);
+        }
+    }
+
+    first_error.map_or(Ok(()), Err)
+}
+
+/// Execute the scaffolded workflow and emit metadata records through a sink.
+///
+/// # Errors
+///
+/// Returns an error if metadata collection fails or any node execution fails.
+pub async fn run_workflow_with_metadata_sink<E, M>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    executor: &E,
+    metadata_sink: Arc<M>,
+) -> Result<()>
+where
+    E: NodeExecutor + ?Sized,
+    M: MetadataSink + 'static,
+{
+    let (mut inputs_by_node, mut outputs_by_node): PortWiring = build_port_wiring(workflow);
+    let cancellation: CancellationHandle = CancellationHandle::new();
+
+    let mut node_runs: FuturesUnordered<_> = FuturesUnordered::new();
+    for node in workflow.nodes() {
+        let ctx: NodeContext =
+            NodeContext::new(workflow.id().clone(), node.id().clone(), execution.clone())
+                .with_cancellation_token(cancellation.token());
+        let inputs: PortsIn = PortsIn::from_handles(
+            node.input_ports().to_vec(),
+            inputs_by_node.remove(node.id()).unwrap_or_default(),
+        );
+        let outputs: PortsOut = PortsOut::from_handles(
+            node.output_ports().to_vec(),
+            outputs_by_node.remove(node.id()).unwrap_or_default(),
+        );
+        node_runs.push(run_node_with_metadata_sink(
+            executor,
+            ctx,
+            inputs,
+            outputs,
+            metadata_sink.clone(),
+        ));
     }
 
     let mut first_error: Option<conduit_core::ConduitError> = None;
@@ -97,7 +152,8 @@ mod tests {
     };
 
     use conduit_core::{
-        ConduitError, ErrorCode, PacketPayload, PortPacket, PortRecvError,
+        ConduitError, ErrorCode, MetadataRecord, MetadataSink, PacketPayload, PortPacket,
+        PortRecvError,
         message::{MessageEndpoint, MessageMetadata, MessageRoute},
     };
     use conduit_test_kit::{
@@ -230,6 +286,30 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Default)]
+    struct RecordingMetadataSink {
+        records: Mutex<Vec<MetadataRecord>>,
+    }
+
+    impl RecordingMetadataSink {
+        fn records(&self) -> Vec<MetadataRecord> {
+            self.records
+                .lock()
+                .expect("metadata sink lock should not be poisoned")
+                .clone()
+        }
+    }
+
+    impl MetadataSink for RecordingMetadataSink {
+        fn record(&self, record: &MetadataRecord) -> Result<()> {
+            self.records
+                .lock()
+                .expect("metadata sink lock should not be poisoned")
+                .push(record.clone());
+            Ok(())
+        }
+    }
+
     impl NodeExecutor for CapacityProbeExecutor {
         type RunFuture<'a> = Ready<Result<()>>;
 
@@ -322,6 +402,33 @@ mod tests {
         assert_eq!(contexts[0].workflow_id().as_str(), "flow");
         assert_eq!(contexts[0].execution().execution_id().as_str(), "run-1");
         assert_eq!(executor.visited_node_names(), vec!["first", "second"]);
+    }
+
+    #[test]
+    fn run_workflow_with_metadata_sink_records_lifecycle_events() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .node(NodeBuilder::new("sink").input("in").build())
+            .edge("source", "out", "sink", "in")
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: RecordingExecutor = RecordingExecutor::default();
+        let sink: Arc<RecordingMetadataSink> = Arc::new(RecordingMetadataSink::default());
+
+        block_on(run_workflow_with_metadata_sink(
+            &workflow,
+            &execution,
+            &executor,
+            sink.clone(),
+        ))
+        .expect("metadata workflow run should succeed");
+        let lifecycle_count: usize = sink
+            .records()
+            .iter()
+            .filter(|record: &&MetadataRecord| matches!(record, MetadataRecord::Lifecycle(_)))
+            .count();
+
+        assert_eq!(lifecycle_count, 4);
     }
 
     #[test]

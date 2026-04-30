@@ -8,7 +8,10 @@ publish.workspace = true
 [dependencies]
 conduit-contract.workspace = true
 conduit-core.workspace = true
+conduit-engine.workspace = true
 conduit-introspection = { workspace = true, features = ["serde"] }
+conduit-runtime.workspace = true
+conduit-types.workspace = true
 conduit-workflow.workspace = true
 conduit-workflow-format.workspace = true
 
