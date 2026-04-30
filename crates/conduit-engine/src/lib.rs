@@ -147,13 +147,14 @@ fn build_port_wiring(workflow: &WorkflowDefinition) -> PortWiring {
 mod tests {
     use super::*;
     use std::{
+        collections::BTreeMap,
         future::{Ready, ready},
         sync::Mutex,
     };
 
     use conduit_core::{
         ConduitError, ErrorCode, MetadataRecord, MetadataSink, PacketPayload, PortPacket,
-        PortRecvError,
+        PortRecvError, PortSendError,
         message::{MessageEndpoint, MessageMetadata, MessageRoute},
     };
     use conduit_test_kit::{
@@ -215,6 +216,243 @@ mod tests {
                                     .to_vec(),
                             );
                     }
+                }
+
+                Ok(())
+            })
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct BoundedBackpressureExecutor {
+        events: Mutex<Vec<String>>,
+        received: Mutex<Vec<Vec<u8>>>,
+    }
+
+    impl BoundedBackpressureExecutor {
+        fn events(&self) -> Vec<String> {
+            self.events
+                .lock()
+                .expect("backpressure executor events lock should not be poisoned")
+                .clone()
+        }
+
+        fn received_payloads(&self) -> Vec<Vec<u8>> {
+            self.received
+                .lock()
+                .expect("backpressure executor received lock should not be poisoned")
+                .clone()
+        }
+
+        fn push_event(&self, event: &str) {
+            self.events
+                .lock()
+                .expect("backpressure executor events lock should not be poisoned")
+                .push(event.to_owned());
+        }
+
+        fn push_received(&self, packet: PortPacket) {
+            self.received
+                .lock()
+                .expect("backpressure executor received lock should not be poisoned")
+                .push(packet_payload_bytes(packet));
+        }
+    }
+
+    impl NodeExecutor for BoundedBackpressureExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            mut inputs: PortsIn,
+            outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                let cancellation = ctx.cancellation_token();
+
+                match ctx.node_id().as_str() {
+                    "source" => {
+                        outputs
+                            .send(
+                                &port_id("out"),
+                                packet_between(b"first", "source", "sink"),
+                                &cancellation,
+                            )
+                            .await?;
+
+                        let full_send: std::result::Result<(), PortSendError> = outputs.try_send(
+                            &port_id("out"),
+                            packet_between(b"blocked", "source", "sink"),
+                        );
+                        if matches!(full_send, Err(PortSendError::Full { .. })) {
+                            self.push_event("source-observed-full-edge");
+                        } else {
+                            return Err(ConduitError::execution(
+                                "bounded edge should reject a second immediate send",
+                            ));
+                        }
+
+                        outputs
+                            .send(
+                                &port_id("out"),
+                                packet_between(b"second", "source", "sink"),
+                                &cancellation,
+                            )
+                            .await?;
+                        self.push_event("source-second-send-completed");
+                    }
+                    "sink" => {
+                        for _packet_index in 0..2 {
+                            let packet: PortPacket = inputs
+                                .recv(&port_id("in"), &cancellation)
+                                .await?
+                                .expect("source should send two packets");
+                            self.push_received(packet);
+                        }
+                    }
+                    _ => {}
+                }
+
+                Ok(())
+            })
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct FanOutExecutor {
+        received_by_node: Mutex<BTreeMap<String, Vec<Vec<u8>>>>,
+    }
+
+    impl FanOutExecutor {
+        fn received_by_node(&self) -> BTreeMap<String, Vec<Vec<u8>>> {
+            self.received_by_node
+                .lock()
+                .expect("fan-out executor lock should not be poisoned")
+                .clone()
+        }
+
+        fn push_received(&self, node_id: &str, packet: PortPacket) {
+            self.received_by_node
+                .lock()
+                .expect("fan-out executor lock should not be poisoned")
+                .entry(node_id.to_owned())
+                .or_default()
+                .push(packet_payload_bytes(packet));
+        }
+    }
+
+    impl NodeExecutor for FanOutExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            mut inputs: PortsIn,
+            outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                let cancellation = ctx.cancellation_token();
+
+                if ctx.node_id().as_str() == "source" {
+                    outputs
+                        .send(
+                            &port_id("out"),
+                            packet_between(b"fan", "source", "left"),
+                            &cancellation,
+                        )
+                        .await?;
+                    return Ok(());
+                }
+
+                let node_name: String = ctx.node_id().to_string();
+                let packet: PortPacket = inputs
+                    .recv(&port_id("in"), &cancellation)
+                    .await?
+                    .expect("fan-out sink should receive one packet");
+                self.push_received(&node_name, packet);
+
+                Ok(())
+            })
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct FanInClosureExecutor {
+        received: Mutex<Vec<Vec<u8>>>,
+        closure_observed: Mutex<bool>,
+    }
+
+    impl FanInClosureExecutor {
+        fn received_payloads(&self) -> Vec<Vec<u8>> {
+            self.received
+                .lock()
+                .expect("fan-in executor received lock should not be poisoned")
+                .clone()
+        }
+
+        fn closure_observed(&self) -> bool {
+            *self
+                .closure_observed
+                .lock()
+                .expect("fan-in executor closure lock should not be poisoned")
+        }
+
+        fn push_received(&self, packet: PortPacket) {
+            self.received
+                .lock()
+                .expect("fan-in executor received lock should not be poisoned")
+                .push(packet_payload_bytes(packet));
+        }
+    }
+
+    impl NodeExecutor for FanInClosureExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            mut inputs: PortsIn,
+            outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                let cancellation = ctx.cancellation_token();
+
+                match ctx.node_id().as_str() {
+                    "left" | "right" => {
+                        let source_node: String = ctx.node_id().to_string();
+                        outputs
+                            .send(
+                                &port_id("out"),
+                                packet_between(source_node.as_bytes(), &source_node, "collector"),
+                                &cancellation,
+                            )
+                            .await?;
+                    }
+                    "collector" => {
+                        for _packet_index in 0..2 {
+                            let packet: PortPacket = inputs
+                                .recv(&port_id("in"), &cancellation)
+                                .await?
+                                .expect("fan-in collector should receive both packets");
+                            self.push_received(packet);
+                        }
+
+                        let closed: std::result::Result<Option<PortPacket>, PortRecvError> =
+                            inputs.recv(&port_id("in"), &cancellation).await;
+                        if matches!(closed, Err(PortRecvError::Disconnected { .. })) {
+                            *self
+                                .closure_observed
+                                .lock()
+                                .expect("fan-in executor closure lock should not be poisoned") =
+                                true;
+                        } else {
+                            return Err(ConduitError::execution(
+                                "fan-in input should close after upstream senders finish",
+                            ));
+                        }
+                    }
+                    _ => {}
                 }
 
                 Ok(())
@@ -377,14 +615,26 @@ mod tests {
     }
 
     fn packet(value: &[u8]) -> PortPacket {
-        let source: MessageEndpoint = MessageEndpoint::new(node_id("source"), port_id("out"));
-        let target: MessageEndpoint = MessageEndpoint::new(node_id("sink"), port_id("in"));
+        packet_between(value, "source", "sink")
+    }
+
+    fn packet_between(value: &[u8], source_node: &str, target_node: &str) -> PortPacket {
+        let source: MessageEndpoint = MessageEndpoint::new(node_id(source_node), port_id("out"));
+        let target: MessageEndpoint = MessageEndpoint::new(node_id(target_node), port_id("in"));
         let route: MessageRoute = MessageRoute::new(Some(source), target);
         let execution: ExecutionMetadata = ExecutionMetadata::first_attempt(execution_id("run-1"));
         let metadata: MessageMetadata =
             MessageMetadata::new(message_id("msg-1"), workflow_id("flow"), execution, route);
 
         PortPacket::new(metadata, PacketPayload::from(value.to_vec()))
+    }
+
+    fn packet_payload_bytes(packet: PortPacket) -> Vec<u8> {
+        packet
+            .into_payload()
+            .as_bytes()
+            .expect("engine backpressure tests send bytes")
+            .to_vec()
     }
 
     #[test]
@@ -508,6 +758,80 @@ mod tests {
             executor.observed_capacities(),
             vec![Some(NonZeroUsize::new(3).expect("nonzero").get())]
         );
+    }
+
+    #[test]
+    fn run_workflow_backpressure_blocks_until_downstream_receives() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .node(NodeBuilder::new("sink").input("in").build())
+            .edge_with_capacity(
+                "source",
+                "out",
+                "sink",
+                "in",
+                NonZeroUsize::new(1).expect("nonzero"),
+            )
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: BoundedBackpressureExecutor = BoundedBackpressureExecutor::default();
+
+        block_on(run_workflow(&workflow, &execution, &executor)).expect("workflow should run");
+
+        let events: Vec<String> = executor.events();
+        assert!(
+            events
+                .iter()
+                .any(|event: &String| event == "source-observed-full-edge")
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event: &String| event == "source-second-send-completed")
+        );
+        assert_eq!(
+            executor.received_payloads(),
+            vec![b"first".to_vec(), b"second".to_vec()]
+        );
+    }
+
+    #[test]
+    fn run_workflow_fans_out_one_output_to_all_downstream_inputs() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .node(NodeBuilder::new("left").input("in").build())
+            .node(NodeBuilder::new("right").input("in").build())
+            .edge("source", "out", "left", "in")
+            .edge("source", "out", "right", "in")
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: FanOutExecutor = FanOutExecutor::default();
+
+        block_on(run_workflow(&workflow, &execution, &executor)).expect("workflow should run");
+
+        let received_by_node: BTreeMap<String, Vec<Vec<u8>>> = executor.received_by_node();
+        assert_eq!(received_by_node.get("left"), Some(&vec![b"fan".to_vec()]));
+        assert_eq!(received_by_node.get("right"), Some(&vec![b"fan".to_vec()]));
+    }
+
+    #[test]
+    fn run_workflow_fans_in_and_propagates_upstream_closure() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("left").output("out").build())
+            .node(NodeBuilder::new("right").output("out").build())
+            .node(NodeBuilder::new("collector").input("in").build())
+            .edge("left", "out", "collector", "in")
+            .edge("right", "out", "collector", "in")
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: FanInClosureExecutor = FanInClosureExecutor::default();
+
+        block_on(run_workflow(&workflow, &execution, &executor)).expect("workflow should run");
+
+        let mut received: Vec<Vec<u8>> = executor.received_payloads();
+        received.sort();
+        assert_eq!(received, vec![b"left".to_vec(), b"right".to_vec()]);
+        assert!(executor.closure_observed());
     }
 
     #[test]
