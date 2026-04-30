@@ -14,9 +14,16 @@ conduit-types.workspace = true
 conduit-workflow.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+criterion.workspace = true
+
 [features]
 default = []
 arrow = ["dep:arrow-array", "dep:arrow-schema"]
+
+[[bench]]
+name = "metadata_overhead"
+harness = false
 
 [lints]
 workspace = true
