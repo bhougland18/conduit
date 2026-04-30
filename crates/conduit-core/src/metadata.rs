@@ -12,6 +12,7 @@
 use std::{
     fs::File,
     io::{BufWriter, Write},
+    num::NonZeroUsize,
     path::Path,
     sync::{Mutex, MutexGuard, PoisonError},
 };
@@ -74,6 +75,75 @@ pub enum MetadataRecord {
     Message(MessageBoundaryRecord),
 }
 
+/// Cost tier for one metadata record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetadataTier {
+    /// Control-plane facts that are cheap and useful for diagnostics.
+    Control,
+    /// Data-tier facts that may be sampled to bound metadata volume.
+    Data,
+    /// High-cost data-tier facts such as payload bytes or Arrow buffer detail.
+    HighCostData,
+}
+
+/// Policy used by a tiered metadata sink.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TieredMetadataPolicy {
+    data_sample_rate: Option<NonZeroUsize>,
+    record_high_cost_data: bool,
+}
+
+impl TieredMetadataPolicy {
+    /// Record control facts only.
+    #[must_use]
+    pub const fn control_only() -> Self {
+        Self {
+            data_sample_rate: None,
+            record_high_cost_data: false,
+        }
+    }
+
+    /// Record every data-tier fact while still dropping high-cost data facts.
+    #[must_use]
+    pub const fn record_data() -> Self {
+        Self {
+            data_sample_rate: Some(NonZeroUsize::MIN),
+            record_high_cost_data: false,
+        }
+    }
+
+    /// Record one data-tier fact every `sample_rate` observations.
+    #[must_use]
+    pub const fn sample_data_every(sample_rate: NonZeroUsize) -> Self {
+        Self {
+            data_sample_rate: Some(sample_rate),
+            record_high_cost_data: false,
+        }
+    }
+
+    /// Allow high-cost data-tier facts to pass through.
+    #[must_use]
+    pub const fn with_high_cost_data(mut self) -> Self {
+        self.record_high_cost_data = true;
+        self
+    }
+
+    fn should_record_data(self, ordinal: usize) -> bool {
+        self.data_sample_rate
+            .is_some_and(|sample_rate: NonZeroUsize| ordinal.is_multiple_of(sample_rate.get()))
+    }
+
+    const fn should_record_high_cost_data(self) -> bool {
+        self.record_high_cost_data
+    }
+}
+
+impl Default for TieredMetadataPolicy {
+    fn default() -> Self {
+        Self::control_only()
+    }
+}
+
 /// Convert one metadata record into the stable JSON shape used by JSONL sinks.
 ///
 /// The projection intentionally omits wall-clock timestamps and process-local
@@ -116,6 +186,98 @@ pub struct NoopMetadataSink;
 impl MetadataSink for NoopMetadataSink {
     fn record(&self, _record: &MetadataRecord) -> Result<()> {
         Ok(())
+    }
+}
+
+/// Metadata sink adapter that applies a cost-tier policy before forwarding.
+#[derive(Debug)]
+pub struct TieredMetadataSink<S> {
+    inner: S,
+    policy: TieredMetadataPolicy,
+    counters: Mutex<TieredMetadataCounters>,
+}
+
+#[derive(Debug, Default)]
+struct TieredMetadataCounters {
+    data_seen: usize,
+}
+
+impl<S> TieredMetadataSink<S> {
+    /// Wrap a sink with the default control-only metadata policy.
+    #[must_use]
+    pub const fn new(inner: S) -> Self {
+        Self::with_policy(inner, TieredMetadataPolicy::control_only())
+    }
+
+    /// Wrap a sink with an explicit tiered metadata policy.
+    #[must_use]
+    pub const fn with_policy(inner: S, policy: TieredMetadataPolicy) -> Self {
+        Self {
+            inner,
+            policy,
+            counters: Mutex::new(TieredMetadataCounters { data_seen: 0 }),
+        }
+    }
+
+    /// Return the configured tiered metadata policy.
+    #[must_use]
+    pub const fn policy(&self) -> TieredMetadataPolicy {
+        self.policy
+    }
+
+    /// Return the wrapped sink.
+    #[must_use]
+    pub fn into_inner(self) -> S {
+        self.inner
+    }
+
+    fn should_record(&self, tier: MetadataTier) -> Result<bool> {
+        match tier {
+            MetadataTier::Control => Ok(true),
+            MetadataTier::Data => {
+                let ordinal: usize = {
+                    let mut counters: MutexGuard<'_, TieredMetadataCounters> =
+                        self.counters.lock().map_err(
+                            |_err: PoisonError<MutexGuard<'_, TieredMetadataCounters>>| {
+                                tiered_lock_error()
+                            },
+                        )?;
+                    let ordinal: usize = counters.data_seen;
+                    counters.data_seen = counters.data_seen.saturating_add(1);
+                    ordinal
+                };
+                Ok(self.policy.should_record_data(ordinal))
+            }
+            MetadataTier::HighCostData => Ok(self.policy.should_record_high_cost_data()),
+        }
+    }
+}
+
+impl<S> TieredMetadataSink<S>
+where
+    S: MetadataSink,
+{
+    /// Record one metadata fact with an explicit cost tier.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the tier policy state cannot be read or if the
+    /// wrapped sink rejects a record selected by the policy.
+    pub fn record_with_tier(&self, tier: MetadataTier, record: &MetadataRecord) -> Result<()> {
+        if self.should_record(tier)? {
+            self.inner.record(record)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<S> MetadataSink for TieredMetadataSink<S>
+where
+    S: MetadataSink,
+{
+    fn record(&self, record: &MetadataRecord) -> Result<()> {
+        self.record_with_tier(MetadataTier::Control, record)
     }
 }
 
@@ -280,12 +442,17 @@ fn jsonl_lock_error() -> crate::ConduitError {
     crate::ConduitError::metadata("metadata JSONL writer lock poisoned")
 }
 
+fn tiered_lock_error() -> crate::ConduitError {
+    crate::ConduitError::metadata("tiered metadata policy lock poisoned")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::context::ExecutionMetadata;
     use conduit_types::{ExecutionId, MessageId, NodeId, PortId, WorkflowId};
     use std::io;
+    use std::sync::Arc;
 
     fn execution_id(value: &str) -> ExecutionId {
         ExecutionId::new(value).expect("valid execution id")
@@ -327,6 +494,43 @@ mod tests {
         )
     }
 
+    #[derive(Debug, Default)]
+    struct RecordingMetadataSink {
+        records: Mutex<Vec<MetadataRecord>>,
+    }
+
+    impl RecordingMetadataSink {
+        fn len(&self) -> usize {
+            self.records
+                .lock()
+                .expect("recording metadata sink lock should not be poisoned")
+                .len()
+        }
+
+        fn records(&self) -> Vec<MetadataRecord> {
+            self.records
+                .lock()
+                .expect("recording metadata sink lock should not be poisoned")
+                .clone()
+        }
+    }
+
+    impl MetadataSink for RecordingMetadataSink {
+        fn record(&self, record: &MetadataRecord) -> Result<()> {
+            self.records
+                .lock()
+                .expect("recording metadata sink lock should not be poisoned")
+                .push(record.clone());
+            Ok(())
+        }
+    }
+
+    impl MetadataSink for Arc<RecordingMetadataSink> {
+        fn record(&self, record: &MetadataRecord) -> Result<()> {
+            self.as_ref().record(record)
+        }
+    }
+
     #[test]
     fn metadata_record_keeps_context_shape_intact() {
         let record: MetadataRecord = MetadataRecord::ExecutionContext(context());
@@ -344,6 +548,80 @@ mod tests {
         NoopMetadataSink
             .record(&record)
             .expect("noop metadata sink should accept records");
+    }
+
+    #[test]
+    fn tiered_metadata_sink_records_control_records_by_default() {
+        let inner: Arc<RecordingMetadataSink> = Arc::new(RecordingMetadataSink::default());
+        let sink: TieredMetadataSink<Arc<RecordingMetadataSink>> =
+            TieredMetadataSink::new(inner.clone());
+        let record: MetadataRecord = MetadataRecord::Lifecycle(LifecycleEvent::new(
+            LifecycleEventKind::NodeStarted,
+            context(),
+        ));
+
+        sink.record(&record)
+            .expect("control metadata should pass through");
+
+        assert_eq!(inner.records(), vec![record]);
+    }
+
+    #[test]
+    fn tiered_metadata_sink_drops_data_and_high_cost_records_by_default() {
+        let inner: Arc<RecordingMetadataSink> = Arc::new(RecordingMetadataSink::default());
+        let sink: TieredMetadataSink<Arc<RecordingMetadataSink>> =
+            TieredMetadataSink::new(inner.clone());
+        let record: MetadataRecord = MetadataRecord::Message(MessageBoundaryRecord::new(
+            MessageBoundaryKind::Enqueued,
+            message_metadata(),
+        ));
+
+        sink.record_with_tier(MetadataTier::Data, &record)
+            .expect("dropped data metadata should be accepted");
+        sink.record_with_tier(MetadataTier::HighCostData, &record)
+            .expect("dropped high-cost metadata should be accepted");
+
+        assert_eq!(inner.len(), 0);
+    }
+
+    #[test]
+    fn tiered_metadata_sink_samples_data_records() {
+        let inner: Arc<RecordingMetadataSink> = Arc::new(RecordingMetadataSink::default());
+        let policy: TieredMetadataPolicy =
+            TieredMetadataPolicy::sample_data_every(NonZeroUsize::new(2).expect("nonzero"));
+        let sink: TieredMetadataSink<Arc<RecordingMetadataSink>> =
+            TieredMetadataSink::with_policy(inner.clone(), policy);
+        let record: MetadataRecord = MetadataRecord::Message(MessageBoundaryRecord::new(
+            MessageBoundaryKind::Dequeued,
+            message_metadata(),
+        ));
+
+        sink.record_with_tier(MetadataTier::Data, &record)
+            .expect("first sampled data metadata should pass through");
+        sink.record_with_tier(MetadataTier::Data, &record)
+            .expect("second sampled data metadata should be dropped");
+        sink.record_with_tier(MetadataTier::Data, &record)
+            .expect("third sampled data metadata should pass through");
+
+        assert_eq!(inner.records(), vec![record.clone(), record]);
+    }
+
+    #[test]
+    fn tiered_metadata_policy_can_enable_high_cost_records() {
+        let inner: Arc<RecordingMetadataSink> = Arc::new(RecordingMetadataSink::default());
+        let sink: TieredMetadataSink<Arc<RecordingMetadataSink>> = TieredMetadataSink::with_policy(
+            inner.clone(),
+            TieredMetadataPolicy::control_only().with_high_cost_data(),
+        );
+        let record: MetadataRecord = MetadataRecord::Message(MessageBoundaryRecord::new(
+            MessageBoundaryKind::Dropped,
+            message_metadata(),
+        ));
+
+        sink.record_with_tier(MetadataTier::HighCostData, &record)
+            .expect("enabled high-cost metadata should pass through");
+
+        assert_eq!(inner.records(), vec![record]);
     }
 
     #[test]
