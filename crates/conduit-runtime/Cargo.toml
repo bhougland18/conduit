@@ -8,6 +8,11 @@ publish.workspace = true
 [dependencies]
 asupersync.workspace = true
 conduit-core.workspace = true
+tracing = { workspace = true, optional = true }
+
+[features]
+default = []
+tracing = ["dep:tracing"]
 
 [dev-dependencies]
 conduit-test-kit.workspace = true

@@ -364,6 +364,7 @@ dependencies = [
  "conduit-core",
  "conduit-test-kit",
  "futures",
+ "tracing",
 ]
 
 [[package]]

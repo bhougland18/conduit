@@ -280,7 +280,10 @@ where
     M: MetadataSink + ?Sized,
 {
     let event: LifecycleEvent = LifecycleEvent::new(kind, ctx);
-    metadata_sink.record(&MetadataRecord::Lifecycle(event.clone()))?;
+    emit_lifecycle_trace(&event);
+    let record: MetadataRecord = MetadataRecord::Lifecycle(event.clone());
+    emit_metadata_trace(&record);
+    metadata_sink.record(&record)?;
     hook.observe(&event)
 }
 
@@ -288,8 +291,74 @@ fn cancellation_error(ctx: &NodeContext) -> Option<ConduitError> {
     match ctx.cancellation() {
         CancellationState::Active => None,
         CancellationState::Requested(request) => {
+            emit_cancellation_trace(ctx, request.reason());
             Some(ConduitError::from(CancellationError::new(request.reason())))
         }
+    }
+}
+
+#[cfg(feature = "tracing")]
+fn emit_lifecycle_trace(event: &LifecycleEvent) {
+    let ctx: &NodeContext = event.context();
+    tracing::info!(
+        target: "conduit.runtime.lifecycle",
+        kind = lifecycle_event_kind_label(event.kind()),
+        workflow_id = %ctx.workflow_id(),
+        node_id = %ctx.node_id(),
+        execution_id = %ctx.execution().execution_id(),
+        attempt = ctx.execution().attempt().get(),
+        "runtime lifecycle event"
+    );
+}
+
+#[cfg(not(feature = "tracing"))]
+const fn emit_lifecycle_trace(_event: &LifecycleEvent) {}
+
+#[cfg(feature = "tracing")]
+fn emit_metadata_trace(record: &MetadataRecord) {
+    tracing::debug!(
+        target: "conduit.runtime.metadata",
+        record_type = metadata_record_kind_label(record),
+        "runtime metadata record emitted"
+    );
+}
+
+#[cfg(not(feature = "tracing"))]
+const fn emit_metadata_trace(_record: &MetadataRecord) {}
+
+#[cfg(feature = "tracing")]
+fn emit_cancellation_trace(ctx: &NodeContext, reason: &str) {
+    tracing::warn!(
+        target: "conduit.runtime.cancellation",
+        workflow_id = %ctx.workflow_id(),
+        node_id = %ctx.node_id(),
+        execution_id = %ctx.execution().execution_id(),
+        attempt = ctx.execution().attempt().get(),
+        reason,
+        "runtime cancellation observed"
+    );
+}
+
+#[cfg(not(feature = "tracing"))]
+const fn emit_cancellation_trace(_ctx: &NodeContext, _reason: &str) {}
+
+#[cfg(feature = "tracing")]
+const fn lifecycle_event_kind_label(kind: LifecycleEventKind) -> &'static str {
+    match kind {
+        LifecycleEventKind::NodeScheduled => "node_scheduled",
+        LifecycleEventKind::NodeStarted => "node_started",
+        LifecycleEventKind::NodeCompleted => "node_completed",
+        LifecycleEventKind::NodeFailed => "node_failed",
+        LifecycleEventKind::NodeCancelled => "node_cancelled",
+    }
+}
+
+#[cfg(feature = "tracing")]
+const fn metadata_record_kind_label(record: &MetadataRecord) -> &'static str {
+    match record {
+        MetadataRecord::ExecutionContext(_) => "execution_context",
+        MetadataRecord::Lifecycle(_) => "lifecycle",
+        MetadataRecord::Message(_) => "message",
     }
 }
 
@@ -678,6 +747,19 @@ mod tests {
                 LifecycleEventKind::NodeCompleted,
             ]
         );
+    }
+
+    #[cfg(feature = "tracing")]
+    #[test]
+    fn tracing_feature_uses_stable_runtime_labels() {
+        let event: LifecycleEvent = LifecycleEvent::new(LifecycleEventKind::NodeStarted, context());
+        let record: MetadataRecord = MetadataRecord::Lifecycle(event);
+
+        assert_eq!(
+            lifecycle_event_kind_label(LifecycleEventKind::NodeStarted),
+            "node_started"
+        );
+        assert_eq!(metadata_record_kind_label(&record), "lifecycle");
     }
 
     #[test]
