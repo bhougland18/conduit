@@ -15,6 +15,132 @@ use futures::stream::{FuturesUnordered, StreamExt};
 
 const DEFAULT_EDGE_CAPACITY: NonZeroUsize = NonZeroUsize::MIN;
 
+/// Terminal state for one workflow run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowTerminalState {
+    /// Every scheduled node completed successfully.
+    Completed,
+    /// At least one node failed with an execution, lifecycle, metadata, or
+    /// validation error.
+    Failed,
+    /// The run terminated because cancellation was the first observed error.
+    Cancelled,
+}
+
+/// Aggregate outcome for one workflow run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowRunSummary {
+    terminal_state: WorkflowTerminalState,
+    scheduled_node_count: usize,
+    completed_node_count: usize,
+    failed_node_count: usize,
+    cancelled_node_count: usize,
+    observed_message_count: usize,
+    error_count: usize,
+    first_error: Option<ConduitError>,
+}
+
+impl WorkflowRunSummary {
+    /// Start an empty summary for a run with `scheduled_node_count` nodes.
+    #[must_use]
+    pub const fn new(scheduled_node_count: usize) -> Self {
+        Self {
+            terminal_state: WorkflowTerminalState::Completed,
+            scheduled_node_count,
+            completed_node_count: 0,
+            failed_node_count: 0,
+            cancelled_node_count: 0,
+            observed_message_count: 0,
+            error_count: 0,
+            first_error: None,
+        }
+    }
+
+    /// Terminal state after all scheduled node runs were observed.
+    #[must_use]
+    pub const fn terminal_state(&self) -> WorkflowTerminalState {
+        self.terminal_state
+    }
+
+    /// Number of nodes scheduled for execution.
+    #[must_use]
+    pub const fn scheduled_node_count(&self) -> usize {
+        self.scheduled_node_count
+    }
+
+    /// Number of nodes that completed successfully.
+    #[must_use]
+    pub const fn completed_node_count(&self) -> usize {
+        self.completed_node_count
+    }
+
+    /// Number of nodes that returned a non-cancellation error.
+    #[must_use]
+    pub const fn failed_node_count(&self) -> usize {
+        self.failed_node_count
+    }
+
+    /// Number of nodes that returned a cancellation error.
+    #[must_use]
+    pub const fn cancelled_node_count(&self) -> usize {
+        self.cancelled_node_count
+    }
+
+    /// Number of message observations accounted for by the workflow runner.
+    ///
+    /// This remains zero until queue-pressure/message accounting is attached to
+    /// the runner in the observability tranche.
+    #[must_use]
+    pub const fn observed_message_count(&self) -> usize {
+        self.observed_message_count
+    }
+
+    /// Number of node results that ended in an error.
+    #[must_use]
+    pub const fn error_count(&self) -> usize {
+        self.error_count
+    }
+
+    /// First error observed by the workflow runner, if any.
+    #[must_use]
+    pub const fn first_error(&self) -> Option<&ConduitError> {
+        self.first_error.as_ref()
+    }
+
+    /// Convert a summary into the legacy `Result<()>` shape.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first observed workflow error when the terminal state is not
+    /// [`WorkflowTerminalState::Completed`].
+    pub fn into_result(self) -> Result<()> {
+        self.first_error.map_or(Ok(()), Err)
+    }
+
+    const fn record_success(&mut self) {
+        self.completed_node_count = self.completed_node_count.saturating_add(1);
+    }
+
+    fn record_error(&mut self, err: ConduitError) {
+        self.error_count = self.error_count.saturating_add(1);
+
+        if matches!(err, ConduitError::Cancellation(_)) {
+            self.cancelled_node_count = self.cancelled_node_count.saturating_add(1);
+        } else {
+            self.failed_node_count = self.failed_node_count.saturating_add(1);
+        }
+
+        if self.first_error.is_none() {
+            self.terminal_state = if matches!(err, ConduitError::Cancellation(_)) {
+                WorkflowTerminalState::Cancelled
+            } else {
+                WorkflowTerminalState::Failed
+            };
+            self.first_error = Some(err);
+        }
+    }
+}
+
 /// Registry that resolves workflow nodes to runtime executors.
 ///
 /// The registry owns node-to-executor selection while the workflow runner owns
@@ -100,12 +226,12 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if executor resolution fails or any node execution fails.
-pub async fn run_workflow_with_registry<R>(
+/// Returns an error if executor resolution fails.
+pub async fn run_workflow_with_registry_summary<R>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
     registry: &R,
-) -> Result<()>
+) -> Result<WorkflowRunSummary>
 where
     R: NodeExecutorRegistry + ?Sized,
 {
@@ -115,8 +241,9 @@ where
     let node_runs: FuturesUnordered<_> = FuturesUnordered::new();
     for node in workflow.nodes() {
         let executor: &R::Executor = registry.executor_for(node.id())?;
+        let node_id: NodeId = node.id().clone();
         let ctx: NodeContext =
-            NodeContext::new(workflow.id().clone(), node.id().clone(), execution.clone())
+            NodeContext::new(workflow.id().clone(), node_id.clone(), execution.clone())
                 .with_cancellation_token(cancellation.token());
         let inputs: PortsIn = PortsIn::from_handles(
             node.input_ports().to_vec(),
@@ -126,10 +253,75 @@ where
             node.output_ports().to_vec(),
             outputs_by_node.remove(node.id()).unwrap_or_default(),
         );
-        node_runs.push(run_node(executor, ctx, inputs, outputs));
+        node_runs.push(async move {
+            let result: Result<()> = run_node(executor, ctx, inputs, outputs).await;
+            (node_id, result)
+        });
     }
 
-    collect_node_results(node_runs, &cancellation).await
+    collect_workflow_summary(node_runs, &cancellation, workflow.nodes().len()).await
+}
+
+/// Execute the workflow by resolving one executor for each node from a registry.
+///
+/// # Errors
+///
+/// Returns an error if executor resolution fails or any node execution fails.
+pub async fn run_workflow_with_registry<R>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    registry: &R,
+) -> Result<()>
+where
+    R: NodeExecutorRegistry + ?Sized,
+{
+    run_workflow_with_registry_summary(workflow, execution, registry)
+        .await?
+        .into_result()
+}
+
+/// Execute the workflow through a registry and emit metadata records.
+///
+/// # Errors
+///
+/// Returns an error if executor resolution fails.
+pub async fn run_workflow_with_registry_and_metadata_sink_summary<R, M>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    registry: &R,
+    metadata_sink: Arc<M>,
+) -> Result<WorkflowRunSummary>
+where
+    R: NodeExecutorRegistry + ?Sized,
+    M: MetadataSink + 'static,
+{
+    let (mut inputs_by_node, mut outputs_by_node): PortWiring = build_port_wiring(workflow);
+    let cancellation: CancellationHandle = CancellationHandle::new();
+
+    let node_runs: FuturesUnordered<_> = FuturesUnordered::new();
+    for node in workflow.nodes() {
+        let executor: &R::Executor = registry.executor_for(node.id())?;
+        let node_id: NodeId = node.id().clone();
+        let ctx: NodeContext =
+            NodeContext::new(workflow.id().clone(), node_id.clone(), execution.clone())
+                .with_cancellation_token(cancellation.token());
+        let inputs: PortsIn = PortsIn::from_handles(
+            node.input_ports().to_vec(),
+            inputs_by_node.remove(node.id()).unwrap_or_default(),
+        );
+        let outputs: PortsOut = PortsOut::from_handles(
+            node.output_ports().to_vec(),
+            outputs_by_node.remove(node.id()).unwrap_or_default(),
+        );
+        let metadata_sink: Arc<M> = metadata_sink.clone();
+        node_runs.push(async move {
+            let result: Result<()> =
+                run_node_with_metadata_sink(executor, ctx, inputs, outputs, metadata_sink).await;
+            (node_id, result)
+        });
+    }
+
+    collect_workflow_summary(node_runs, &cancellation, workflow.nodes().len()).await
 }
 
 /// Execute the workflow through a registry and emit metadata records.
@@ -148,33 +340,14 @@ where
     R: NodeExecutorRegistry + ?Sized,
     M: MetadataSink + 'static,
 {
-    let (mut inputs_by_node, mut outputs_by_node): PortWiring = build_port_wiring(workflow);
-    let cancellation: CancellationHandle = CancellationHandle::new();
-
-    let node_runs: FuturesUnordered<_> = FuturesUnordered::new();
-    for node in workflow.nodes() {
-        let executor: &R::Executor = registry.executor_for(node.id())?;
-        let ctx: NodeContext =
-            NodeContext::new(workflow.id().clone(), node.id().clone(), execution.clone())
-                .with_cancellation_token(cancellation.token());
-        let inputs: PortsIn = PortsIn::from_handles(
-            node.input_ports().to_vec(),
-            inputs_by_node.remove(node.id()).unwrap_or_default(),
-        );
-        let outputs: PortsOut = PortsOut::from_handles(
-            node.output_ports().to_vec(),
-            outputs_by_node.remove(node.id()).unwrap_or_default(),
-        );
-        node_runs.push(run_node_with_metadata_sink(
-            executor,
-            ctx,
-            inputs,
-            outputs,
-            metadata_sink.clone(),
-        ));
-    }
-
-    collect_node_results(node_runs, &cancellation).await
+    run_workflow_with_registry_and_metadata_sink_summary(
+        workflow,
+        execution,
+        registry,
+        metadata_sink,
+    )
+    .await?
+    .into_result()
 }
 
 /// Execute the workflow by invoking the provided executor for each node.
@@ -189,6 +362,20 @@ pub async fn run_workflow<E: NodeExecutor + ?Sized>(
 ) -> Result<()> {
     let registry: SingleNodeExecutorRegistry<'_, E> = SingleNodeExecutorRegistry::new(executor);
     run_workflow_with_registry(workflow, execution, &registry).await
+}
+
+/// Execute the workflow through one executor and return an aggregate summary.
+///
+/// # Errors
+///
+/// Returns an error if registry-style executor setup fails.
+pub async fn run_workflow_summary<E: NodeExecutor + ?Sized>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    executor: &E,
+) -> Result<WorkflowRunSummary> {
+    let registry: SingleNodeExecutorRegistry<'_, E> = SingleNodeExecutorRegistry::new(executor);
+    run_workflow_with_registry_summary(workflow, execution, &registry).await
 }
 
 /// Execute the workflow with one executor and emit metadata records through a sink.
@@ -211,26 +398,55 @@ where
         .await
 }
 
-async fn collect_node_results<F>(
+/// Execute the workflow with one executor, emit metadata, and return a summary.
+///
+/// # Errors
+///
+/// Returns an error if registry-style executor setup fails.
+pub async fn run_workflow_with_metadata_sink_summary<E, M>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    executor: &E,
+    metadata_sink: Arc<M>,
+) -> Result<WorkflowRunSummary>
+where
+    E: NodeExecutor + ?Sized,
+    M: MetadataSink + 'static,
+{
+    let registry: SingleNodeExecutorRegistry<'_, E> = SingleNodeExecutorRegistry::new(executor);
+    run_workflow_with_registry_and_metadata_sink_summary(
+        workflow,
+        execution,
+        &registry,
+        metadata_sink,
+    )
+    .await
+}
+
+async fn collect_workflow_summary<F>(
     mut node_runs: FuturesUnordered<F>,
     cancellation: &CancellationHandle,
-) -> Result<()>
+    scheduled_node_count: usize,
+) -> Result<WorkflowRunSummary>
 where
-    F: Future<Output = Result<()>>,
+    F: Future<Output = (NodeId, Result<()>)>,
 {
-    let mut first_error: Option<ConduitError> = None;
-    while let Some(result) = node_runs.next().await {
-        if let Err(err) = result
-            && first_error.is_none()
-        {
-            let _first_request: bool = cancellation.cancel(CancellationRequest::new(format!(
-                "node execution failed: {err}"
-            )));
-            first_error = Some(err);
+    let mut summary: WorkflowRunSummary = WorkflowRunSummary::new(scheduled_node_count);
+    while let Some((_node_id, result)) = node_runs.next().await {
+        match result {
+            Ok(()) => summary.record_success(),
+            Err(err) => {
+                if summary.first_error().is_none() {
+                    let _first_request: bool = cancellation.cancel(CancellationRequest::new(
+                        format!("node execution failed: {err}"),
+                    ));
+                }
+                summary.record_error(err);
+            }
         }
     }
 
-    first_error.map_or(Ok(()), Err)
+    Ok(summary)
 }
 
 type PortWiring = (
@@ -678,6 +894,22 @@ mod tests {
     }
 
     #[derive(Debug, Default)]
+    struct CancelledExecutor;
+
+    impl NodeExecutor for CancelledExecutor {
+        type RunFuture<'a> = Ready<Result<()>>;
+
+        fn run(
+            &self,
+            _ctx: NodeContext,
+            _inputs: PortsIn,
+            _outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            ready(Err(ConduitError::cancelled("test cancellation")))
+        }
+    }
+
+    #[derive(Debug, Default)]
     struct SiblingCancellationExecutor {
         cancellation_observed: Mutex<bool>,
     }
@@ -912,6 +1144,77 @@ mod tests {
             err.to_string()
                 .contains("no executor registered for workflow node `missing`")
         );
+    }
+
+    #[test]
+    fn run_workflow_summary_reports_successful_terminal_state() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("first").build())
+            .node(NodeBuilder::new("second").build())
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: RecordingExecutor = RecordingExecutor::default();
+
+        let summary: WorkflowRunSummary =
+            block_on(run_workflow_summary(&workflow, &execution, &executor))
+                .expect("summary workflow should run");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Completed);
+        assert_eq!(summary.scheduled_node_count(), 2);
+        assert_eq!(summary.completed_node_count(), 2);
+        assert_eq!(summary.failed_node_count(), 0);
+        assert_eq!(summary.cancelled_node_count(), 0);
+        assert_eq!(summary.error_count(), 0);
+        assert_eq!(summary.observed_message_count(), 0);
+        assert!(summary.first_error().is_none());
+    }
+
+    #[test]
+    fn run_workflow_summary_retains_first_failure_without_returning_error() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("first").build())
+            .node(NodeBuilder::new("second").build())
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: AggregateFailureExecutor = AggregateFailureExecutor::default();
+
+        let summary: WorkflowRunSummary =
+            block_on(run_workflow_summary(&workflow, &execution, &executor))
+                .expect("summary should preserve node failures as data");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Failed);
+        assert_eq!(summary.scheduled_node_count(), 2);
+        assert_eq!(summary.completed_node_count(), 1);
+        assert_eq!(summary.failed_node_count(), 1);
+        assert_eq!(summary.cancelled_node_count(), 0);
+        assert_eq!(summary.error_count(), 1);
+        assert!(
+            summary
+                .first_error()
+                .expect("summary should retain first error")
+                .to_string()
+                .contains("first failed")
+        );
+    }
+
+    #[test]
+    fn run_workflow_summary_reports_cancellation_terminal_state() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("node").build())
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: CancelledExecutor = CancelledExecutor;
+
+        let summary: WorkflowRunSummary =
+            block_on(run_workflow_summary(&workflow, &execution, &executor))
+                .expect("summary should preserve cancellation as data");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Cancelled);
+        assert_eq!(summary.scheduled_node_count(), 1);
+        assert_eq!(summary.completed_node_count(), 0);
+        assert_eq!(summary.failed_node_count(), 0);
+        assert_eq!(summary.cancelled_node_count(), 1);
+        assert_eq!(summary.error_count(), 1);
     }
 
     #[test]
