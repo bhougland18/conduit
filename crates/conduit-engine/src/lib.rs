@@ -7,8 +7,10 @@ use conduit_core::{
     CancellationHandle, ConduitError, InputPortHandle, MetadataSink, NodeExecutor,
     OutputPortHandle, PortsIn, PortsOut, Result, bounded_edge_channel,
     context::{CancellationRequest, ExecutionMetadata, NodeContext},
+    lifecycle::{LifecycleHook, NoopLifecycleHook},
+    metadata::NoopMetadataSink,
 };
-use conduit_runtime::{run_node, run_node_with_metadata_sink};
+use conduit_runtime::run_node_with_observers;
 use conduit_types::NodeId;
 use conduit_workflow::WorkflowDefinition;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -235,31 +237,15 @@ pub async fn run_workflow_with_registry_summary<R>(
 where
     R: NodeExecutorRegistry + ?Sized,
 {
-    let (mut inputs_by_node, mut outputs_by_node): PortWiring = build_port_wiring(workflow);
-    let cancellation: CancellationHandle = CancellationHandle::new();
-
-    let node_runs: FuturesUnordered<_> = FuturesUnordered::new();
-    for node in workflow.nodes() {
-        let executor: &R::Executor = registry.executor_for(node.id())?;
-        let node_id: NodeId = node.id().clone();
-        let ctx: NodeContext =
-            NodeContext::new(workflow.id().clone(), node_id.clone(), execution.clone())
-                .with_cancellation_token(cancellation.token());
-        let inputs: PortsIn = PortsIn::from_handles(
-            node.input_ports().to_vec(),
-            inputs_by_node.remove(node.id()).unwrap_or_default(),
-        );
-        let outputs: PortsOut = PortsOut::from_handles(
-            node.output_ports().to_vec(),
-            outputs_by_node.remove(node.id()).unwrap_or_default(),
-        );
-        node_runs.push(async move {
-            let result: Result<()> = run_node(executor, ctx, inputs, outputs).await;
-            (node_id, result)
-        });
-    }
-
-    collect_workflow_summary(node_runs, &cancellation, workflow.nodes().len()).await
+    let lifecycle_hook: NoopLifecycleHook = NoopLifecycleHook;
+    run_workflow_with_registry_and_observers_summary(
+        workflow,
+        execution,
+        registry,
+        &lifecycle_hook,
+        Arc::new(NoopMetadataSink),
+    )
+    .await
 }
 
 /// Execute the workflow by resolving one executor for each node from a registry.
@@ -295,6 +281,34 @@ where
     R: NodeExecutorRegistry + ?Sized,
     M: MetadataSink + 'static,
 {
+    let lifecycle_hook: NoopLifecycleHook = NoopLifecycleHook;
+    run_workflow_with_registry_and_observers_summary(
+        workflow,
+        execution,
+        registry,
+        &lifecycle_hook,
+        metadata_sink,
+    )
+    .await
+}
+
+/// Execute the workflow through a registry and report observer records.
+///
+/// # Errors
+///
+/// Returns an error if executor resolution fails.
+pub async fn run_workflow_with_registry_and_observers_summary<R, H, M>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    registry: &R,
+    lifecycle_hook: &H,
+    metadata_sink: Arc<M>,
+) -> Result<WorkflowRunSummary>
+where
+    R: NodeExecutorRegistry + ?Sized,
+    H: LifecycleHook + ?Sized,
+    M: MetadataSink + 'static,
+{
     let (mut inputs_by_node, mut outputs_by_node): PortWiring = build_port_wiring(workflow);
     let cancellation: CancellationHandle = CancellationHandle::new();
 
@@ -315,13 +329,49 @@ where
         );
         let metadata_sink: Arc<M> = metadata_sink.clone();
         node_runs.push(async move {
-            let result: Result<()> =
-                run_node_with_metadata_sink(executor, ctx, inputs, outputs, metadata_sink).await;
+            let result: Result<()> = run_node_with_observers(
+                executor,
+                ctx,
+                inputs,
+                outputs,
+                lifecycle_hook,
+                metadata_sink,
+            )
+            .await;
             (node_id, result)
         });
     }
 
     collect_workflow_summary(node_runs, &cancellation, workflow.nodes().len()).await
+}
+
+/// Execute the workflow through a registry and report observer records.
+///
+/// # Errors
+///
+/// Returns an error if executor resolution, observation, metadata collection,
+/// or node execution fails.
+pub async fn run_workflow_with_registry_and_observers<R, H, M>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    registry: &R,
+    lifecycle_hook: &H,
+    metadata_sink: Arc<M>,
+) -> Result<()>
+where
+    R: NodeExecutorRegistry + ?Sized,
+    H: LifecycleHook + ?Sized,
+    M: MetadataSink + 'static,
+{
+    run_workflow_with_registry_and_observers_summary(
+        workflow,
+        execution,
+        registry,
+        lifecycle_hook,
+        metadata_sink,
+    )
+    .await?
+    .into_result()
 }
 
 /// Execute the workflow through a registry and emit metadata records.
@@ -376,6 +426,63 @@ pub async fn run_workflow_summary<E: NodeExecutor + ?Sized>(
 ) -> Result<WorkflowRunSummary> {
     let registry: SingleNodeExecutorRegistry<'_, E> = SingleNodeExecutorRegistry::new(executor);
     run_workflow_with_registry_summary(workflow, execution, &registry).await
+}
+
+/// Execute the workflow through one executor and report observer records.
+///
+/// # Errors
+///
+/// Returns an error if registry-style executor setup fails.
+pub async fn run_workflow_with_observers_summary<E, H, M>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    executor: &E,
+    lifecycle_hook: &H,
+    metadata_sink: Arc<M>,
+) -> Result<WorkflowRunSummary>
+where
+    E: NodeExecutor + ?Sized,
+    H: LifecycleHook + ?Sized,
+    M: MetadataSink + 'static,
+{
+    let registry: SingleNodeExecutorRegistry<'_, E> = SingleNodeExecutorRegistry::new(executor);
+    run_workflow_with_registry_and_observers_summary(
+        workflow,
+        execution,
+        &registry,
+        lifecycle_hook,
+        metadata_sink,
+    )
+    .await
+}
+
+/// Execute the workflow through one executor and report observer records.
+///
+/// # Errors
+///
+/// Returns an error if observation, metadata collection, or node execution
+/// fails.
+pub async fn run_workflow_with_observers<E, H, M>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    executor: &E,
+    lifecycle_hook: &H,
+    metadata_sink: Arc<M>,
+) -> Result<()>
+where
+    E: NodeExecutor + ?Sized,
+    H: LifecycleHook + ?Sized,
+    M: MetadataSink + 'static,
+{
+    let registry: SingleNodeExecutorRegistry<'_, E> = SingleNodeExecutorRegistry::new(executor);
+    run_workflow_with_registry_and_observers(
+        workflow,
+        execution,
+        &registry,
+        lifecycle_hook,
+        metadata_sink,
+    )
+    .await
 }
 
 /// Execute the workflow with one executor and emit metadata records through a sink.
@@ -490,6 +597,7 @@ mod tests {
     use conduit_core::{
         ConduitError, ErrorCode, MetadataRecord, MetadataSink, PacketPayload, PortPacket,
         PortRecvError, PortSendError,
+        lifecycle::{LifecycleEvent, LifecycleEventKind},
         message::{MessageEndpoint, MessageMetadata, MessageRoute},
     };
     use conduit_test_kit::{
@@ -961,6 +1069,30 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Default)]
+    struct RecordingLifecycleHook {
+        events: Mutex<Vec<LifecycleEventKind>>,
+    }
+
+    impl RecordingLifecycleHook {
+        fn recorded(&self) -> Vec<LifecycleEventKind> {
+            self.events
+                .lock()
+                .expect("lifecycle hook lock should not be poisoned")
+                .clone()
+        }
+    }
+
+    impl LifecycleHook for RecordingLifecycleHook {
+        fn observe(&self, event: &LifecycleEvent) -> Result<()> {
+            self.events
+                .lock()
+                .expect("lifecycle hook lock should not be poisoned")
+                .push(event.kind());
+            Ok(())
+        }
+    }
+
     impl NodeExecutor for CapacityProbeExecutor {
         type RunFuture<'a> = Ready<Result<()>>;
 
@@ -1092,6 +1224,43 @@ mod tests {
             .count();
 
         assert_eq!(lifecycle_count, 4);
+    }
+
+    #[test]
+    fn run_workflow_with_observers_summary_records_lifecycle_hook_and_metadata() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("node").build())
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: RecordingExecutor = RecordingExecutor::default();
+        let hook: RecordingLifecycleHook = RecordingLifecycleHook::default();
+        let sink: Arc<RecordingMetadataSink> = Arc::new(RecordingMetadataSink::default());
+
+        let summary: WorkflowRunSummary = block_on(run_workflow_with_observers_summary(
+            &workflow,
+            &execution,
+            &executor,
+            &hook,
+            sink.clone(),
+        ))
+        .expect("observer workflow run should return a summary");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Completed);
+        assert_eq!(summary.completed_node_count(), 1);
+        assert_eq!(
+            hook.recorded(),
+            vec![
+                LifecycleEventKind::NodeStarted,
+                LifecycleEventKind::NodeCompleted
+            ]
+        );
+
+        let lifecycle_records: Vec<MetadataRecord> = sink
+            .records()
+            .into_iter()
+            .filter(|record: &MetadataRecord| matches!(record, MetadataRecord::Lifecycle(_)))
+            .collect();
+        assert_eq!(lifecycle_records.len(), 2);
     }
 
     #[test]
