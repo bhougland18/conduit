@@ -1,0 +1,42 @@
+# Native Linear ETL Example
+
+This example is a runnable three-node native workflow:
+
+- `source.rows` emits one deterministic packet.
+- `transform.rows` drains its input and emits one deterministic packet on `transform.cleaned`.
+- `sink.cleaned` drains the transformed packet and completes.
+
+The current CLI native executor is intentionally small. It proves the real
+registry, bounded port, lifecycle metadata, and message metadata path; it does
+not load user-defined ETL code yet.
+
+Validate and inspect the topology:
+
+```bash
+cargo run -p conduit-cli -- validate examples/native-linear-etl.workflow.json
+cargo run -p conduit-cli -- explain examples/native-linear-etl.workflow.json
+```
+
+Run it and write metadata JSONL:
+
+```bash
+cargo run -p conduit-cli -- run examples/native-linear-etl.workflow.json /tmp/conduit-native-linear-etl.metadata.jsonl
+```
+
+Expected run summary:
+
+```text
+ran workflow `native-linear-etl`
+nodes: 3
+edges: 2
+metadata: /tmp/conduit-native-linear-etl.metadata.jsonl
+records: 10
+```
+
+The metadata file contains six lifecycle records, one `started` and one
+`completed` record for each node, plus four message boundary records:
+
+- source output enqueued on `source.rows`
+- transform input dequeued from `source.rows`
+- transform output enqueued on `transform.cleaned`
+- sink input dequeued from `transform.cleaned`

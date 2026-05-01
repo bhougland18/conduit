@@ -545,6 +545,8 @@ mod tests {
     }
   ]
 }"#;
+    const NATIVE_LINEAR_ETL_WORKFLOW_JSON: &str =
+        include_str!("../../../examples/native-linear-etl.workflow.json");
 
     #[test]
     fn validate_reports_valid_workflow_summary() {
@@ -595,6 +597,19 @@ mod tests {
                 .metadata_jsonl
                 .contains("\"execution_id\":\"cli-run-1\"")
         );
+    }
+
+    #[test]
+    fn native_linear_etl_example_runs_through_native_registry() {
+        let output =
+            run_workflow_json(NATIVE_LINEAR_ETL_WORKFLOW_JSON).expect("example should run");
+
+        assert_eq!(output.workflow_id, "native-linear-etl");
+        assert_eq!(output.node_count, 3);
+        assert_eq!(output.edge_count, 2);
+        assert_eq!(output.record_count, 10);
+        assert!(output.metadata_jsonl.contains("\"node_id\":\"transform\""));
+        assert!(output.metadata_jsonl.contains("\"port_id\":\"cleaned\""));
     }
 
     #[test]
