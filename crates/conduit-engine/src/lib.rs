@@ -1,11 +1,11 @@
 //! High-level workflow orchestration for Conduit.
 
 use std::num::NonZeroUsize;
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, future::Future, sync::Arc};
 
 use conduit_core::{
-    CancellationHandle, InputPortHandle, MetadataSink, NodeExecutor, OutputPortHandle, PortsIn,
-    PortsOut, Result, bounded_edge_channel,
+    CancellationHandle, ConduitError, InputPortHandle, MetadataSink, NodeExecutor,
+    OutputPortHandle, PortsIn, PortsOut, Result, bounded_edge_channel,
     context::{CancellationRequest, ExecutionMetadata, NodeContext},
 };
 use conduit_runtime::{run_node, run_node_with_metadata_sink};
@@ -15,21 +15,106 @@ use futures::stream::{FuturesUnordered, StreamExt};
 
 const DEFAULT_EDGE_CAPACITY: NonZeroUsize = NonZeroUsize::MIN;
 
-/// Execute the scaffolded workflow by invoking the provided executor for each node.
+/// Registry that resolves workflow nodes to runtime executors.
+///
+/// The registry owns node-to-executor selection while the workflow runner owns
+/// graph wiring, cancellation, lifecycle, and metadata behavior.
+pub trait NodeExecutorRegistry: Sync {
+    /// Concrete executor type returned for nodes in this registry.
+    type Executor: NodeExecutor + ?Sized;
+
+    /// Resolve an executor for one workflow node.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no executor is registered for the node.
+    fn executor_for(&self, node_id: &NodeId) -> Result<&Self::Executor>;
+}
+
+/// Registry adapter that runs every workflow node through the same executor.
+#[derive(Debug, Clone, Copy)]
+pub struct SingleNodeExecutorRegistry<'a, E: ?Sized> {
+    executor: &'a E,
+}
+
+impl<'a, E: ?Sized> SingleNodeExecutorRegistry<'a, E> {
+    /// Create a registry that resolves every node to `executor`.
+    #[must_use]
+    pub const fn new(executor: &'a E) -> Self {
+        Self { executor }
+    }
+}
+
+impl<E> NodeExecutorRegistry for SingleNodeExecutorRegistry<'_, E>
+where
+    E: NodeExecutor + ?Sized,
+{
+    type Executor = E;
+
+    fn executor_for(&self, _node_id: &NodeId) -> Result<&Self::Executor> {
+        Ok(self.executor)
+    }
+}
+
+/// In-memory registry keyed by workflow node identifier.
+#[derive(Debug, Clone)]
+pub struct StaticNodeExecutorRegistry<E> {
+    executors: BTreeMap<NodeId, E>,
+}
+
+impl<E> StaticNodeExecutorRegistry<E> {
+    /// Create a static registry from a node-to-executor map.
+    #[must_use]
+    pub const fn new(executors: BTreeMap<NodeId, E>) -> Self {
+        Self { executors }
+    }
+
+    /// Return the registered executor map.
+    #[must_use]
+    pub const fn executors(&self) -> &BTreeMap<NodeId, E> {
+        &self.executors
+    }
+
+    /// Insert or replace the executor for one node.
+    pub fn insert(&mut self, node_id: NodeId, executor: E) -> Option<E> {
+        self.executors.insert(node_id, executor)
+    }
+}
+
+impl<E> NodeExecutorRegistry for StaticNodeExecutorRegistry<E>
+where
+    E: NodeExecutor,
+{
+    type Executor = E;
+
+    fn executor_for(&self, node_id: &NodeId) -> Result<&Self::Executor> {
+        self.executors.get(node_id).ok_or_else(|| {
+            ConduitError::execution(format!(
+                "no executor registered for workflow node `{node_id}`"
+            ))
+        })
+    }
+}
+
+/// Execute the workflow by resolving one executor for each node from a registry.
 ///
 /// # Errors
 ///
-/// Returns an error if any node execution fails.
-pub async fn run_workflow<E: NodeExecutor + ?Sized>(
+/// Returns an error if executor resolution fails or any node execution fails.
+pub async fn run_workflow_with_registry<R>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
-    executor: &E,
-) -> Result<()> {
+    registry: &R,
+) -> Result<()>
+where
+    R: NodeExecutorRegistry + ?Sized,
+{
     let (mut inputs_by_node, mut outputs_by_node): PortWiring = build_port_wiring(workflow);
     let cancellation: CancellationHandle = CancellationHandle::new();
 
-    let mut node_runs: FuturesUnordered<_> = FuturesUnordered::new();
+    let node_runs: FuturesUnordered<_> = FuturesUnordered::new();
     for node in workflow.nodes() {
+        let executor: &R::Executor = registry.executor_for(node.id())?;
         let ctx: NodeContext =
             NodeContext::new(workflow.id().clone(), node.id().clone(), execution.clone())
                 .with_cancellation_token(cancellation.token());
@@ -44,41 +129,31 @@ pub async fn run_workflow<E: NodeExecutor + ?Sized>(
         node_runs.push(run_node(executor, ctx, inputs, outputs));
     }
 
-    let mut first_error: Option<conduit_core::ConduitError> = None;
-    while let Some(result) = node_runs.next().await {
-        if let Err(err) = result
-            && first_error.is_none()
-        {
-            let _first_request: bool = cancellation.cancel(CancellationRequest::new(format!(
-                "node execution failed: {err}"
-            )));
-            first_error = Some(err);
-        }
-    }
-
-    first_error.map_or(Ok(()), Err)
+    collect_node_results(node_runs, &cancellation).await
 }
 
-/// Execute the scaffolded workflow and emit metadata records through a sink.
+/// Execute the workflow through a registry and emit metadata records.
 ///
 /// # Errors
 ///
-/// Returns an error if metadata collection fails or any node execution fails.
-pub async fn run_workflow_with_metadata_sink<E, M>(
+/// Returns an error if executor resolution, metadata collection, or node
+/// execution fails.
+pub async fn run_workflow_with_registry_and_metadata_sink<R, M>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
-    executor: &E,
+    registry: &R,
     metadata_sink: Arc<M>,
 ) -> Result<()>
 where
-    E: NodeExecutor + ?Sized,
+    R: NodeExecutorRegistry + ?Sized,
     M: MetadataSink + 'static,
 {
     let (mut inputs_by_node, mut outputs_by_node): PortWiring = build_port_wiring(workflow);
     let cancellation: CancellationHandle = CancellationHandle::new();
 
-    let mut node_runs: FuturesUnordered<_> = FuturesUnordered::new();
+    let node_runs: FuturesUnordered<_> = FuturesUnordered::new();
     for node in workflow.nodes() {
+        let executor: &R::Executor = registry.executor_for(node.id())?;
         let ctx: NodeContext =
             NodeContext::new(workflow.id().clone(), node.id().clone(), execution.clone())
                 .with_cancellation_token(cancellation.token());
@@ -99,7 +174,51 @@ where
         ));
     }
 
-    let mut first_error: Option<conduit_core::ConduitError> = None;
+    collect_node_results(node_runs, &cancellation).await
+}
+
+/// Execute the workflow by invoking the provided executor for each node.
+///
+/// # Errors
+///
+/// Returns an error if any node execution fails.
+pub async fn run_workflow<E: NodeExecutor + ?Sized>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    executor: &E,
+) -> Result<()> {
+    let registry: SingleNodeExecutorRegistry<'_, E> = SingleNodeExecutorRegistry::new(executor);
+    run_workflow_with_registry(workflow, execution, &registry).await
+}
+
+/// Execute the workflow with one executor and emit metadata records through a sink.
+///
+/// # Errors
+///
+/// Returns an error if metadata collection fails or any node execution fails.
+pub async fn run_workflow_with_metadata_sink<E, M>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    executor: &E,
+    metadata_sink: Arc<M>,
+) -> Result<()>
+where
+    E: NodeExecutor + ?Sized,
+    M: MetadataSink + 'static,
+{
+    let registry: SingleNodeExecutorRegistry<'_, E> = SingleNodeExecutorRegistry::new(executor);
+    run_workflow_with_registry_and_metadata_sink(workflow, execution, &registry, metadata_sink)
+        .await
+}
+
+async fn collect_node_results<F>(
+    mut node_runs: FuturesUnordered<F>,
+    cancellation: &CancellationHandle,
+) -> Result<()>
+where
+    F: Future<Output = Result<()>>,
+{
+    let mut first_error: Option<ConduitError> = None;
     while let Some(result) = node_runs.next().await {
         if let Err(err) = result
             && first_error.is_none()
@@ -149,7 +268,7 @@ mod tests {
     use std::{
         collections::BTreeMap,
         future::{Ready, ready},
-        sync::Mutex,
+        sync::{Arc, Mutex},
     };
 
     use conduit_core::{
@@ -215,6 +334,68 @@ mod tests {
                                     .expect("channel test sends bytes")
                                     .to_vec(),
                             );
+                    }
+                }
+
+                Ok(())
+            })
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum RegistryExecutorRole {
+        Source,
+        Sink,
+    }
+
+    #[derive(Debug, Clone)]
+    struct RegistryExecutor {
+        role: RegistryExecutorRole,
+        received: Arc<Mutex<Vec<Vec<u8>>>>,
+    }
+
+    impl RegistryExecutor {
+        fn source(received: Arc<Mutex<Vec<Vec<u8>>>>) -> Self {
+            Self {
+                role: RegistryExecutorRole::Source,
+                received,
+            }
+        }
+
+        fn sink(received: Arc<Mutex<Vec<Vec<u8>>>>) -> Self {
+            Self {
+                role: RegistryExecutorRole::Sink,
+                received,
+            }
+        }
+    }
+
+    impl NodeExecutor for RegistryExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            mut inputs: PortsIn,
+            outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                let cancellation = ctx.cancellation_token();
+                match self.role {
+                    RegistryExecutorRole::Source => {
+                        outputs
+                            .send(&port_id("out"), packet(b"registered"), &cancellation)
+                            .await?;
+                    }
+                    RegistryExecutorRole::Sink => {
+                        let packet: PortPacket = inputs
+                            .recv(&port_id("in"), &cancellation)
+                            .await?
+                            .expect("registered source should send one packet");
+                        self.received
+                            .lock()
+                            .expect("registry executor lock should not be poisoned")
+                            .push(packet_payload_bytes(packet));
                     }
                 }
 
@@ -679,6 +860,58 @@ mod tests {
             .count();
 
         assert_eq!(lifecycle_count, 4);
+    }
+
+    #[test]
+    fn run_workflow_with_registry_resolves_executor_per_node() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .node(NodeBuilder::new("sink").input("in").build())
+            .edge("source", "out", "sink", "in")
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let received: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+        let registry: StaticNodeExecutorRegistry<RegistryExecutor> =
+            StaticNodeExecutorRegistry::new(BTreeMap::from([
+                (
+                    node_id("source"),
+                    RegistryExecutor::source(Arc::clone(&received)),
+                ),
+                (
+                    node_id("sink"),
+                    RegistryExecutor::sink(Arc::clone(&received)),
+                ),
+            ]));
+
+        block_on(run_workflow_with_registry(&workflow, &execution, &registry))
+            .expect("registry workflow should run");
+
+        assert_eq!(
+            *received
+                .lock()
+                .expect("registry test lock should not be poisoned"),
+            vec![b"registered".to_vec()]
+        );
+    }
+
+    #[test]
+    fn run_workflow_with_registry_rejects_missing_executor() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("missing").build())
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let registry: StaticNodeExecutorRegistry<RegistryExecutor> =
+            StaticNodeExecutorRegistry::new(BTreeMap::new());
+
+        let err: ConduitError =
+            block_on(run_workflow_with_registry(&workflow, &execution, &registry))
+                .expect_err("missing registry entry should fail");
+
+        assert_eq!(err.code(), ErrorCode::NodeExecutionFailed);
+        assert!(
+            err.to_string()
+                .contains("no executor registered for workflow node `missing`")
+        );
     }
 
     #[test]
