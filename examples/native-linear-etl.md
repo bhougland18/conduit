@@ -30,11 +30,14 @@ ran workflow `native-linear-etl`
 nodes: 3
 edges: 2
 metadata: /tmp/conduit-native-linear-etl.metadata.jsonl
-records: 10
+records: 24
 ```
 
-The metadata file contains six lifecycle records, one `started` and one
-`completed` record for each node, plus four message boundary records:
+The metadata file contains 24 records:
+
+- six lifecycle records, one `started` and one `completed` record for each node
+- four message boundary records
+- 14 queue-pressure records describing reserve, send, receive, and upstream-closure observations
 
 - source output enqueued on `source.rows`
 - transform input dequeued from `source.rows`

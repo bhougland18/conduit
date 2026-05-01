@@ -245,8 +245,12 @@ where
     M: MetadataSink + 'static,
 {
     let metadata_sink: Arc<dyn MetadataSink + Send + Sync> = metadata_sink.clone();
-    let inputs: PortsIn = inputs.with_metadata_sink(metadata_sink.clone());
-    let outputs: PortsOut = outputs.with_metadata_sink(metadata_sink.clone());
+    let inputs: PortsIn = inputs
+        .with_metadata_sink(metadata_sink.clone())
+        .with_node_context(ctx.clone());
+    let outputs: PortsOut = outputs
+        .with_metadata_sink(metadata_sink.clone())
+        .with_node_context(ctx.clone());
     observe_lifecycle(
         hook,
         metadata_sink.as_ref(),
@@ -359,6 +363,7 @@ const fn metadata_record_kind_label(record: &MetadataRecord) -> &'static str {
         MetadataRecord::ExecutionContext(_) => "execution_context",
         MetadataRecord::Lifecycle(_) => "lifecycle",
         MetadataRecord::Message(_) => "message",
+        MetadataRecord::QueuePressure(_) => "queue_pressure",
     }
 }
 

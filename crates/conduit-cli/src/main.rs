@@ -128,7 +128,7 @@ fn inspect_workflow_json(input: &str) -> CliResult<String> {
 fn explain_workflow_json(input: &str) -> CliResult<String> {
     let workflow: WorkflowDefinition = workflow_from_json_str(input)?;
     let mut output: String = format!(
-        "workflow `{}`\nstatus: valid\nnodes: {}\nedges: {}\nexecution: native-registry\nmetadata: jsonl lifecycle and message records with tiered control-only policy\n",
+        "workflow `{}`\nstatus: valid\nnodes: {}\nedges: {}\nexecution: native-registry\nmetadata: jsonl lifecycle, message, and queue-pressure records with tiered control-only policy\n",
         workflow.id(),
         workflow.nodes().len(),
         workflow.edges().len()
@@ -570,7 +570,7 @@ mod tests {
 
         assert!(output.contains("workflow `flow`"));
         assert!(output.contains("execution: native-registry"));
-        assert!(output.contains("metadata: jsonl lifecycle and message records"));
+        assert!(output.contains("metadata: jsonl lifecycle, message, and queue-pressure records"));
         assert!(output.contains("source.out -> sink.in capacity=8"));
     }
 
@@ -581,7 +581,7 @@ mod tests {
         assert_eq!(output.workflow_id, "flow");
         assert_eq!(output.node_count, 2);
         assert_eq!(output.edge_count, 1);
-        assert_eq!(output.record_count, 6);
+        assert_eq!(output.record_count, 13);
         assert!(
             output
                 .metadata_jsonl
@@ -591,6 +591,11 @@ mod tests {
             output
                 .metadata_jsonl
                 .contains("\"record_type\":\"message\"")
+        );
+        assert!(
+            output
+                .metadata_jsonl
+                .contains("\"record_type\":\"queue_pressure\"")
         );
         assert!(
             output
@@ -607,7 +612,7 @@ mod tests {
         assert_eq!(output.workflow_id, "native-linear-etl");
         assert_eq!(output.node_count, 3);
         assert_eq!(output.edge_count, 2);
-        assert_eq!(output.record_count, 10);
+        assert_eq!(output.record_count, 24);
         assert!(output.metadata_jsonl.contains("\"node_id\":\"transform\""));
         assert!(output.metadata_jsonl.contains("\"port_id\":\"cleaned\""));
     }

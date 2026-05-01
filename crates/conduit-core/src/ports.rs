@@ -37,8 +37,11 @@ use conduit_types::PortId;
 
 use crate::message::{MessageEnvelope, PacketPayload};
 use crate::{
-    context::CancellationToken,
-    metadata::{MessageBoundaryKind, MessageBoundaryRecord, MetadataRecord, MetadataSink},
+    context::{CancellationToken, NodeContext},
+    metadata::{
+        MessageBoundaryKind, MessageBoundaryRecord, MetadataRecord, MetadataSink,
+        QueuePortDirection, QueuePressureBoundaryKind, QueuePressureRecord,
+    },
 };
 
 /// Default packet payload for the first channel-backed port surface.
@@ -199,6 +202,18 @@ impl InputPortHandle {
         self.receivers.first().map(mpsc::Receiver::capacity)
     }
 
+    fn total_capacity(&self) -> Option<usize> {
+        if self.receivers.is_empty() {
+            None
+        } else {
+            Some(self.receivers.iter().map(mpsc::Receiver::capacity).sum())
+        }
+    }
+
+    fn queued_count(&self) -> usize {
+        self.receivers.iter().map(mpsc::Receiver::len).sum()
+    }
+
     fn try_recv(&mut self) -> Result<Option<PortPacket>, PortRecvError> {
         let mut disconnected_count: usize = 0;
 
@@ -342,26 +357,48 @@ impl OutputPortHandle {
         self.senders.first().map(mpsc::Sender::capacity)
     }
 
+    fn total_capacity(&self) -> Option<usize> {
+        if self.senders.is_empty() {
+            None
+        } else {
+            Some(self.senders.iter().map(mpsc::Sender::capacity).sum())
+        }
+    }
+
     fn try_reserve(
         &self,
         metadata_sink: Option<Arc<dyn MetadataSink + Send + Sync>>,
         validator: Option<Arc<dyn OutputPacketValidator>>,
+        context: Option<&NodeContext>,
     ) -> Result<OutputPortSendPermit<'_>, PortSendError> {
+        record_output_queue_pressure(
+            metadata_sink.as_ref(),
+            context,
+            self,
+            QueuePressureBoundaryKind::ReserveAttempted,
+        );
         let split_senders: Option<(&mpsc::Sender<PortPacket>, &[mpsc::Sender<PortPacket>])> =
             self.senders.split_last();
-        let (last_sender, leading_senders): (
+        let Some((last_sender, leading_senders)): Option<(
             &mpsc::Sender<PortPacket>,
             &[mpsc::Sender<PortPacket>],
-        ) = match split_senders {
-            Some(value) => value,
-            None => {
-                return Ok(OutputPortSendPermit {
-                    port_id: self.port_id.clone(),
-                    permits: Vec::new(),
-                    metadata_sink,
-                    validator,
-                });
-            }
+        )> = split_senders
+        else {
+            record_output_queue_pressure(
+                metadata_sink.as_ref(),
+                context,
+                self,
+                QueuePressureBoundaryKind::ReserveReady,
+            );
+            return Ok(OutputPortSendPermit {
+                port_id: self.port_id.clone(),
+                permits: Vec::new(),
+                metadata_sink,
+                validator,
+                context: context.cloned(),
+                connected_edge_count: self.connected_edge_count(),
+                capacity: self.total_capacity(),
+            });
         };
 
         let mut permits: Vec<mpsc::SendPermit<'_, PortPacket>> =
@@ -371,6 +408,14 @@ impl OutputPortHandle {
             match sender.try_reserve() {
                 Ok(permit) => permits.push(permit),
                 Err(err) => {
+                    if matches!(err, mpsc::SendError::Full(())) {
+                        record_output_queue_pressure(
+                            metadata_sink.as_ref(),
+                            context,
+                            self,
+                            QueuePressureBoundaryKind::ReserveFull,
+                        );
+                    }
                     return Err(self.map_send_error(err));
                 }
             }
@@ -379,14 +424,33 @@ impl OutputPortHandle {
         match last_sender.try_reserve() {
             Ok(permit) => {
                 permits.push(permit);
+                record_output_queue_pressure(
+                    metadata_sink.as_ref(),
+                    context,
+                    self,
+                    QueuePressureBoundaryKind::ReserveReady,
+                );
                 Ok(OutputPortSendPermit {
                     port_id: self.port_id.clone(),
                     permits,
                     metadata_sink,
                     validator,
+                    context: context.cloned(),
+                    connected_edge_count: self.connected_edge_count(),
+                    capacity: self.total_capacity(),
                 })
             }
-            Err(err) => Err(self.map_send_error(err)),
+            Err(err) => {
+                if matches!(err, mpsc::SendError::Full(())) {
+                    record_output_queue_pressure(
+                        metadata_sink.as_ref(),
+                        context,
+                        self,
+                        QueuePressureBoundaryKind::ReserveFull,
+                    );
+                }
+                Err(self.map_send_error(err))
+            }
         }
     }
 
@@ -409,6 +473,7 @@ impl OutputPortHandle {
         cancellation: &CancellationToken,
         metadata_sink: Option<Arc<dyn MetadataSink + Send + Sync>>,
         validator: Option<Arc<dyn OutputPacketValidator>>,
+        context: Option<&NodeContext>,
     ) -> Result<OutputPortSendPermit<'_>, PortSendError> {
         loop {
             if cancellation.is_cancelled() {
@@ -417,7 +482,7 @@ impl OutputPortHandle {
                 });
             }
 
-            match self.try_reserve(metadata_sink.clone(), validator.clone()) {
+            match self.try_reserve(metadata_sink.clone(), validator.clone(), context) {
                 Ok(permit) => return Ok(permit),
                 Err(PortSendError::Full { .. }) => yield_now().await,
                 Err(err) => return Err(err),
@@ -453,6 +518,9 @@ struct OutputPortSendPermit<'a> {
     permits: Vec<mpsc::SendPermit<'a, PortPacket>>,
     metadata_sink: Option<Arc<dyn MetadataSink + Send + Sync>>,
     validator: Option<Arc<dyn OutputPacketValidator>>,
+    context: Option<NodeContext>,
+    connected_edge_count: usize,
+    capacity: Option<usize>,
 }
 
 impl OutputPortSendPermit<'_> {
@@ -470,6 +538,21 @@ impl OutputPortSendPermit<'_> {
             MessageBoundaryKind::Enqueued
         };
         if let Some(metadata_sink) = self.metadata_sink.as_ref() {
+            let queue_kind: QueuePressureBoundaryKind = if self.permits.is_empty() {
+                QueuePressureBoundaryKind::SendDropped
+            } else {
+                QueuePressureBoundaryKind::SendCommitted
+            };
+            let record: MetadataRecord = MetadataRecord::QueuePressure(QueuePressureRecord::new(
+                self.context.clone(),
+                QueuePortDirection::Output,
+                self.port_id.clone(),
+                queue_kind,
+                self.connected_edge_count,
+                self.capacity,
+                None,
+            ));
+            let _ = metadata_sink.record(&record);
             let record: MetadataRecord = MetadataRecord::Message(MessageBoundaryRecord::new(
                 boundary_kind,
                 packet.metadata().clone(),
@@ -519,6 +602,7 @@ pub struct PortsIn {
     port_ids: Vec<PortId>,
     ports: Vec<InputPortHandle>,
     metadata_sink: Option<Arc<dyn MetadataSink + Send + Sync>>,
+    context: Option<NodeContext>,
 }
 
 impl PortsIn {
@@ -559,6 +643,7 @@ impl PortsIn {
             port_ids,
             ports,
             metadata_sink: None,
+            context: None,
         }
     }
 
@@ -569,6 +654,13 @@ impl PortsIn {
         metadata_sink: Arc<dyn MetadataSink + Send + Sync>,
     ) -> Self {
         self.metadata_sink = Some(metadata_sink);
+        self
+    }
+
+    /// Attach node context for receive-side queue observations.
+    #[must_use]
+    pub fn with_node_context(mut self, context: NodeContext) -> Self {
+        self.context = Some(context);
         self
     }
 
@@ -619,13 +711,47 @@ impl PortsIn {
             .ok_or_else(|| PortRecvError::UnknownPort {
                 port_id: port_id.clone(),
             })?;
-        let packet: Option<PortPacket> = port.try_recv()?;
-        if let Some(packet) = packet.as_ref() {
-            Self::record_message_boundary(
+        Self::record_input_queue_pressure(
+            self.metadata_sink.as_ref(),
+            self.context.as_ref(),
+            port,
+            QueuePressureBoundaryKind::ReceiveAttempted,
+        );
+        let packet: Option<PortPacket> = match port.try_recv() {
+            Ok(packet) => packet,
+            Err(PortRecvError::Disconnected { .. }) => {
+                Self::record_input_queue_pressure(
+                    self.metadata_sink.as_ref(),
+                    self.context.as_ref(),
+                    port,
+                    QueuePressureBoundaryKind::ReceiveClosed,
+                );
+                return Err(PortRecvError::Disconnected {
+                    port_id: port_id.clone(),
+                });
+            }
+            Err(err) => return Err(err),
+        };
+        match packet.as_ref() {
+            Some(packet) => {
+                Self::record_input_queue_pressure(
+                    self.metadata_sink.as_ref(),
+                    self.context.as_ref(),
+                    port,
+                    QueuePressureBoundaryKind::ReceiveReady,
+                );
+                Self::record_message_boundary(
+                    self.metadata_sink.as_ref(),
+                    MessageBoundaryKind::Dequeued,
+                    packet.metadata(),
+                );
+            }
+            None => Self::record_input_queue_pressure(
                 self.metadata_sink.as_ref(),
-                MessageBoundaryKind::Dequeued,
-                packet.metadata(),
-            );
+                self.context.as_ref(),
+                port,
+                QueuePressureBoundaryKind::ReceiveEmpty,
+            ),
         }
         Ok(packet)
     }
@@ -652,13 +778,47 @@ impl PortsIn {
             .ok_or_else(|| PortRecvError::UnknownPort {
                 port_id: port_id.clone(),
             })?;
-        let packet: Option<PortPacket> = port.recv(cancellation).await?;
-        if let Some(packet) = packet.as_ref() {
-            Self::record_message_boundary(
+        Self::record_input_queue_pressure(
+            self.metadata_sink.as_ref(),
+            self.context.as_ref(),
+            port,
+            QueuePressureBoundaryKind::ReceiveAttempted,
+        );
+        let packet: Option<PortPacket> = match port.recv(cancellation).await {
+            Ok(packet) => packet,
+            Err(PortRecvError::Disconnected { .. }) => {
+                Self::record_input_queue_pressure(
+                    self.metadata_sink.as_ref(),
+                    self.context.as_ref(),
+                    port,
+                    QueuePressureBoundaryKind::ReceiveClosed,
+                );
+                return Err(PortRecvError::Disconnected {
+                    port_id: port_id.clone(),
+                });
+            }
+            Err(err) => return Err(err),
+        };
+        match packet.as_ref() {
+            Some(packet) => {
+                Self::record_input_queue_pressure(
+                    self.metadata_sink.as_ref(),
+                    self.context.as_ref(),
+                    port,
+                    QueuePressureBoundaryKind::ReceiveReady,
+                );
+                Self::record_message_boundary(
+                    self.metadata_sink.as_ref(),
+                    MessageBoundaryKind::Dequeued,
+                    packet.metadata(),
+                );
+            }
+            None => Self::record_input_queue_pressure(
                 self.metadata_sink.as_ref(),
-                MessageBoundaryKind::Dequeued,
-                packet.metadata(),
-            );
+                self.context.as_ref(),
+                port,
+                QueuePressureBoundaryKind::ReceiveEmpty,
+            ),
         }
         Ok(packet)
     }
@@ -682,7 +842,16 @@ impl PortsIn {
 
         let metadata_sink: Option<&Arc<dyn MetadataSink + Send + Sync>> =
             self.metadata_sink.as_ref();
+        let context: Option<&NodeContext> = self.context.as_ref();
         let runtime_cx: Cx = Cx::current().unwrap_or_else(Cx::for_testing);
+        for port in &self.ports {
+            Self::record_input_queue_pressure(
+                metadata_sink,
+                context,
+                port,
+                QueuePressureBoundaryKind::ReceiveAttempted,
+            );
+        }
         std::future::poll_fn(|task_cx: &mut Context<'_>| {
             if cancellation.is_cancelled() {
                 return self.ports.first().map_or(
@@ -699,6 +868,12 @@ impl PortsIn {
             for port in &mut self.ports {
                 match port.poll_any(&runtime_cx, task_cx) {
                     InputPollResult::Packet(packet) => {
+                        Self::record_input_queue_pressure(
+                            metadata_sink,
+                            context,
+                            port,
+                            QueuePressureBoundaryKind::ReceiveReady,
+                        );
                         Self::record_message_boundary(
                             metadata_sink,
                             MessageBoundaryKind::Dequeued,
@@ -706,7 +881,15 @@ impl PortsIn {
                         );
                         return Poll::Ready(Ok(Some((port.port_id().clone(), *packet))));
                     }
-                    InputPollResult::Closed => closed_port_count += 1,
+                    InputPollResult::Closed => {
+                        closed_port_count += 1;
+                        Self::record_input_queue_pressure(
+                            metadata_sink,
+                            context,
+                            port,
+                            QueuePressureBoundaryKind::ReceiveClosed,
+                        );
+                    }
                     InputPollResult::Cancelled => {
                         return Poll::Ready(Err(PortRecvError::Cancelled {
                             port_id: port.port_id().clone(),
@@ -739,6 +922,29 @@ impl PortsIn {
             MetadataRecord::Message(MessageBoundaryRecord::new(kind, metadata.clone()));
         let _ = metadata_sink.record(&record);
     }
+
+    fn record_input_queue_pressure(
+        metadata_sink: Option<&Arc<dyn MetadataSink + Send + Sync>>,
+        context: Option<&NodeContext>,
+        port: &InputPortHandle,
+        kind: QueuePressureBoundaryKind,
+    ) {
+        let Some(metadata_sink): Option<&Arc<dyn MetadataSink + Send + Sync>> = metadata_sink
+        else {
+            return;
+        };
+
+        let record: MetadataRecord = MetadataRecord::QueuePressure(QueuePressureRecord::new(
+            context.cloned(),
+            QueuePortDirection::Input,
+            port.port_id().clone(),
+            kind,
+            port.connected_edge_count(),
+            port.total_capacity(),
+            Some(port.queued_count()),
+        ));
+        let _ = metadata_sink.record(&record);
+    }
 }
 
 /// Declared output ports available to a node execution boundary.
@@ -748,6 +954,7 @@ pub struct PortsOut {
     ports: Vec<OutputPortHandle>,
     metadata_sink: Option<Arc<dyn MetadataSink + Send + Sync>>,
     validator: Option<Arc<dyn OutputPacketValidator>>,
+    context: Option<NodeContext>,
 }
 
 impl PortsOut {
@@ -789,6 +996,7 @@ impl PortsOut {
             ports,
             metadata_sink: None,
             validator: None,
+            context: None,
         }
     }
 
@@ -799,6 +1007,13 @@ impl PortsOut {
         metadata_sink: Arc<dyn MetadataSink + Send + Sync>,
     ) -> Self {
         self.metadata_sink = Some(metadata_sink);
+        self
+    }
+
+    /// Attach node context for send-side queue observations.
+    #[must_use]
+    pub fn with_node_context(mut self, context: NodeContext) -> Self {
+        self.context = Some(context);
         self
     }
 
@@ -887,8 +1102,12 @@ impl PortsOut {
             .ok_or_else(|| PortSendError::UnknownPort {
                 port_id: port_id.clone(),
             })?;
-        port.try_reserve(self.metadata_sink.clone(), self.validator.clone())
-            .map(|inner: OutputPortSendPermit<'_>| PortSendPermit { inner })
+        port.try_reserve(
+            self.metadata_sink.clone(),
+            self.validator.clone(),
+            self.context.as_ref(),
+        )
+        .map(|inner: OutputPortSendPermit<'_>| PortSendPermit { inner })
     }
 
     /// Reserve output capacity asynchronously without committing a packet.
@@ -915,10 +1134,33 @@ impl PortsOut {
             cancellation,
             self.metadata_sink.clone(),
             self.validator.clone(),
+            self.context.as_ref(),
         )
         .await
         .map(|inner: OutputPortSendPermit<'_>| PortSendPermit { inner })
     }
+}
+
+fn record_output_queue_pressure(
+    metadata_sink: Option<&Arc<dyn MetadataSink + Send + Sync>>,
+    context: Option<&NodeContext>,
+    port: &OutputPortHandle,
+    kind: QueuePressureBoundaryKind,
+) {
+    let Some(metadata_sink): Option<&Arc<dyn MetadataSink + Send + Sync>> = metadata_sink else {
+        return;
+    };
+
+    let record: MetadataRecord = MetadataRecord::QueuePressure(QueuePressureRecord::new(
+        context.cloned(),
+        QueuePortDirection::Output,
+        port.port_id().clone(),
+        kind,
+        port.connected_edge_count(),
+        port.total_capacity(),
+        None,
+    ));
+    let _ = metadata_sink.record(&record);
 }
 
 #[cfg(test)]
@@ -1211,6 +1453,69 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![MessageBoundaryKind::Enqueued, MessageBoundaryKind::Dequeued]
         );
+    }
+
+    #[test]
+    fn send_and_recv_emit_queue_pressure_metadata() {
+        let sink: Arc<RecordingMetadataSink> = Arc::new(RecordingMetadataSink::default());
+        let (output, input): (OutputPortHandle, InputPortHandle) =
+            bounded_edge_channel(port_id("out"), port_id("in"), NonZeroUsize::MIN);
+        let mut inputs: PortsIn =
+            PortsIn::from_handles([port_id("in")], [input]).with_metadata_sink(sink.clone());
+        let outputs: PortsOut =
+            PortsOut::from_handles([port_id("out")], [output]).with_metadata_sink(sink.clone());
+
+        outputs
+            .try_send(&port_id("out"), packet(b"boundary"))
+            .expect("send should succeed");
+        let _received: PortPacket = inputs
+            .try_recv(&port_id("in"))
+            .expect("receive should succeed")
+            .expect("packet should be queued");
+
+        let queue_records: Vec<QueuePressureRecord> = sink
+            .records()
+            .into_iter()
+            .filter_map(|record: MetadataRecord| match record {
+                MetadataRecord::QueuePressure(queue) => Some(queue),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            queue_records
+                .iter()
+                .map(QueuePressureRecord::kind)
+                .collect::<Vec<_>>(),
+            vec![
+                QueuePressureBoundaryKind::ReserveAttempted,
+                QueuePressureBoundaryKind::ReserveReady,
+                QueuePressureBoundaryKind::SendCommitted,
+                QueuePressureBoundaryKind::ReceiveAttempted,
+                QueuePressureBoundaryKind::ReceiveReady,
+            ]
+        );
+        let reserve_attempt: &QueuePressureRecord = queue_records
+            .iter()
+            .find(|record: &&QueuePressureRecord| {
+                record.kind() == QueuePressureBoundaryKind::ReserveAttempted
+            })
+            .expect("reserve attempt should be recorded");
+        let receive_attempt: &QueuePressureRecord = queue_records
+            .iter()
+            .find(|record: &&QueuePressureRecord| {
+                record.kind() == QueuePressureBoundaryKind::ReceiveAttempted
+            })
+            .expect("receive attempt should be recorded");
+        let receive_ready: &QueuePressureRecord = queue_records
+            .iter()
+            .find(|record: &&QueuePressureRecord| {
+                record.kind() == QueuePressureBoundaryKind::ReceiveReady
+            })
+            .expect("receive ready should be recorded");
+
+        assert_eq!(reserve_attempt.capacity(), Some(1));
+        assert_eq!(receive_attempt.queued_count(), Some(1));
+        assert_eq!(receive_ready.queued_count(), Some(0));
     }
 
     #[test]

@@ -19,6 +19,8 @@ use std::{
 
 use serde_json::{Value, json};
 
+use conduit_types::PortId;
+
 use crate::{
     Result,
     context::{CancellationState, ExecutionMetadata, NodeContext},
@@ -64,6 +66,116 @@ impl MessageBoundaryRecord {
     }
 }
 
+/// Direction of a queue observation relative to the current node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueuePortDirection {
+    /// Input-side queue observation.
+    Input,
+    /// Output-side queue observation.
+    Output,
+}
+
+/// Where queue pressure was observed at the port boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueuePressureBoundaryKind {
+    /// A receive operation is about to inspect or wait on an input queue.
+    ReceiveAttempted,
+    /// A receive operation dequeued a packet.
+    ReceiveReady,
+    /// A receive operation found no currently available packet.
+    ReceiveEmpty,
+    /// A receive operation observed upstream closure.
+    ReceiveClosed,
+    /// An output reserve operation is about to inspect or wait on capacity.
+    ReserveAttempted,
+    /// An output reserve operation acquired capacity.
+    ReserveReady,
+    /// An output reserve operation found all connected capacity full.
+    ReserveFull,
+    /// A reserved output packet committed to the output boundary.
+    SendCommitted,
+    /// A committed output packet had no downstream edge and was dropped.
+    SendDropped,
+}
+
+/// One queue pressure or capacity observation at a port boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueuePressureRecord {
+    context: Option<NodeContext>,
+    direction: QueuePortDirection,
+    port_id: PortId,
+    kind: QueuePressureBoundaryKind,
+    connected_edge_count: usize,
+    capacity: Option<usize>,
+    queued_count: Option<usize>,
+}
+
+impl QueuePressureRecord {
+    /// Create a queue pressure observation.
+    #[must_use]
+    pub const fn new(
+        context: Option<NodeContext>,
+        direction: QueuePortDirection,
+        port_id: PortId,
+        kind: QueuePressureBoundaryKind,
+        connected_edge_count: usize,
+        capacity: Option<usize>,
+        queued_count: Option<usize>,
+    ) -> Self {
+        Self {
+            context,
+            direction,
+            port_id,
+            kind,
+            connected_edge_count,
+            capacity,
+            queued_count,
+        }
+    }
+
+    /// Runtime context for the node that observed queue pressure, when known.
+    #[must_use]
+    pub const fn context(&self) -> Option<&NodeContext> {
+        self.context.as_ref()
+    }
+
+    /// Direction of the observed port.
+    #[must_use]
+    pub const fn direction(&self) -> QueuePortDirection {
+        self.direction
+    }
+
+    /// Declared port identifier observed.
+    #[must_use]
+    pub const fn port_id(&self) -> &PortId {
+        &self.port_id
+    }
+
+    /// Boundary kind observed.
+    #[must_use]
+    pub const fn kind(&self) -> QueuePressureBoundaryKind {
+        self.kind
+    }
+
+    /// Number of connected graph edges behind this declared port.
+    #[must_use]
+    pub const fn connected_edge_count(&self) -> usize {
+        self.connected_edge_count
+    }
+
+    /// Total known bounded capacity across connected edges, when connected.
+    #[must_use]
+    pub const fn capacity(&self) -> Option<usize> {
+        self.capacity
+    }
+
+    /// Total currently queued packets across connected input edges, when observable.
+    #[must_use]
+    pub const fn queued_count(&self) -> Option<usize> {
+        self.queued_count
+    }
+}
+
 /// One metadata fact observed at a runtime boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MetadataRecord {
@@ -73,6 +185,8 @@ pub enum MetadataRecord {
     Lifecycle(LifecycleEvent),
     /// Message metadata observed at a port boundary.
     Message(MessageBoundaryRecord),
+    /// Queue pressure or capacity observed at a port boundary.
+    QueuePressure(QueuePressureRecord),
 }
 
 /// Cost tier for one metadata record.
@@ -165,6 +279,18 @@ pub fn metadata_record_to_json_value(record: &MetadataRecord) -> Value {
             "record_type": "message",
             "kind": message_boundary_kind_label(message.kind()),
             "message": message_metadata_to_json_value(message.metadata()),
+        }),
+        MetadataRecord::QueuePressure(queue) => json!({
+            "record_type": "queue_pressure",
+            "kind": queue_pressure_boundary_kind_label(queue.kind()),
+            "direction": queue_port_direction_label(queue.direction()),
+            "port_id": queue.port_id().as_str(),
+            "context": queue
+                .context()
+                .map_or(Value::Null, node_context_to_json_value),
+            "connected_edge_count": queue.connected_edge_count(),
+            "capacity": queue.capacity(),
+            "queued_count": queue.queued_count(),
         }),
     }
 }
@@ -413,6 +539,27 @@ const fn message_boundary_kind_label(kind: MessageBoundaryKind) -> &'static str 
     }
 }
 
+const fn queue_port_direction_label(direction: QueuePortDirection) -> &'static str {
+    match direction {
+        QueuePortDirection::Input => "input",
+        QueuePortDirection::Output => "output",
+    }
+}
+
+const fn queue_pressure_boundary_kind_label(kind: QueuePressureBoundaryKind) -> &'static str {
+    match kind {
+        QueuePressureBoundaryKind::ReceiveAttempted => "receive_attempted",
+        QueuePressureBoundaryKind::ReceiveReady => "receive_ready",
+        QueuePressureBoundaryKind::ReceiveEmpty => "receive_empty",
+        QueuePressureBoundaryKind::ReceiveClosed => "receive_closed",
+        QueuePressureBoundaryKind::ReserveAttempted => "reserve_attempted",
+        QueuePressureBoundaryKind::ReserveReady => "reserve_ready",
+        QueuePressureBoundaryKind::ReserveFull => "reserve_full",
+        QueuePressureBoundaryKind::SendCommitted => "send_committed",
+        QueuePressureBoundaryKind::SendDropped => "send_dropped",
+    }
+}
+
 fn message_metadata_to_json_value(metadata: &MessageMetadata) -> Value {
     json!({
         "message_id": metadata.message_id().as_str(),
@@ -645,6 +792,43 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn metadata_record_json_uses_stable_queue_pressure_shape() {
+        let record: MetadataRecord = MetadataRecord::QueuePressure(QueuePressureRecord::new(
+            Some(context()),
+            QueuePortDirection::Input,
+            port_id("in"),
+            QueuePressureBoundaryKind::ReceiveReady,
+            2,
+            Some(8),
+            Some(3),
+        ));
+
+        assert_eq!(
+            metadata_record_to_json_value(&record),
+            json!({
+                "record_type": "queue_pressure",
+                "kind": "receive_ready",
+                "direction": "input",
+                "port_id": "in",
+                "context": {
+                    "workflow_id": "flow",
+                    "node_id": "node",
+                    "execution": {
+                        "execution_id": "run-1",
+                        "attempt": 1,
+                    },
+                    "cancellation": {
+                        "state": "active",
+                    },
+                },
+                "connected_edge_count": 2,
+                "capacity": 8,
+                "queued_count": 3,
+            })
+        );
     }
 
     #[test]
