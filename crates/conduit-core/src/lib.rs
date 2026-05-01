@@ -25,8 +25,8 @@ pub use metadata::{
     metadata_record_to_json_value,
 };
 pub use ports::{
-    InputPortHandle, OutputPortHandle, PortPacket, PortRecvError, PortSendError, PortSendPermit,
-    PortsIn, PortsOut, bounded_edge_channel,
+    InputPortHandle, OutputPacketValidator, OutputPortHandle, PortPacket, PortRecvError,
+    PortSendError, PortSendPermit, PortsIn, PortsOut, bounded_edge_channel,
 };
 
 /// Shared result type for runtime-facing APIs.

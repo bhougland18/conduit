@@ -3,16 +3,19 @@
 use std::num::NonZeroUsize;
 use std::{collections::BTreeMap, future::Future, sync::Arc};
 
+use conduit_contract::{NodeContract, PortContract, SchemaRef};
 use conduit_core::{
     CancellationHandle, ConduitError, InputPortHandle, MetadataSink, NodeExecutor,
-    OutputPortHandle, PortsIn, PortsOut, Result, bounded_edge_channel,
+    OutputPacketValidator, OutputPortHandle, PortPacket, PortSendError, PortsIn, PortsOut, Result,
+    bounded_edge_channel,
     context::{CancellationRequest, ExecutionMetadata, NodeContext},
     lifecycle::{LifecycleHook, NoopLifecycleHook},
+    message::MessageEndpoint,
     metadata::NoopMetadataSink,
 };
 use conduit_runtime::run_node_with_observers;
-use conduit_types::NodeId;
-use conduit_workflow::WorkflowDefinition;
+use conduit_types::{NodeId, PortId, WorkflowId};
+use conduit_workflow::{NodeDefinition, PortDirection, WorkflowDefinition};
 use futures::stream::{FuturesUnordered, StreamExt};
 
 const DEFAULT_EDGE_CAPACITY: NonZeroUsize = NonZeroUsize::MIN;
@@ -224,6 +227,191 @@ where
     }
 }
 
+/// Output-port contract subset used by the workflow runner.
+#[derive(Debug, Clone)]
+pub struct WorkflowOutputContracts {
+    outputs_by_node: BTreeMap<NodeId, BTreeMap<PortId, Option<SchemaRef>>>,
+}
+
+impl WorkflowOutputContracts {
+    /// Build output validation contracts for a workflow.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any workflow output port lacks a matching output
+    /// contract or a contract references an unknown workflow output.
+    pub fn from_node_contracts(
+        workflow: &WorkflowDefinition,
+        contracts: &[NodeContract],
+    ) -> Result<Self> {
+        let contract_map: BTreeMap<&NodeId, &NodeContract> = contracts
+            .iter()
+            .map(|contract: &NodeContract| (contract.id(), contract))
+            .collect();
+        let mut outputs_by_node: BTreeMap<NodeId, BTreeMap<PortId, Option<SchemaRef>>> =
+            BTreeMap::new();
+
+        for node in workflow.nodes() {
+            let Some(contract): Option<&NodeContract> = contract_map.get(node.id()).copied() else {
+                if node.output_ports().is_empty() {
+                    outputs_by_node.insert(node.id().clone(), BTreeMap::new());
+                    continue;
+                }
+
+                return Err(ConduitError::execution(format!(
+                    "no output contract supplied for workflow node `{}`",
+                    node.id()
+                )));
+            };
+            let mut output_contracts: BTreeMap<PortId, Option<SchemaRef>> = BTreeMap::new();
+
+            for port_id in node.output_ports() {
+                let port_contract: &PortContract = contract
+                    .ports()
+                    .iter()
+                    .find(|port: &&PortContract| port.port_id() == port_id)
+                    .ok_or_else(|| {
+                        ConduitError::execution(format!(
+                            "node `{}` output port `{port_id}` has no output contract",
+                            node.id()
+                        ))
+                    })?;
+                if port_contract.direction() != PortDirection::Output {
+                    return Err(ConduitError::execution(format!(
+                        "node `{}` port `{port_id}` contract is not an output contract",
+                        node.id()
+                    )));
+                }
+                output_contracts.insert(port_id.clone(), port_contract.schema().cloned());
+            }
+
+            for port_contract in contract.ports() {
+                if port_contract.direction() == PortDirection::Output
+                    && !node.output_ports().contains(port_contract.port_id())
+                {
+                    return Err(ConduitError::execution(format!(
+                        "node `{}` contract references unknown output port `{}`",
+                        node.id(),
+                        port_contract.port_id()
+                    )));
+                }
+            }
+
+            outputs_by_node.insert(node.id().clone(), output_contracts);
+        }
+
+        for contract in contracts {
+            if workflow
+                .nodes()
+                .iter()
+                .all(|node: &NodeDefinition| node.id() != contract.id())
+            {
+                return Err(ConduitError::execution(format!(
+                    "output contract references unknown workflow node `{}`",
+                    contract.id()
+                )));
+            }
+        }
+
+        Ok(Self { outputs_by_node })
+    }
+
+    fn output_contracts_for(
+        &self,
+        node_id: &NodeId,
+    ) -> Option<&BTreeMap<PortId, Option<SchemaRef>>> {
+        self.outputs_by_node.get(node_id)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ContractOutputValidator {
+    workflow_id: WorkflowId,
+    node_id: NodeId,
+    execution: ExecutionMetadata,
+    output_contracts: BTreeMap<PortId, Option<SchemaRef>>,
+}
+
+impl ContractOutputValidator {
+    const fn new(
+        workflow_id: WorkflowId,
+        node_id: NodeId,
+        execution: ExecutionMetadata,
+        output_contracts: BTreeMap<PortId, Option<SchemaRef>>,
+    ) -> Self {
+        Self {
+            workflow_id,
+            node_id,
+            execution,
+            output_contracts,
+        }
+    }
+
+    fn reject(port_id: &PortId, reason: impl Into<String>) -> PortSendError {
+        PortSendError::Rejected {
+            port_id: port_id.clone(),
+            reason: reason.into(),
+        }
+    }
+}
+
+impl OutputPacketValidator for ContractOutputValidator {
+    fn validate(
+        &self,
+        port_id: &PortId,
+        packet: &PortPacket,
+    ) -> std::result::Result<(), PortSendError> {
+        if !self.output_contracts.contains_key(port_id) {
+            return Err(Self::reject(
+                port_id,
+                format!(
+                    "node `{}` output port `{port_id}` has no output contract",
+                    self.node_id
+                ),
+            ));
+        }
+
+        if packet.metadata().workflow_id() != &self.workflow_id {
+            return Err(Self::reject(
+                port_id,
+                format!(
+                    "packet workflow `{}` does not match workflow `{}`",
+                    packet.metadata().workflow_id(),
+                    self.workflow_id
+                ),
+            ));
+        }
+
+        if packet.metadata().execution() != &self.execution {
+            return Err(Self::reject(
+                port_id,
+                format!(
+                    "packet execution `{}` does not match execution `{}`",
+                    packet.metadata().execution().execution_id(),
+                    self.execution.execution_id()
+                ),
+            ));
+        }
+
+        let Some(source): Option<&MessageEndpoint> = packet.metadata().route().source() else {
+            return Err(Self::reject(port_id, "packet route has no source endpoint"));
+        };
+        if source.node_id() != &self.node_id || source.port_id() != port_id {
+            return Err(Self::reject(
+                port_id,
+                format!(
+                    "packet source `{}:{}` does not match output `{}:{port_id}`",
+                    source.node_id(),
+                    source.port_id(),
+                    self.node_id
+                ),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
 /// Execute the workflow by resolving one executor for each node from a registry.
 ///
 /// # Errors
@@ -309,6 +497,30 @@ where
     H: LifecycleHook + ?Sized,
     M: MetadataSink + 'static,
 {
+    run_workflow_with_registry_and_observers_summary_inner(
+        workflow,
+        execution,
+        registry,
+        lifecycle_hook,
+        metadata_sink,
+        None,
+    )
+    .await
+}
+
+async fn run_workflow_with_registry_and_observers_summary_inner<R, H, M>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    registry: &R,
+    lifecycle_hook: &H,
+    metadata_sink: Arc<M>,
+    output_contracts: Option<&WorkflowOutputContracts>,
+) -> Result<WorkflowRunSummary>
+where
+    R: NodeExecutorRegistry + ?Sized,
+    H: LifecycleHook + ?Sized,
+    M: MetadataSink + 'static,
+{
     let (mut inputs_by_node, mut outputs_by_node): PortWiring = build_port_wiring(workflow);
     let cancellation: CancellationHandle = CancellationHandle::new();
 
@@ -323,10 +535,27 @@ where
             node.input_ports().to_vec(),
             inputs_by_node.remove(node.id()).unwrap_or_default(),
         );
-        let outputs: PortsOut = PortsOut::from_handles(
+        let mut outputs: PortsOut = PortsOut::from_handles(
             node.output_ports().to_vec(),
             outputs_by_node.remove(node.id()).unwrap_or_default(),
         );
+        if let Some(output_contracts) = output_contracts {
+            let node_output_contracts: BTreeMap<PortId, Option<SchemaRef>> = output_contracts
+                .output_contracts_for(node.id())
+                .cloned()
+                .ok_or_else(|| {
+                    ConduitError::execution(format!(
+                        "no output contracts supplied for workflow node `{}`",
+                        node.id()
+                    ))
+                })?;
+            outputs = outputs.with_output_validator(Arc::new(ContractOutputValidator::new(
+                workflow.id().clone(),
+                node_id.clone(),
+                execution.clone(),
+                node_output_contracts,
+            )));
+        }
         let metadata_sink: Arc<M> = metadata_sink.clone();
         node_runs.push(async move {
             let result: Result<()> = run_node_with_observers(
@@ -343,6 +572,114 @@ where
     }
 
     collect_workflow_summary(node_runs, &cancellation, workflow.nodes().len()).await
+}
+
+/// Execute the workflow through a registry with output contract validation.
+///
+/// # Errors
+///
+/// Returns an error if executor resolution or output contract setup fails.
+pub async fn run_workflow_with_registry_contracts_and_observers_summary<R, H, M>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    registry: &R,
+    contracts: &[NodeContract],
+    lifecycle_hook: &H,
+    metadata_sink: Arc<M>,
+) -> Result<WorkflowRunSummary>
+where
+    R: NodeExecutorRegistry + ?Sized,
+    H: LifecycleHook + ?Sized,
+    M: MetadataSink + 'static,
+{
+    let output_contracts: WorkflowOutputContracts =
+        WorkflowOutputContracts::from_node_contracts(workflow, contracts)?;
+    run_workflow_with_registry_and_observers_summary_inner(
+        workflow,
+        execution,
+        registry,
+        lifecycle_hook,
+        metadata_sink,
+        Some(&output_contracts),
+    )
+    .await
+}
+
+/// Execute the workflow through a registry with output contract validation.
+///
+/// # Errors
+///
+/// Returns an error if executor resolution, output contract setup, output
+/// validation, observation, metadata collection, or node execution fails.
+pub async fn run_workflow_with_registry_contracts_and_observers<R, H, M>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    registry: &R,
+    contracts: &[NodeContract],
+    lifecycle_hook: &H,
+    metadata_sink: Arc<M>,
+) -> Result<()>
+where
+    R: NodeExecutorRegistry + ?Sized,
+    H: LifecycleHook + ?Sized,
+    M: MetadataSink + 'static,
+{
+    run_workflow_with_registry_contracts_and_observers_summary(
+        workflow,
+        execution,
+        registry,
+        contracts,
+        lifecycle_hook,
+        metadata_sink,
+    )
+    .await?
+    .into_result()
+}
+
+/// Execute the workflow through a registry with output contract validation.
+///
+/// # Errors
+///
+/// Returns an error if executor resolution or output contract setup fails.
+pub async fn run_workflow_with_registry_contracts_summary<R>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    registry: &R,
+    contracts: &[NodeContract],
+) -> Result<WorkflowRunSummary>
+where
+    R: NodeExecutorRegistry + ?Sized,
+{
+    let lifecycle_hook: NoopLifecycleHook = NoopLifecycleHook;
+    run_workflow_with_registry_contracts_and_observers_summary(
+        workflow,
+        execution,
+        registry,
+        contracts,
+        &lifecycle_hook,
+        Arc::new(NoopMetadataSink),
+    )
+    .await
+}
+
+/// Execute the workflow through a registry with output contract validation.
+///
+/// # Errors
+///
+/// Returns an error if executor resolution, output contract setup, output
+/// validation, or node execution fails.
+pub async fn run_workflow_with_registry_contracts<R>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    registry: &R,
+    contracts: &[NodeContract],
+) -> Result<()>
+where
+    R: NodeExecutorRegistry + ?Sized,
+{
+    run_workflow_with_registry_contracts_summary(workflow, execution, registry, contracts)
+        .await?
+        .into_result()
 }
 
 /// Execute the workflow through a registry and report observer records.
@@ -485,6 +822,37 @@ where
     .await
 }
 
+/// Execute the workflow through one executor with output contract validation.
+///
+/// # Errors
+///
+/// Returns an error if output contract setup fails.
+pub async fn run_workflow_with_contracts_summary<E: NodeExecutor + ?Sized>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    executor: &E,
+    contracts: &[NodeContract],
+) -> Result<WorkflowRunSummary> {
+    let registry: SingleNodeExecutorRegistry<'_, E> = SingleNodeExecutorRegistry::new(executor);
+    run_workflow_with_registry_contracts_summary(workflow, execution, &registry, contracts).await
+}
+
+/// Execute the workflow through one executor with output contract validation.
+///
+/// # Errors
+///
+/// Returns an error if output contract setup, output validation, or node
+/// execution fails.
+pub async fn run_workflow_with_contracts<E: NodeExecutor + ?Sized>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    executor: &E,
+    contracts: &[NodeContract],
+) -> Result<()> {
+    let registry: SingleNodeExecutorRegistry<'_, E> = SingleNodeExecutorRegistry::new(executor);
+    run_workflow_with_registry_contracts(workflow, execution, &registry, contracts).await
+}
+
 /// Execute the workflow with one executor and emit metadata records through a sink.
 ///
 /// # Errors
@@ -594,9 +962,10 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
+    use conduit_contract::{Determinism, ExecutionMode, PortContract, SchemaRef};
     use conduit_core::{
         ConduitError, ErrorCode, MetadataRecord, MetadataSink, PacketPayload, PortPacket,
-        PortRecvError, PortSendError,
+        PortRecvError, PortSendError, RetryDisposition,
         lifecycle::{LifecycleEvent, LifecycleEventKind},
         message::{MessageEndpoint, MessageMetadata, MessageRoute},
     };
@@ -1017,6 +1386,57 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Copy)]
+    enum ContractOutputMode {
+        MatchingSource,
+        MismatchedSource,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct ContractOutputExecutor {
+        mode: ContractOutputMode,
+    }
+
+    impl ContractOutputExecutor {
+        const fn matching_source() -> Self {
+            Self {
+                mode: ContractOutputMode::MatchingSource,
+            }
+        }
+
+        const fn mismatched_source() -> Self {
+            Self {
+                mode: ContractOutputMode::MismatchedSource,
+            }
+        }
+    }
+
+    impl NodeExecutor for ContractOutputExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            _inputs: PortsIn,
+            outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                let source_node: &str = match self.mode {
+                    ContractOutputMode::MatchingSource => "source",
+                    ContractOutputMode::MismatchedSource => "other",
+                };
+                outputs
+                    .send(
+                        &port_id("out"),
+                        packet_between(b"contracted", source_node, "sink"),
+                        &ctx.cancellation_token(),
+                    )
+                    .await?;
+                Ok(())
+            })
+        }
+    }
+
     #[derive(Debug, Default)]
     struct SiblingCancellationExecutor {
         cancellation_observed: Mutex<bool>,
@@ -1172,6 +1592,27 @@ mod tests {
             MessageMetadata::new(message_id("msg-1"), workflow_id("flow"), execution, route);
 
         PortPacket::new(metadata, PacketPayload::from(value.to_vec()))
+    }
+
+    fn schema(value: &str) -> SchemaRef {
+        SchemaRef::new(value).expect("valid schema ref")
+    }
+
+    fn source_output_contracts() -> Vec<NodeContract> {
+        vec![
+            NodeContract::new(
+                node_id("source"),
+                vec![PortContract::new(
+                    port_id("out"),
+                    PortDirection::Output,
+                    Some(schema("schema://packet")),
+                )],
+                ExecutionMode::Native,
+                Determinism::Unknown,
+                RetryDisposition::Unknown,
+            )
+            .expect("valid source contract"),
+        ]
     }
 
     fn packet_payload_bytes(packet: PortPacket) -> Vec<u8> {
@@ -1384,6 +1825,55 @@ mod tests {
         assert_eq!(summary.failed_node_count(), 0);
         assert_eq!(summary.cancelled_node_count(), 1);
         assert_eq!(summary.error_count(), 1);
+    }
+
+    #[test]
+    fn run_workflow_with_contracts_summary_accepts_matching_output_source() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: ContractOutputExecutor = ContractOutputExecutor::matching_source();
+
+        let summary: WorkflowRunSummary = block_on(run_workflow_with_contracts_summary(
+            &workflow,
+            &execution,
+            &executor,
+            &source_output_contracts(),
+        ))
+        .expect("contract-aware workflow should run");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Completed);
+        assert_eq!(summary.completed_node_count(), 1);
+        assert!(summary.first_error().is_none());
+    }
+
+    #[test]
+    fn run_workflow_with_contracts_summary_rejects_mismatched_output_source() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: ContractOutputExecutor = ContractOutputExecutor::mismatched_source();
+
+        let summary: WorkflowRunSummary = block_on(run_workflow_with_contracts_summary(
+            &workflow,
+            &execution,
+            &executor,
+            &source_output_contracts(),
+        ))
+        .expect("contract-aware summary should preserve output validation failures as data");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Failed);
+        assert_eq!(summary.completed_node_count(), 0);
+        assert_eq!(summary.failed_node_count(), 1);
+        assert!(
+            summary
+                .first_error()
+                .expect("summary should retain output validation error")
+                .to_string()
+                .contains("does not match output")
+        );
     }
 
     #[test]

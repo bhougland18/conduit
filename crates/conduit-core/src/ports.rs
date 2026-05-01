@@ -67,6 +67,13 @@ pub enum PortSendError {
         /// Output port being sent through.
         port_id: PortId,
     },
+    /// A validation policy rejected the packet before it entered the graph.
+    Rejected {
+        /// Output port being sent through.
+        port_id: PortId,
+        /// Human-readable rejection reason.
+        reason: String,
+    },
 }
 
 impl fmt::Display for PortSendError {
@@ -82,11 +89,24 @@ impl fmt::Display for PortSendError {
             Self::Cancelled { port_id } => {
                 write!(f, "output port `{port_id}` send cancelled")
             }
+            Self::Rejected { port_id, reason } => {
+                write!(f, "output port `{port_id}` rejected packet: {reason}")
+            }
         }
     }
 }
 
 impl Error for PortSendError {}
+
+/// Validator invoked before output packets enter downstream graph edges.
+pub trait OutputPacketValidator: Send + Sync {
+    /// Validate one output packet for the requested output port.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the packet must not be sent.
+    fn validate(&self, port_id: &PortId, packet: &PortPacket) -> Result<(), PortSendError>;
+}
 
 /// Error returned when an input port cannot provide a packet.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,6 +345,7 @@ impl OutputPortHandle {
     fn try_reserve(
         &self,
         metadata_sink: Option<Arc<dyn MetadataSink + Send + Sync>>,
+        validator: Option<Arc<dyn OutputPacketValidator>>,
     ) -> Result<OutputPortSendPermit<'_>, PortSendError> {
         let split_senders: Option<(&mpsc::Sender<PortPacket>, &[mpsc::Sender<PortPacket>])> =
             self.senders.split_last();
@@ -335,8 +356,10 @@ impl OutputPortHandle {
             Some(value) => value,
             None => {
                 return Ok(OutputPortSendPermit {
+                    port_id: self.port_id.clone(),
                     permits: Vec::new(),
                     metadata_sink,
+                    validator,
                 });
             }
         };
@@ -357,8 +380,10 @@ impl OutputPortHandle {
             Ok(permit) => {
                 permits.push(permit);
                 Ok(OutputPortSendPermit {
+                    port_id: self.port_id.clone(),
                     permits,
                     metadata_sink,
+                    validator,
                 })
             }
             Err(err) => Err(self.map_send_error(err)),
@@ -383,6 +408,7 @@ impl OutputPortHandle {
         &self,
         cancellation: &CancellationToken,
         metadata_sink: Option<Arc<dyn MetadataSink + Send + Sync>>,
+        validator: Option<Arc<dyn OutputPacketValidator>>,
     ) -> Result<OutputPortSendPermit<'_>, PortSendError> {
         loop {
             if cancellation.is_cancelled() {
@@ -391,7 +417,7 @@ impl OutputPortHandle {
                 });
             }
 
-            match self.try_reserve(metadata_sink.clone()) {
+            match self.try_reserve(metadata_sink.clone(), validator.clone()) {
                 Ok(permit) => return Ok(permit),
                 Err(PortSendError::Full { .. }) => yield_now().await,
                 Err(err) => return Err(err),
@@ -408,8 +434,12 @@ pub struct PortSendPermit<'a> {
 
 impl PortSendPermit<'_> {
     /// Commit the reserved capacity and enqueue the packet.
-    pub fn send(self, packet: PortPacket) {
-        self.inner.send(packet);
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if output validation rejects the packet.
+    pub fn send(self, packet: PortPacket) -> Result<(), PortSendError> {
+        self.inner.send(packet)
     }
 
     /// Release the reserved capacity without enqueueing a packet.
@@ -419,12 +449,21 @@ impl PortSendPermit<'_> {
 }
 
 struct OutputPortSendPermit<'a> {
+    port_id: PortId,
     permits: Vec<mpsc::SendPermit<'a, PortPacket>>,
     metadata_sink: Option<Arc<dyn MetadataSink + Send + Sync>>,
+    validator: Option<Arc<dyn OutputPacketValidator>>,
 }
 
 impl OutputPortSendPermit<'_> {
-    fn send(mut self, packet: PortPacket) {
+    fn send(mut self, packet: PortPacket) -> Result<(), PortSendError> {
+        if let Some(validator) = self.validator.as_ref()
+            && let Err(err) = validator.validate(&self.port_id, &packet)
+        {
+            self.abort();
+            return Err(err);
+        }
+
         let boundary_kind: MessageBoundaryKind = if self.permits.is_empty() {
             MessageBoundaryKind::Dropped
         } else {
@@ -441,7 +480,7 @@ impl OutputPortSendPermit<'_> {
         let last_permit: Option<mpsc::SendPermit<'_, PortPacket>> = self.permits.pop();
         let last_permit: mpsc::SendPermit<'_, PortPacket> = match last_permit {
             Some(permit) => permit,
-            None => return,
+            None => return Ok(()),
         };
         let leading_permits: Vec<mpsc::SendPermit<'_, PortPacket>> = self.permits;
 
@@ -449,6 +488,7 @@ impl OutputPortSendPermit<'_> {
             permit.send(packet.clone());
         }
         last_permit.send(packet);
+        Ok(())
     }
 
     fn abort(self) {
@@ -707,6 +747,7 @@ pub struct PortsOut {
     port_ids: Vec<PortId>,
     ports: Vec<OutputPortHandle>,
     metadata_sink: Option<Arc<dyn MetadataSink + Send + Sync>>,
+    validator: Option<Arc<dyn OutputPacketValidator>>,
 }
 
 impl PortsOut {
@@ -747,6 +788,7 @@ impl PortsOut {
             port_ids,
             ports,
             metadata_sink: None,
+            validator: None,
         }
     }
 
@@ -757,6 +799,13 @@ impl PortsOut {
         metadata_sink: Arc<dyn MetadataSink + Send + Sync>,
     ) -> Self {
         self.metadata_sink = Some(metadata_sink);
+        self
+    }
+
+    /// Attach a validator that runs before output packets enter graph edges.
+    #[must_use]
+    pub fn with_output_validator(mut self, validator: Arc<dyn OutputPacketValidator>) -> Self {
+        self.validator = Some(validator);
         self
     }
 
@@ -803,8 +852,7 @@ impl PortsOut {
     /// Returns an error if the port is undeclared, a downstream receiver has
     /// disconnected, or a bounded downstream edge is full.
     pub fn try_send(&self, port_id: &PortId, packet: PortPacket) -> Result<(), PortSendError> {
-        self.try_reserve(port_id)?.send(packet);
-        Ok(())
+        self.try_reserve(port_id)?.send(packet)
     }
 
     /// Send one packet through a declared output port, waiting asynchronously
@@ -820,8 +868,7 @@ impl PortsOut {
         packet: PortPacket,
         cancellation: &CancellationToken,
     ) -> Result<(), PortSendError> {
-        self.reserve(port_id, cancellation).await?.send(packet);
-        Ok(())
+        self.reserve(port_id, cancellation).await?.send(packet)
     }
 
     /// Try to reserve output capacity without committing a packet.
@@ -840,7 +887,7 @@ impl PortsOut {
             .ok_or_else(|| PortSendError::UnknownPort {
                 port_id: port_id.clone(),
             })?;
-        port.try_reserve(self.metadata_sink.clone())
+        port.try_reserve(self.metadata_sink.clone(), self.validator.clone())
             .map(|inner: OutputPortSendPermit<'_>| PortSendPermit { inner })
     }
 
@@ -864,9 +911,13 @@ impl PortsOut {
             .ok_or_else(|| PortSendError::UnknownPort {
                 port_id: port_id.clone(),
             })?;
-        port.reserve(cancellation, self.metadata_sink.clone())
-            .await
-            .map(|inner: OutputPortSendPermit<'_>| PortSendPermit { inner })
+        port.reserve(
+            cancellation,
+            self.metadata_sink.clone(),
+            self.validator.clone(),
+        )
+        .await
+        .map(|inner: OutputPortSendPermit<'_>| PortSendPermit { inner })
     }
 }
 
@@ -943,6 +994,18 @@ mod tests {
                 .expect("metadata sink lock should not be poisoned")
                 .push(record.clone());
             Ok(())
+        }
+    }
+
+    #[derive(Debug)]
+    struct RejectingOutputValidator;
+
+    impl OutputPacketValidator for RejectingOutputValidator {
+        fn validate(&self, port_id: &PortId, _packet: &PortPacket) -> Result<(), PortSendError> {
+            Err(PortSendError::Rejected {
+                port_id: port_id.clone(),
+                reason: "contract mismatch".to_owned(),
+            })
         }
     }
 
@@ -1034,7 +1097,9 @@ mod tests {
             }
         );
 
-        permit.send(packet(b"committed"));
+        permit
+            .send(packet(b"committed"))
+            .expect("reserved packet should pass validation");
 
         let received: PortPacket = inputs
             .try_recv(&port_id("in"))
@@ -1228,7 +1293,8 @@ mod tests {
                 .reserve(&port_id("out"), &cancellation)
                 .await
                 .expect("capacity should be available")
-                .send(packet(b"reserved"));
+                .send(packet(b"reserved"))
+                .expect("reserved packet should pass validation");
         });
 
         let received: PortPacket = inputs
@@ -1301,6 +1367,33 @@ mod tests {
             PortSendError::Cancelled {
                 port_id: port_id("out")
             }
+        );
+    }
+
+    #[test]
+    fn output_validator_rejects_before_enqueueing_packet() {
+        let (output, input): (OutputPortHandle, InputPortHandle) =
+            bounded_edge_channel(port_id("out"), port_id("in"), NonZeroUsize::MIN);
+        let mut inputs: PortsIn = PortsIn::from_handles([port_id("in")], [input]);
+        let outputs: PortsOut = PortsOut::from_handles([port_id("out")], [output])
+            .with_output_validator(Arc::new(RejectingOutputValidator));
+
+        let err: PortSendError = outputs
+            .try_send(&port_id("out"), packet(b"rejected"))
+            .expect_err("validator should reject the packet");
+
+        assert_eq!(
+            err,
+            PortSendError::Rejected {
+                port_id: port_id("out"),
+                reason: "contract mismatch".to_owned()
+            }
+        );
+        assert!(
+            inputs
+                .try_recv(&port_id("in"))
+                .expect("receive should succeed")
+                .is_none()
         );
     }
 
