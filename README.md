@@ -30,7 +30,7 @@ nix develop . --command cargo check --workspace --all-targets
 
 ```bash
 nix develop . --command cargo test --workspace
-nix develop . --command cargo clippy --workspace --all-targets -- -W clippy::pedantic -W clippy::nursery
+nix develop . --command cargo clippy --workspace --all-targets -- -W clippy::pedantic -W clippy::nursery -W clippy::perf -W clippy::redundant_clone
 nix develop . --command cargo fmt --check
 nix develop . --command cargo-dylint-nightly --all
 ```

@@ -152,7 +152,7 @@ After any substantive code changes, verify the codebase is still healthy:
 ```bash
 cargo check --all-targets
 cargo fmt --check
-cargo clippy --all-targets -- -W clippy::pedantic -W clippy::nursery
+cargo clippy --all-targets -- -W clippy::pedantic -W clippy::nursery -W clippy::perf -W clippy::redundant_clone
 nix develop . --command cargo-dylint-nightly --all
 ```
 
