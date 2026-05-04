@@ -1,7 +1,8 @@
 //! High-level workflow orchestration for Conduit.
 
 use std::num::NonZeroUsize;
-use std::{collections::BTreeMap, future::Future, sync::Arc};
+use std::time::Duration;
+use std::{collections::BTreeMap, fmt, future::Future, sync::Arc};
 
 use conduit_contract::{NodeContract, PortContract, SchemaRef};
 use conduit_core::{
@@ -18,7 +19,11 @@ use conduit_types::{NodeId, PortId, WorkflowId};
 use conduit_workflow::{
     NodeDefinition, PortDirection, WorkflowDefinition, WorkflowValidationError,
 };
-use futures::stream::{FuturesUnordered, StreamExt};
+use futures::{
+    channel::oneshot,
+    future::{BoxFuture, Either, select},
+    stream::{FuturesUnordered, Next, StreamExt},
+};
 
 const DEFAULT_EDGE_CAPACITY: NonZeroUsize = NonZeroUsize::MIN;
 
@@ -26,6 +31,7 @@ const DEFAULT_EDGE_CAPACITY: NonZeroUsize = NonZeroUsize::MIN;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorkflowRunPolicy {
     cycle_policy: CycleRunPolicy,
+    watchdog_policy: WorkflowWatchdogPolicy,
 }
 
 impl WorkflowRunPolicy {
@@ -34,6 +40,7 @@ impl WorkflowRunPolicy {
     pub const fn acyclic() -> Self {
         Self {
             cycle_policy: CycleRunPolicy::Reject,
+            watchdog_policy: WorkflowWatchdogPolicy::Disabled,
         }
     }
 
@@ -42,6 +49,7 @@ impl WorkflowRunPolicy {
     pub const fn feedback_loops(feedback_loop: FeedbackLoopRunPolicy) -> Self {
         Self {
             cycle_policy: CycleRunPolicy::AllowFeedbackLoops(feedback_loop),
+            watchdog_policy: WorkflowWatchdogPolicy::Disabled,
         }
     }
 
@@ -49,6 +57,19 @@ impl WorkflowRunPolicy {
     #[must_use]
     pub const fn cycle_policy(&self) -> CycleRunPolicy {
         self.cycle_policy
+    }
+
+    /// Return a copy of this policy with watchdog behavior attached.
+    #[must_use]
+    pub const fn with_watchdog(mut self, watchdog_policy: WorkflowWatchdogPolicy) -> Self {
+        self.watchdog_policy = watchdog_policy;
+        self
+    }
+
+    /// Configured no-progress watchdog behavior.
+    #[must_use]
+    pub const fn watchdog_policy(&self) -> WorkflowWatchdogPolicy {
+        self.watchdog_policy
     }
 }
 
@@ -118,6 +139,166 @@ pub enum FeedbackLoopStartup {
 pub enum FeedbackLoopTermination {
     /// The run completes only after all node tasks complete successfully.
     AllNodesComplete,
+}
+
+/// Runtime watchdog behavior for workflow execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WorkflowWatchdogPolicy {
+    /// Do not monitor no-progress workflow execution.
+    #[default]
+    Disabled,
+    /// Cancel the workflow if no scheduled node reaches a terminal state before
+    /// the configured deadline. The deadline resets after each node result.
+    Deadlock(DeadlockWatchdogPolicy),
+}
+
+impl WorkflowWatchdogPolicy {
+    /// Return a disabled watchdog policy.
+    #[must_use]
+    pub const fn disabled() -> Self {
+        Self::Disabled
+    }
+
+    /// Cancel the workflow after a no-progress interval.
+    ///
+    /// A zero duration is allowed and fires on the next watchdog poll, which is
+    /// useful for deterministic tests.
+    #[must_use]
+    pub const fn deadlock_after(no_progress_timeout: Duration) -> Self {
+        Self::Deadlock(DeadlockWatchdogPolicy::new(no_progress_timeout))
+    }
+}
+
+/// Configuration for no-progress deadlock detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeadlockWatchdogPolicy {
+    no_progress_timeout: Duration,
+}
+
+impl DeadlockWatchdogPolicy {
+    /// Create a no-progress watchdog policy.
+    ///
+    /// A zero duration is allowed and fires on the next watchdog poll, which is
+    /// useful for deterministic tests.
+    #[must_use]
+    pub const fn new(no_progress_timeout: Duration) -> Self {
+        Self {
+            no_progress_timeout,
+        }
+    }
+
+    /// Maximum interval allowed without any node reaching a terminal state.
+    #[must_use]
+    pub const fn no_progress_timeout(&self) -> Duration {
+        self.no_progress_timeout
+    }
+}
+
+/// Diagnostic state reported when the workflow watchdog detects no progress.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowDeadlockDiagnostic {
+    workflow_id: WorkflowId,
+    scheduled_node_count: usize,
+    pending_node_count: usize,
+    completed_node_count: usize,
+    failed_node_count: usize,
+    cancelled_node_count: usize,
+    bounded_edge_count: usize,
+    no_progress_timeout: Duration,
+    cycle_policy: CycleRunPolicy,
+}
+
+impl WorkflowDeadlockDiagnostic {
+    fn from_run(
+        workflow: &WorkflowDefinition,
+        summary: &WorkflowRunSummary,
+        policy: WorkflowRunPolicy,
+        watchdog: DeadlockWatchdogPolicy,
+    ) -> Self {
+        Self {
+            workflow_id: workflow.id().clone(),
+            scheduled_node_count: summary.scheduled_node_count(),
+            pending_node_count: summary.pending_node_count(),
+            completed_node_count: summary.completed_node_count(),
+            failed_node_count: summary.failed_node_count(),
+            cancelled_node_count: summary.cancelled_node_count(),
+            bounded_edge_count: workflow.edges().len(),
+            no_progress_timeout: watchdog.no_progress_timeout(),
+            cycle_policy: policy.cycle_policy(),
+        }
+    }
+
+    /// Workflow that stopped making progress.
+    #[must_use]
+    pub const fn workflow_id(&self) -> &WorkflowId {
+        &self.workflow_id
+    }
+
+    /// Nodes scheduled for this run.
+    #[must_use]
+    pub const fn scheduled_node_count(&self) -> usize {
+        self.scheduled_node_count
+    }
+
+    /// Nodes still pending when the watchdog fired.
+    #[must_use]
+    pub const fn pending_node_count(&self) -> usize {
+        self.pending_node_count
+    }
+
+    /// Nodes completed before the watchdog fired.
+    #[must_use]
+    pub const fn completed_node_count(&self) -> usize {
+        self.completed_node_count
+    }
+
+    /// Nodes failed before the watchdog fired.
+    #[must_use]
+    pub const fn failed_node_count(&self) -> usize {
+        self.failed_node_count
+    }
+
+    /// Nodes cancelled before the watchdog fired.
+    #[must_use]
+    pub const fn cancelled_node_count(&self) -> usize {
+        self.cancelled_node_count
+    }
+
+    /// Bounded graph edges in the workflow.
+    #[must_use]
+    pub const fn bounded_edge_count(&self) -> usize {
+        self.bounded_edge_count
+    }
+
+    /// No-progress interval that elapsed before the watchdog fired.
+    #[must_use]
+    pub const fn no_progress_timeout(&self) -> Duration {
+        self.no_progress_timeout
+    }
+
+    /// Cycle policy active when the watchdog fired.
+    #[must_use]
+    pub const fn cycle_policy(&self) -> CycleRunPolicy {
+        self.cycle_policy
+    }
+}
+
+impl fmt::Display for WorkflowDeadlockDiagnostic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "workflow `{}` watchdog detected no workflow progress for {:?}: scheduled_nodes={}, pending_nodes={}, completed_nodes={}, failed_nodes={}, cancelled_nodes={}, bounded_edges={}, cycle_policy={:?}",
+            self.workflow_id,
+            self.no_progress_timeout,
+            self.scheduled_node_count,
+            self.pending_node_count,
+            self.completed_node_count,
+            self.failed_node_count,
+            self.cancelled_node_count,
+            self.bounded_edge_count,
+            self.cycle_policy
+        )
+    }
 }
 
 /// Terminal state for one workflow run.
@@ -204,6 +385,16 @@ impl WorkflowRunSummary {
     #[must_use]
     pub const fn error_count(&self) -> usize {
         self.error_count
+    }
+
+    /// Number of scheduled nodes that have not yet reached a terminal state.
+    #[must_use]
+    pub const fn pending_node_count(&self) -> usize {
+        self.scheduled_node_count.saturating_sub(
+            self.completed_node_count
+                .saturating_add(self.failed_node_count)
+                .saturating_add(self.cancelled_node_count),
+        )
     }
 
     /// First error observed by the workflow runner, if any.
@@ -729,10 +920,13 @@ where
 
     collect_workflow_summary(
         node_runs,
-        &cancellation,
-        workflow.id(),
-        execution,
-        metadata_sink.as_ref(),
+        WorkflowCollectionContext::new(
+            &cancellation,
+            workflow,
+            execution,
+            metadata_sink.as_ref(),
+            policy,
+        ),
         workflow.nodes().len(),
     )
     .await
@@ -1108,40 +1302,167 @@ where
     .await
 }
 
+#[derive(Clone, Copy)]
+struct WorkflowCollectionContext<'a> {
+    cancellation: &'a CancellationHandle,
+    workflow: &'a WorkflowDefinition,
+    execution: &'a ExecutionMetadata,
+    metadata_sink: &'a dyn MetadataSink,
+    policy: WorkflowRunPolicy,
+}
+
+impl<'a> WorkflowCollectionContext<'a> {
+    const fn new(
+        cancellation: &'a CancellationHandle,
+        workflow: &'a WorkflowDefinition,
+        execution: &'a ExecutionMetadata,
+        metadata_sink: &'a dyn MetadataSink,
+        policy: WorkflowRunPolicy,
+    ) -> Self {
+        Self {
+            cancellation,
+            workflow,
+            execution,
+            metadata_sink,
+            policy,
+        }
+    }
+}
+
 async fn collect_workflow_summary<F>(
     mut node_runs: FuturesUnordered<F>,
-    cancellation: &CancellationHandle,
-    workflow_id: &WorkflowId,
-    execution: &ExecutionMetadata,
-    metadata_sink: &dyn MetadataSink,
+    context: WorkflowCollectionContext<'_>,
     scheduled_node_count: usize,
 ) -> Result<WorkflowRunSummary>
 where
     F: Future<Output = (NodeId, Result<()>)>,
 {
     let mut summary: WorkflowRunSummary = WorkflowRunSummary::new(scheduled_node_count);
-    while let Some((_node_id, result)) = node_runs.next().await {
-        match result {
-            Ok(()) => summary.record_success(),
-            Err(err) => {
-                if summary.first_error().is_none() {
-                    let record: MetadataRecord =
-                        MetadataRecord::Error(ErrorMetadataRecord::workflow_failed(
-                            workflow_id.clone(),
-                            execution.clone(),
-                            err.clone(),
-                        ));
-                    metadata_sink.record(&record)?;
-                    let _first_request: bool = cancellation.cancel(CancellationRequest::new(
-                        format!("node execution failed: {err}"),
-                    ));
-                }
-                summary.record_error(err);
-            }
+
+    match context.policy.watchdog_policy() {
+        WorkflowWatchdogPolicy::Disabled => {
+            collect_workflow_summary_until_complete(&mut node_runs, context, &mut summary).await?;
+        }
+        WorkflowWatchdogPolicy::Deadlock(watchdog) => {
+            collect_workflow_summary_with_deadlock_watchdog(
+                &mut node_runs,
+                context,
+                watchdog,
+                &mut summary,
+            )
+            .await?;
         }
     }
 
     Ok(summary)
+}
+
+async fn collect_workflow_summary_until_complete<F>(
+    node_runs: &mut FuturesUnordered<F>,
+    context: WorkflowCollectionContext<'_>,
+    summary: &mut WorkflowRunSummary,
+) -> Result<()>
+where
+    F: Future<Output = (NodeId, Result<()>)>,
+{
+    while let Some((_node_id, result)) = node_runs.next().await {
+        record_node_run_result(context, summary, result)?;
+    }
+
+    Ok(())
+}
+
+async fn collect_workflow_summary_with_deadlock_watchdog<F>(
+    node_runs: &mut FuturesUnordered<F>,
+    context: WorkflowCollectionContext<'_>,
+    watchdog: DeadlockWatchdogPolicy,
+    summary: &mut WorkflowRunSummary,
+) -> Result<()>
+where
+    F: Future<Output = (NodeId, Result<()>)>,
+{
+    loop {
+        if node_runs.is_empty() {
+            return Ok(());
+        }
+
+        let next_node_result: Next<'_, FuturesUnordered<F>> = node_runs.next();
+        let watchdog_deadline: BoxFuture<'static, ()> =
+            deadlock_watchdog_deadline(watchdog.no_progress_timeout())?;
+        futures::pin_mut!(next_node_result);
+        futures::pin_mut!(watchdog_deadline);
+
+        match select(next_node_result, watchdog_deadline).await {
+            Either::Left((Some((_node_id, result)), _deadline)) => {
+                record_node_run_result(context, summary, result)?;
+            }
+            Either::Left((None, _deadline)) => return Ok(()),
+            Either::Right(((), _next_node_result)) => {
+                let diagnostic: WorkflowDeadlockDiagnostic = WorkflowDeadlockDiagnostic::from_run(
+                    context.workflow,
+                    summary,
+                    context.policy,
+                    watchdog,
+                );
+                let err: ConduitError = ConduitError::execution(diagnostic.to_string());
+                record_first_workflow_error(context, &err)?;
+                return Err(err);
+            }
+        }
+    }
+}
+
+fn record_node_run_result(
+    context: WorkflowCollectionContext<'_>,
+    summary: &mut WorkflowRunSummary,
+    result: Result<()>,
+) -> Result<()> {
+    match result {
+        Ok(()) => summary.record_success(),
+        Err(err) => {
+            if summary.first_error().is_none() {
+                record_first_workflow_error(context, &err)?;
+            }
+            summary.record_error(err);
+        }
+    }
+
+    Ok(())
+}
+
+fn record_first_workflow_error(
+    context: WorkflowCollectionContext<'_>,
+    err: &ConduitError,
+) -> Result<()> {
+    let record: MetadataRecord = MetadataRecord::Error(ErrorMetadataRecord::workflow_failed(
+        context.workflow.id().clone(),
+        context.execution.clone(),
+        err.clone(),
+    ));
+    context.metadata_sink.record(&record)?;
+    let _first_request: bool = context
+        .cancellation
+        .cancel(CancellationRequest::new(format!(
+            "node execution failed: {err}"
+        )));
+    Ok(())
+}
+
+fn deadlock_watchdog_deadline(timeout: Duration) -> Result<BoxFuture<'static, ()>> {
+    let (sender, receiver): (oneshot::Sender<()>, oneshot::Receiver<()>) = oneshot::channel();
+    std::thread::Builder::new()
+        .name(String::from("conduit-deadlock-watchdog"))
+        .spawn(move || {
+            std::thread::sleep(timeout);
+            let _send_result: std::result::Result<(), ()> = sender.send(());
+        })
+        .map_err(|err: std::io::Error| {
+            ConduitError::execution(format!("failed to start workflow deadlock watchdog: {err}"))
+        })?;
+
+    Ok(Box::pin(async move {
+        let _deadline_result: std::result::Result<(), oneshot::Canceled> = receiver.await;
+    }))
 }
 
 fn validate_workflow_run_policy(
@@ -1228,6 +1549,7 @@ mod tests {
         collections::BTreeMap,
         future::{Ready, ready},
         sync::{Arc, Mutex},
+        time::Duration,
     };
 
     use conduit_contract::{Determinism, ExecutionMode, PortContract, SchemaRef};
@@ -1654,6 +1976,45 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Default)]
+    struct WaitingInputExecutor {
+        visited: Mutex<Vec<String>>,
+    }
+
+    impl WaitingInputExecutor {
+        fn visited_node_names(&self) -> Vec<String> {
+            self.visited
+                .lock()
+                .expect("waiting input executor lock should not be poisoned")
+                .clone()
+        }
+    }
+
+    impl NodeExecutor for WaitingInputExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            mut inputs: PortsIn,
+            outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                let _held_outputs = outputs;
+                self.visited
+                    .lock()
+                    .expect("waiting input executor lock should not be poisoned")
+                    .push(ctx.node_id().to_string());
+
+                let _packet = inputs
+                    .recv(&port_id("in"), &ctx.cancellation_token())
+                    .await?;
+
+                Ok(())
+            })
+        }
+    }
+
     #[derive(Debug, Clone, Copy)]
     enum ContractOutputMode {
         MatchingSource,
@@ -1931,6 +2292,10 @@ mod tests {
             WorkflowRunPolicy::default().cycle_policy(),
             CycleRunPolicy::Reject
         );
+        assert_eq!(
+            WorkflowRunPolicy::default().watchdog_policy(),
+            WorkflowWatchdogPolicy::Disabled
+        );
     }
 
     #[test]
@@ -2084,6 +2449,7 @@ mod tests {
         assert_eq!(summary.completed_node_count(), 2);
         assert_eq!(summary.failed_node_count(), 0);
         assert_eq!(summary.cancelled_node_count(), 0);
+        assert_eq!(summary.pending_node_count(), 0);
         assert_eq!(summary.error_count(), 0);
         assert_eq!(summary.observed_message_count(), 0);
         assert!(summary.first_error().is_none());
@@ -2124,6 +2490,34 @@ mod tests {
         assert_eq!(summary.terminal_state(), WorkflowTerminalState::Completed);
         assert_eq!(summary.scheduled_node_count(), 2);
         assert_eq!(summary.completed_node_count(), 2);
+        assert_eq!(
+            executor.visited_node_names(),
+            vec![String::from("first"), String::from("second")]
+        );
+    }
+
+    #[test]
+    fn workflow_deadlock_watchdog_reports_stalled_cycle_state() {
+        let workflow: WorkflowDefinition = cyclic_workflow();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: WaitingInputExecutor = WaitingInputExecutor::default();
+        let policy: WorkflowRunPolicy = WorkflowRunPolicy::feedback_loops(
+            FeedbackLoopRunPolicy::start_all_nodes_until_complete(),
+        )
+        .with_watchdog(WorkflowWatchdogPolicy::deadlock_after(
+            Duration::from_millis(1),
+        ));
+
+        let err: ConduitError = block_on(run_workflow_with_policy_summary(
+            &workflow, &execution, &executor, policy,
+        ))
+        .expect_err("deadlock watchdog should cancel a stalled cyclic workflow");
+        let err_text: String = err.to_string();
+
+        assert_eq!(err.code(), ErrorCode::NodeExecutionFailed);
+        assert!(err_text.contains("watchdog detected no workflow progress"));
+        assert!(err_text.contains("pending_nodes=2"));
+        assert!(err_text.contains("bounded_edges=2"));
         assert_eq!(
             executor.visited_node_names(),
             vec![String::from("first"), String::from("second")]
