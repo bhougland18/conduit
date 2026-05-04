@@ -30,7 +30,7 @@ use conduit_core::{
     CancellationError, CancellationHandle, ConduitError, NodeExecutor, PortsIn, PortsOut, Result,
     context::{CancellationState, NodeContext},
     lifecycle::{LifecycleEvent, LifecycleEventKind, LifecycleHook, NoopLifecycleHook},
-    metadata::{MetadataRecord, MetadataSink, NoopMetadataSink},
+    metadata::{ErrorMetadataRecord, MetadataRecord, MetadataSink, NoopMetadataSink},
 };
 use std::future::Future;
 use std::sync::Arc;
@@ -259,18 +259,39 @@ where
     )?;
 
     let result: Result<()> = node.run(ctx.clone(), inputs, outputs).await;
-    let kind: LifecycleEventKind = if result.is_ok() {
-        LifecycleEventKind::NodeCompleted
-    } else {
-        LifecycleEventKind::NodeFailed
+    let terminal_observation: Result<()> = match &result {
+        Ok(()) => observe_lifecycle(
+            hook,
+            metadata_sink.as_ref(),
+            LifecycleEventKind::NodeCompleted,
+            ctx,
+        ),
+        Err(err) => {
+            let error_observation: Result<()> =
+                observe_node_error(metadata_sink.as_ref(), &ctx, err.clone());
+            let lifecycle_observation: Result<()> = observe_lifecycle(
+                hook,
+                metadata_sink.as_ref(),
+                LifecycleEventKind::NodeFailed,
+                ctx,
+            );
+            error_observation.and(lifecycle_observation)
+        }
     };
-    let terminal_observation: Result<()> =
-        observe_lifecycle(hook, metadata_sink.as_ref(), kind, ctx);
 
     match (result, terminal_observation) {
         (Ok(()), Ok(())) => Ok(()),
         (Ok(()), Err(err)) | (Err(err), _) => Err(err),
     }
+}
+
+fn observe_node_error<M>(metadata_sink: &M, ctx: &NodeContext, err: ConduitError) -> Result<()>
+where
+    M: MetadataSink + ?Sized,
+{
+    let record: MetadataRecord = MetadataRecord::Error(ErrorMetadataRecord::node_failed(ctx, err));
+    emit_metadata_trace(&record);
+    metadata_sink.record(&record)
 }
 
 fn observe_lifecycle<H, M>(
@@ -364,6 +385,7 @@ const fn metadata_record_kind_label(record: &MetadataRecord) -> &'static str {
         MetadataRecord::Lifecycle(_) => "lifecycle",
         MetadataRecord::Message(_) => "message",
         MetadataRecord::QueuePressure(_) => "queue_pressure",
+        MetadataRecord::Error(_) => "error",
     }
 }
 
@@ -375,7 +397,7 @@ mod tests {
     use std::sync::Mutex;
 
     use conduit_core::{
-        CancellationError, ConduitError, LifecycleError, MetadataError,
+        CancellationError, ConduitError, ErrorMetadataKind, LifecycleError, MetadataError,
         context::CancellationRequest, lifecycle::LifecycleEventKind,
     };
     use conduit_test_kit::{
@@ -438,6 +460,30 @@ mod tests {
                     .expect("metadata sink lock should not be poisoned")
                     .push(event.kind());
             }
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct RecordingAllMetadataSink {
+        records: Mutex<Vec<MetadataRecord>>,
+    }
+
+    impl RecordingAllMetadataSink {
+        fn records(&self) -> Vec<MetadataRecord> {
+            self.records
+                .lock()
+                .expect("metadata sink lock should not be poisoned")
+                .clone()
+        }
+    }
+
+    impl MetadataSink for RecordingAllMetadataSink {
+        fn record(&self, record: &MetadataRecord) -> Result<()> {
+            self.records
+                .lock()
+                .expect("metadata sink lock should not be poisoned")
+                .push(record.clone());
             Ok(())
         }
     }
@@ -754,17 +800,56 @@ mod tests {
         );
     }
 
+    #[test]
+    fn run_node_with_metadata_sink_records_node_error_metadata() {
+        let executor: FailingExecutor = FailingExecutor::execution("boom");
+        let sink: Arc<RecordingAllMetadataSink> = Arc::new(RecordingAllMetadataSink::default());
+
+        let err: ConduitError = block_on(run_node_with_metadata_sink(
+            &executor,
+            context(),
+            PortsIn::default(),
+            PortsOut::default(),
+            sink.clone(),
+        ))
+        .expect_err("execution should fail");
+        let records: Vec<MetadataRecord> = sink.records();
+        let error_record = records
+            .iter()
+            .find_map(|record: &MetadataRecord| match record {
+                MetadataRecord::Error(error) => Some(error),
+                _ => None,
+            })
+            .expect("node error metadata should be recorded");
+
+        assert_eq!(err, ConduitError::execution("boom"));
+        assert_eq!(error_record.kind(), ErrorMetadataKind::NodeFailed);
+        assert_eq!(
+            error_record
+                .node_id()
+                .expect("node error should include node id")
+                .as_str(),
+            "node"
+        );
+        assert_eq!(error_record.error(), &ConduitError::execution("boom"));
+    }
+
     #[cfg(feature = "tracing")]
     #[test]
     fn tracing_feature_uses_stable_runtime_labels() {
         let event: LifecycleEvent = LifecycleEvent::new(LifecycleEventKind::NodeStarted, context());
-        let record: MetadataRecord = MetadataRecord::Lifecycle(event);
+        let lifecycle_record: MetadataRecord = MetadataRecord::Lifecycle(event);
+        let error_record: MetadataRecord = MetadataRecord::Error(ErrorMetadataRecord::node_failed(
+            &context(),
+            ConduitError::execution("boom"),
+        ));
 
         assert_eq!(
             lifecycle_event_kind_label(LifecycleEventKind::NodeStarted),
             "node_started"
         );
-        assert_eq!(metadata_record_kind_label(&record), "lifecycle");
+        assert_eq!(metadata_record_kind_label(&lifecycle_record), "lifecycle");
+        assert_eq!(metadata_record_kind_label(&error_record), "error");
     }
 
     #[test]

@@ -5,13 +5,13 @@ use std::{collections::BTreeMap, future::Future, sync::Arc};
 
 use conduit_contract::{NodeContract, PortContract, SchemaRef};
 use conduit_core::{
-    CancellationHandle, ConduitError, InputPortHandle, MetadataSink, NodeExecutor,
+    CancellationHandle, ConduitError, InputPortHandle, MetadataRecord, MetadataSink, NodeExecutor,
     OutputPacketValidator, OutputPortHandle, PortPacket, PortSendError, PortsIn, PortsOut, Result,
     bounded_edge_channel,
     context::{CancellationRequest, ExecutionMetadata, NodeContext},
     lifecycle::{LifecycleHook, NoopLifecycleHook},
     message::MessageEndpoint,
-    metadata::NoopMetadataSink,
+    metadata::{ErrorMetadataRecord, NoopMetadataSink},
 };
 use conduit_runtime::run_node_with_observers;
 use conduit_types::{NodeId, PortId, WorkflowId};
@@ -571,7 +571,15 @@ where
         });
     }
 
-    collect_workflow_summary(node_runs, &cancellation, workflow.nodes().len()).await
+    collect_workflow_summary(
+        node_runs,
+        &cancellation,
+        workflow.id(),
+        execution,
+        metadata_sink.as_ref(),
+        workflow.nodes().len(),
+    )
+    .await
 }
 
 /// Execute the workflow through a registry with output contract validation.
@@ -901,6 +909,9 @@ where
 async fn collect_workflow_summary<F>(
     mut node_runs: FuturesUnordered<F>,
     cancellation: &CancellationHandle,
+    workflow_id: &WorkflowId,
+    execution: &ExecutionMetadata,
+    metadata_sink: &dyn MetadataSink,
     scheduled_node_count: usize,
 ) -> Result<WorkflowRunSummary>
 where
@@ -912,6 +923,13 @@ where
             Ok(()) => summary.record_success(),
             Err(err) => {
                 if summary.first_error().is_none() {
+                    let record: MetadataRecord =
+                        MetadataRecord::Error(ErrorMetadataRecord::workflow_failed(
+                            workflow_id.clone(),
+                            execution.clone(),
+                            err.clone(),
+                        ));
+                    metadata_sink.record(&record)?;
                     let _first_request: bool = cancellation.cancel(CancellationRequest::new(
                         format!("node execution failed: {err}"),
                     ));
@@ -964,8 +982,8 @@ mod tests {
 
     use conduit_contract::{Determinism, ExecutionMode, PortContract, SchemaRef};
     use conduit_core::{
-        ConduitError, ErrorCode, MetadataRecord, MetadataSink, PacketPayload, PortPacket,
-        PortRecvError, PortSendError, RetryDisposition,
+        ConduitError, ErrorCode, ErrorMetadataKind, MetadataRecord, MetadataSink, PacketPayload,
+        PortPacket, PortRecvError, PortSendError, RetryDisposition,
         lifecycle::{LifecycleEvent, LifecycleEventKind},
         message::{MessageEndpoint, MessageMetadata, MessageRoute},
     };
@@ -1805,6 +1823,53 @@ mod tests {
                 .to_string()
                 .contains("first failed")
         );
+    }
+
+    #[test]
+    fn run_workflow_with_metadata_sink_records_workflow_error_metadata() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("first").build())
+            .node(NodeBuilder::new("second").build())
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: AggregateFailureExecutor = AggregateFailureExecutor::default();
+        let sink: Arc<RecordingMetadataSink> = Arc::new(RecordingMetadataSink::default());
+
+        let summary: WorkflowRunSummary = block_on(run_workflow_with_metadata_sink_summary(
+            &workflow,
+            &execution,
+            &executor,
+            sink.clone(),
+        ))
+        .expect("summary should preserve node failures as data");
+        let records: Vec<MetadataRecord> = sink.records();
+        let workflow_error = records
+            .iter()
+            .find_map(|record: &MetadataRecord| match record {
+                MetadataRecord::Error(error)
+                    if error.kind() == ErrorMetadataKind::WorkflowFailed =>
+                {
+                    Some(error)
+                }
+                _ => None,
+            })
+            .expect("workflow error metadata should be recorded");
+        let node_error_count: usize = records
+            .iter()
+            .filter(|record: &&MetadataRecord| {
+                matches!(
+                    record,
+                    MetadataRecord::Error(error)
+                        if error.kind() == ErrorMetadataKind::NodeFailed
+                )
+            })
+            .count();
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Failed);
+        assert_eq!(workflow_error.workflow_id().as_str(), "flow");
+        assert!(workflow_error.node_id().is_none());
+        assert!(workflow_error.error().to_string().contains("first failed"));
+        assert_eq!(node_error_count, 1);
     }
 
     #[test]

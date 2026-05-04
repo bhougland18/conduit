@@ -19,10 +19,10 @@ use std::{
 
 use serde_json::{Value, json};
 
-use conduit_types::PortId;
+use conduit_types::{NodeId, PortId, WorkflowId};
 
 use crate::{
-    Result,
+    ConduitError, Result,
     context::{CancellationState, ExecutionMetadata, NodeContext},
     lifecycle::{LifecycleEvent, LifecycleEventKind},
     message::{MessageEndpoint, MessageMetadata, MessageRoute},
@@ -176,6 +176,85 @@ impl QueuePressureRecord {
     }
 }
 
+/// Scope where an error was observed by the runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorMetadataKind {
+    /// A node execution boundary returned an error.
+    NodeFailed,
+    /// A workflow run observed a terminal error.
+    WorkflowFailed,
+}
+
+/// One structured error observation at a runtime boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ErrorMetadataRecord {
+    kind: ErrorMetadataKind,
+    workflow_id: WorkflowId,
+    node_id: Option<NodeId>,
+    execution: ExecutionMetadata,
+    error: ConduitError,
+}
+
+impl ErrorMetadataRecord {
+    /// Create a node failure observation.
+    #[must_use]
+    pub fn node_failed(context: &NodeContext, error: ConduitError) -> Self {
+        Self {
+            kind: ErrorMetadataKind::NodeFailed,
+            workflow_id: context.workflow_id().clone(),
+            node_id: Some(context.node_id().clone()),
+            execution: context.execution().clone(),
+            error,
+        }
+    }
+
+    /// Create a workflow failure observation.
+    #[must_use]
+    pub const fn workflow_failed(
+        workflow_id: WorkflowId,
+        execution: ExecutionMetadata,
+        error: ConduitError,
+    ) -> Self {
+        Self {
+            kind: ErrorMetadataKind::WorkflowFailed,
+            workflow_id,
+            node_id: None,
+            execution,
+            error,
+        }
+    }
+
+    /// Error observation scope.
+    #[must_use]
+    pub const fn kind(&self) -> ErrorMetadataKind {
+        self.kind
+    }
+
+    /// Workflow associated with this error.
+    #[must_use]
+    pub const fn workflow_id(&self) -> &WorkflowId {
+        &self.workflow_id
+    }
+
+    /// Node associated with this error, when the error came from a node.
+    #[must_use]
+    pub const fn node_id(&self) -> Option<&NodeId> {
+        self.node_id.as_ref()
+    }
+
+    /// Execution attempt associated with this error.
+    #[must_use]
+    pub const fn execution(&self) -> &ExecutionMetadata {
+        &self.execution
+    }
+
+    /// Structured Conduit error observed.
+    #[must_use]
+    pub const fn error(&self) -> &ConduitError {
+        &self.error
+    }
+}
+
 /// One metadata fact observed at a runtime boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MetadataRecord {
@@ -187,6 +266,8 @@ pub enum MetadataRecord {
     Message(MessageBoundaryRecord),
     /// Queue pressure or capacity observed at a port boundary.
     QueuePressure(QueuePressureRecord),
+    /// Error observed at a node or workflow boundary.
+    Error(ErrorMetadataRecord),
 }
 
 /// Cost tier for one metadata record.
@@ -291,6 +372,16 @@ pub fn metadata_record_to_json_value(record: &MetadataRecord) -> Value {
             "connected_edge_count": queue.connected_edge_count(),
             "capacity": queue.capacity(),
             "queued_count": queue.queued_count(),
+        }),
+        MetadataRecord::Error(error) => json!({
+            "record_type": "error",
+            "kind": error_metadata_kind_label(error.kind()),
+            "workflow_id": error.workflow_id().as_str(),
+            "node_id": error
+                .node_id()
+                .map_or(Value::Null, |node_id: &NodeId| json!(node_id.as_str())),
+            "execution": execution_metadata_to_json_value(error.execution()),
+            "error": conduit_error_to_json_value(error.error()),
         }),
     }
 }
@@ -557,6 +648,37 @@ const fn queue_pressure_boundary_kind_label(kind: QueuePressureBoundaryKind) -> 
         QueuePressureBoundaryKind::ReserveFull => "reserve_full",
         QueuePressureBoundaryKind::SendCommitted => "send_committed",
         QueuePressureBoundaryKind::SendDropped => "send_dropped",
+    }
+}
+
+const fn error_metadata_kind_label(kind: ErrorMetadataKind) -> &'static str {
+    match kind {
+        ErrorMetadataKind::NodeFailed => "node_failed",
+        ErrorMetadataKind::WorkflowFailed => "workflow_failed",
+    }
+}
+
+fn conduit_error_to_json_value(error: &ConduitError) -> Value {
+    json!({
+        "code": error.code().as_str(),
+        "message": error.to_string(),
+        "visibility": error_visibility_label(error.visibility()),
+        "retry_disposition": retry_disposition_label(error.retry_disposition()),
+    })
+}
+
+const fn error_visibility_label(visibility: crate::ErrorVisibility) -> &'static str {
+    match visibility {
+        crate::ErrorVisibility::User => "user",
+        crate::ErrorVisibility::Internal => "internal",
+    }
+}
+
+const fn retry_disposition_label(disposition: crate::RetryDisposition) -> &'static str {
+    match disposition {
+        crate::RetryDisposition::Never => "never",
+        crate::RetryDisposition::Safe => "safe",
+        crate::RetryDisposition::Unknown => "unknown",
     }
 }
 
@@ -863,6 +985,46 @@ mod tests {
                 },
             })
         );
+    }
+
+    #[test]
+    fn metadata_record_json_uses_stable_error_shape() {
+        let record: MetadataRecord = MetadataRecord::Error(ErrorMetadataRecord::node_failed(
+            &context(),
+            crate::ConduitError::execution("executor failed"),
+        ));
+
+        assert_eq!(
+            metadata_record_to_json_value(&record),
+            json!({
+                "record_type": "error",
+                "kind": "node_failed",
+                "workflow_id": "flow",
+                "node_id": "node",
+                "execution": {
+                    "execution_id": "run-1",
+                    "attempt": 1,
+                },
+                "error": {
+                    "code": "CDT-EXEC-001",
+                    "message": "CDT-EXEC-001: node execution failed: executor failed",
+                    "visibility": "internal",
+                    "retry_disposition": "unknown",
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn workflow_error_metadata_has_no_node_id() {
+        let record: ErrorMetadataRecord = ErrorMetadataRecord::workflow_failed(
+            workflow_id("flow"),
+            ExecutionMetadata::first_attempt(execution_id("run-1")),
+            crate::ConduitError::cancelled("shutdown"),
+        );
+
+        assert_eq!(record.kind(), ErrorMetadataKind::WorkflowFailed);
+        assert!(record.node_id().is_none());
     }
 
     #[test]
