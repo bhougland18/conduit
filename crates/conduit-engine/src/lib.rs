@@ -2174,6 +2174,159 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Copy)]
+    enum FeedbackLoopExecutorRole {
+        Driver,
+        Counter,
+    }
+
+    #[derive(Debug, Clone)]
+    struct FeedbackLoopExecutor {
+        role: FeedbackLoopExecutorRole,
+        observed: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FeedbackLoopExecutor {
+        fn driver(observed: Arc<Mutex<Vec<String>>>) -> Self {
+            Self {
+                role: FeedbackLoopExecutorRole::Driver,
+                observed,
+            }
+        }
+
+        fn counter(observed: Arc<Mutex<Vec<String>>>) -> Self {
+            Self {
+                role: FeedbackLoopExecutorRole::Counter,
+                observed,
+            }
+        }
+
+        fn push_observed(&self, value: String) {
+            self.observed
+                .lock()
+                .expect("feedback loop executor lock should not be poisoned")
+                .push(value);
+        }
+    }
+
+    impl NodeExecutor for FeedbackLoopExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            mut inputs: PortsIn,
+            outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                let cancellation = ctx.cancellation_token();
+                match self.role {
+                    FeedbackLoopExecutorRole::Driver => {
+                        outputs
+                            .send(
+                                &port_id("out"),
+                                packet_between(b"seed", "first", "second"),
+                                &cancellation,
+                            )
+                            .await?;
+                        let packet: PortPacket = inputs
+                            .recv(&port_id("in"), &cancellation)
+                            .await?
+                            .expect("counter should return one packet");
+                        self.push_observed(format!(
+                            "driver:{}",
+                            String::from_utf8(packet_payload_bytes(packet))
+                                .expect("feedback loop test payload should be UTF-8")
+                        ));
+                    }
+                    FeedbackLoopExecutorRole::Counter => {
+                        let packet: PortPacket = inputs
+                            .recv(&port_id("in"), &cancellation)
+                            .await?
+                            .expect("driver should seed the loop");
+                        self.push_observed(format!(
+                            "counter:{}",
+                            String::from_utf8(packet_payload_bytes(packet))
+                                .expect("feedback loop test payload should be UTF-8")
+                        ));
+                        outputs
+                            .send(
+                                &port_id("out"),
+                                packet_between(b"ack", "second", "first"),
+                                &cancellation,
+                            )
+                            .await?;
+                    }
+                }
+
+                Ok(())
+            })
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum FeedbackLoopShutdownRole {
+        Failing,
+        ShutdownWatcher,
+    }
+
+    #[derive(Debug, Clone)]
+    struct FeedbackLoopShutdownExecutor {
+        role: FeedbackLoopShutdownRole,
+        cancellation_observed: Arc<Mutex<bool>>,
+    }
+
+    impl FeedbackLoopShutdownExecutor {
+        fn failing(cancellation_observed: Arc<Mutex<bool>>) -> Self {
+            Self {
+                role: FeedbackLoopShutdownRole::Failing,
+                cancellation_observed,
+            }
+        }
+
+        fn shutdown_watcher(cancellation_observed: Arc<Mutex<bool>>) -> Self {
+            Self {
+                role: FeedbackLoopShutdownRole::ShutdownWatcher,
+                cancellation_observed,
+            }
+        }
+    }
+
+    impl NodeExecutor for FeedbackLoopShutdownExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            _inputs: PortsIn,
+            _outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                match self.role {
+                    FeedbackLoopShutdownRole::Failing => {
+                        Err(ConduitError::execution("feedback loop shutdown requested"))
+                    }
+                    FeedbackLoopShutdownRole::ShutdownWatcher => {
+                        let cancellation = ctx.cancellation_token();
+                        std::future::poll_fn(|task_cx: &mut std::task::Context<'_>| {
+                            if cancellation.is_cancelled() {
+                                *self
+                                    .cancellation_observed
+                                    .lock()
+                                    .expect("shutdown executor lock should not be poisoned") = true;
+                                std::task::Poll::Ready(Ok(()))
+                            } else {
+                                task_cx.waker().wake_by_ref();
+                                std::task::Poll::Pending
+                            }
+                        })
+                        .await
+                    }
+                }
+            })
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
     enum ContractOutputMode {
         MatchingSource,
         MismatchedSource,
@@ -2651,6 +2804,87 @@ mod tests {
         assert_eq!(
             executor.visited_node_names(),
             vec![String::from("first"), String::from("second")]
+        );
+    }
+
+    #[test]
+    fn feedback_loop_policy_runs_deterministic_cycle_messages() {
+        let workflow: WorkflowDefinition = cyclic_workflow();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let observed: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let registry: StaticNodeExecutorRegistry<FeedbackLoopExecutor> =
+            StaticNodeExecutorRegistry::new(BTreeMap::from([
+                (
+                    node_id("first"),
+                    FeedbackLoopExecutor::driver(Arc::clone(&observed)),
+                ),
+                (
+                    node_id("second"),
+                    FeedbackLoopExecutor::counter(Arc::clone(&observed)),
+                ),
+            ]));
+        let policy: WorkflowRunPolicy = WorkflowRunPolicy::feedback_loops(
+            FeedbackLoopRunPolicy::start_all_nodes_until_complete(),
+        );
+
+        let summary: WorkflowRunSummary = block_on(run_workflow_with_registry_policy_summary(
+            &workflow, &execution, &registry, policy,
+        ))
+        .expect("explicit feedback-loop policy should run cyclic messages");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Completed);
+        assert_eq!(summary.completed_node_count(), 2);
+        assert_eq!(summary.pending_node_count(), 0);
+        assert_eq!(
+            *observed
+                .lock()
+                .expect("feedback loop observed lock should not be poisoned"),
+            vec![String::from("counter:seed"), String::from("driver:ack")]
+        );
+    }
+
+    #[test]
+    fn feedback_loop_policy_cancels_siblings_for_shutdown() {
+        let workflow: WorkflowDefinition = cyclic_workflow();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let cancellation_observed: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+        let registry: StaticNodeExecutorRegistry<FeedbackLoopShutdownExecutor> =
+            StaticNodeExecutorRegistry::new(BTreeMap::from([
+                (
+                    node_id("first"),
+                    FeedbackLoopShutdownExecutor::failing(Arc::clone(&cancellation_observed)),
+                ),
+                (
+                    node_id("second"),
+                    FeedbackLoopShutdownExecutor::shutdown_watcher(Arc::clone(
+                        &cancellation_observed,
+                    )),
+                ),
+            ]));
+        let policy: WorkflowRunPolicy = WorkflowRunPolicy::feedback_loops(
+            FeedbackLoopRunPolicy::start_all_nodes_until_complete(),
+        );
+
+        let summary: WorkflowRunSummary = block_on(run_workflow_with_registry_policy_summary(
+            &workflow, &execution, &registry, policy,
+        ))
+        .expect("feedback-loop shutdown should return summary data");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Failed);
+        assert_eq!(summary.completed_node_count(), 1);
+        assert_eq!(summary.failed_node_count(), 1);
+        assert_eq!(summary.pending_node_count(), 0);
+        assert!(
+            summary
+                .first_error()
+                .expect("shutdown failure should be retained")
+                .to_string()
+                .contains("feedback loop shutdown requested")
+        );
+        assert!(
+            *cancellation_observed
+                .lock()
+                .expect("shutdown observed lock should not be poisoned")
         );
     }
 
