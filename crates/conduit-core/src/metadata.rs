@@ -193,6 +193,7 @@ pub struct ErrorMetadataRecord {
     node_id: Option<NodeId>,
     execution: ExecutionMetadata,
     error: ConduitError,
+    diagnostic: Option<ErrorDiagnosticMetadata>,
 }
 
 impl ErrorMetadataRecord {
@@ -205,6 +206,7 @@ impl ErrorMetadataRecord {
             node_id: Some(context.node_id().clone()),
             execution: context.execution().clone(),
             error,
+            diagnostic: None,
         }
     }
 
@@ -221,6 +223,25 @@ impl ErrorMetadataRecord {
             node_id: None,
             execution,
             error,
+            diagnostic: None,
+        }
+    }
+
+    /// Create a workflow failure observation with structured diagnostic data.
+    #[must_use]
+    pub const fn workflow_failed_with_diagnostic(
+        workflow_id: WorkflowId,
+        execution: ExecutionMetadata,
+        error: ConduitError,
+        diagnostic: ErrorDiagnosticMetadata,
+    ) -> Self {
+        Self {
+            kind: ErrorMetadataKind::WorkflowFailed,
+            workflow_id,
+            node_id: None,
+            execution,
+            error,
+            diagnostic: Some(diagnostic),
         }
     }
 
@@ -252,6 +273,153 @@ impl ErrorMetadataRecord {
     #[must_use]
     pub const fn error(&self) -> &ConduitError {
         &self.error
+    }
+
+    /// Structured diagnostic payload associated with this error, when present.
+    #[must_use]
+    pub const fn diagnostic(&self) -> Option<&ErrorDiagnosticMetadata> {
+        self.diagnostic.as_ref()
+    }
+}
+
+/// Structured diagnostic payload attached to an error metadata record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ErrorDiagnosticMetadata {
+    /// Workflow execution stopped making progress before the watchdog deadline.
+    WorkflowDeadlock(DeadlockDiagnosticMetadata),
+}
+
+impl ErrorDiagnosticMetadata {
+    /// Create workflow deadlock diagnostic metadata.
+    #[must_use]
+    pub const fn workflow_deadlock(diagnostic: DeadlockDiagnosticMetadata) -> Self {
+        Self::WorkflowDeadlock(diagnostic)
+    }
+}
+
+/// Machine-facing workflow deadlock diagnostic metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeadlockDiagnosticMetadata {
+    scheduled_node_count: usize,
+    pending_node_count: usize,
+    completed_node_count: usize,
+    failed_node_count: usize,
+    cancelled_node_count: usize,
+    bounded_edge_count: usize,
+    no_progress_timeout_ms: u64,
+    cycle_policy: &'static str,
+    feedback_loop_startup: Option<&'static str>,
+    feedback_loop_termination: Option<&'static str>,
+}
+
+impl DeadlockDiagnosticMetadata {
+    /// Create workflow deadlock diagnostic metadata.
+    #[must_use]
+    pub const fn new(
+        scheduled_node_count: usize,
+        pending_node_count: usize,
+        bounded_edge_count: usize,
+        no_progress_timeout_ms: u64,
+        cycle_policy: &'static str,
+    ) -> Self {
+        Self {
+            scheduled_node_count,
+            pending_node_count,
+            completed_node_count: 0,
+            failed_node_count: 0,
+            cancelled_node_count: 0,
+            bounded_edge_count,
+            no_progress_timeout_ms,
+            cycle_policy,
+            feedback_loop_startup: None,
+            feedback_loop_termination: None,
+        }
+    }
+
+    /// Attach terminal counts observed before the watchdog fired.
+    #[must_use]
+    pub const fn with_terminal_counts(
+        mut self,
+        completed_node_count: usize,
+        failed_node_count: usize,
+        cancelled_node_count: usize,
+    ) -> Self {
+        self.completed_node_count = completed_node_count;
+        self.failed_node_count = failed_node_count;
+        self.cancelled_node_count = cancelled_node_count;
+        self
+    }
+
+    /// Attach feedback-loop policy details.
+    #[must_use]
+    pub const fn with_feedback_loop(
+        mut self,
+        startup: &'static str,
+        termination: &'static str,
+    ) -> Self {
+        self.feedback_loop_startup = Some(startup);
+        self.feedback_loop_termination = Some(termination);
+        self
+    }
+
+    /// Nodes scheduled for the run.
+    #[must_use]
+    pub const fn scheduled_node_count(&self) -> usize {
+        self.scheduled_node_count
+    }
+
+    /// Nodes still pending when the watchdog fired.
+    #[must_use]
+    pub const fn pending_node_count(&self) -> usize {
+        self.pending_node_count
+    }
+
+    /// Nodes completed before the watchdog fired.
+    #[must_use]
+    pub const fn completed_node_count(&self) -> usize {
+        self.completed_node_count
+    }
+
+    /// Nodes failed before the watchdog fired.
+    #[must_use]
+    pub const fn failed_node_count(&self) -> usize {
+        self.failed_node_count
+    }
+
+    /// Nodes cancelled before the watchdog fired.
+    #[must_use]
+    pub const fn cancelled_node_count(&self) -> usize {
+        self.cancelled_node_count
+    }
+
+    /// Bounded graph edges in the workflow.
+    #[must_use]
+    pub const fn bounded_edge_count(&self) -> usize {
+        self.bounded_edge_count
+    }
+
+    /// No-progress interval in milliseconds.
+    #[must_use]
+    pub const fn no_progress_timeout_ms(&self) -> u64 {
+        self.no_progress_timeout_ms
+    }
+
+    /// Cycle policy active when the watchdog fired.
+    #[must_use]
+    pub const fn cycle_policy(&self) -> &'static str {
+        self.cycle_policy
+    }
+
+    /// Feedback-loop startup policy, when cycles were explicitly allowed.
+    #[must_use]
+    pub const fn feedback_loop_startup(&self) -> Option<&'static str> {
+        self.feedback_loop_startup
+    }
+
+    /// Feedback-loop termination policy, when cycles were explicitly allowed.
+    #[must_use]
+    pub const fn feedback_loop_termination(&self) -> Option<&'static str> {
+        self.feedback_loop_termination
     }
 }
 
@@ -382,6 +550,9 @@ pub fn metadata_record_to_json_value(record: &MetadataRecord) -> Value {
                 .map_or(Value::Null, |node_id: &NodeId| json!(node_id.as_str())),
             "execution": execution_metadata_to_json_value(error.execution()),
             "error": conduit_error_to_json_value(error.error()),
+            "diagnostic": error
+                .diagnostic()
+                .map_or(Value::Null, error_diagnostic_metadata_to_json_value),
         }),
     }
 }
@@ -665,6 +836,24 @@ fn conduit_error_to_json_value(error: &ConduitError) -> Value {
         "visibility": error_visibility_label(error.visibility()),
         "retry_disposition": retry_disposition_label(error.retry_disposition()),
     })
+}
+
+fn error_diagnostic_metadata_to_json_value(diagnostic: &ErrorDiagnosticMetadata) -> Value {
+    match diagnostic {
+        ErrorDiagnosticMetadata::WorkflowDeadlock(deadlock) => json!({
+            "type": "workflow_deadlock",
+            "scheduled_node_count": deadlock.scheduled_node_count(),
+            "pending_node_count": deadlock.pending_node_count(),
+            "completed_node_count": deadlock.completed_node_count(),
+            "failed_node_count": deadlock.failed_node_count(),
+            "cancelled_node_count": deadlock.cancelled_node_count(),
+            "bounded_edge_count": deadlock.bounded_edge_count(),
+            "no_progress_timeout_ms": deadlock.no_progress_timeout_ms(),
+            "cycle_policy": deadlock.cycle_policy(),
+            "feedback_loop_startup": deadlock.feedback_loop_startup(),
+            "feedback_loop_termination": deadlock.feedback_loop_termination(),
+        }),
+    }
 }
 
 const fn error_visibility_label(visibility: crate::ErrorVisibility) -> &'static str {
@@ -1011,6 +1200,55 @@ mod tests {
                     "visibility": "internal",
                     "retry_disposition": "unknown",
                 },
+                "diagnostic": null,
+            })
+        );
+    }
+
+    #[test]
+    fn metadata_record_json_uses_stable_deadlock_diagnostic_shape() {
+        let diagnostic: ErrorDiagnosticMetadata = ErrorDiagnosticMetadata::workflow_deadlock(
+            DeadlockDiagnosticMetadata::new(2, 2, 2, 1, "allow_feedback_loops")
+                .with_feedback_loop("start_all_nodes", "all_nodes_complete"),
+        );
+        let record: MetadataRecord =
+            MetadataRecord::Error(ErrorMetadataRecord::workflow_failed_with_diagnostic(
+                workflow_id("flow"),
+                ExecutionMetadata::first_attempt(execution_id("run-1")),
+                crate::ConduitError::execution("watchdog detected no workflow progress"),
+                diagnostic,
+            ));
+
+        assert_eq!(
+            metadata_record_to_json_value(&record),
+            json!({
+                "record_type": "error",
+                "kind": "workflow_failed",
+                "workflow_id": "flow",
+                "node_id": null,
+                "execution": {
+                    "execution_id": "run-1",
+                    "attempt": 1,
+                },
+                "error": {
+                    "code": "CDT-EXEC-001",
+                    "message": "CDT-EXEC-001: node execution failed: watchdog detected no workflow progress",
+                    "visibility": "internal",
+                    "retry_disposition": "unknown",
+                },
+                "diagnostic": {
+                    "type": "workflow_deadlock",
+                    "scheduled_node_count": 2,
+                    "pending_node_count": 2,
+                    "completed_node_count": 0,
+                    "failed_node_count": 0,
+                    "cancelled_node_count": 0,
+                    "bounded_edge_count": 2,
+                    "no_progress_timeout_ms": 1,
+                    "cycle_policy": "allow_feedback_loops",
+                    "feedback_loop_startup": "start_all_nodes",
+                    "feedback_loop_termination": "all_nodes_complete",
+                },
             })
         );
     }
@@ -1025,6 +1263,7 @@ mod tests {
 
         assert_eq!(record.kind(), ErrorMetadataKind::WorkflowFailed);
         assert!(record.node_id().is_none());
+        assert!(record.diagnostic().is_none());
     }
 
     #[test]

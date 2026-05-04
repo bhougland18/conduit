@@ -25,7 +25,8 @@ use conduit_core::{
     message::{MessageEndpoint, MessageMetadata, MessageRoute},
 };
 use conduit_engine::{
-    StaticNodeExecutorRegistry, WorkflowRunSummary, WorkflowTerminalState,
+    CycleRunPolicy, FeedbackLoopStartup, FeedbackLoopTermination, StaticNodeExecutorRegistry,
+    WorkflowDeadlockDiagnostic, WorkflowRunSummary, WorkflowTerminalState,
     run_workflow_with_registry_and_metadata_sink_summary,
 };
 use conduit_introspection::{
@@ -266,12 +267,73 @@ fn workflow_run_summary_to_json_value(summary: &WorkflowRunSummary) -> Value {
         "completed_node_count": summary.completed_node_count(),
         "failed_node_count": summary.failed_node_count(),
         "cancelled_node_count": summary.cancelled_node_count(),
+        "pending_node_count": summary.pending_node_count(),
         "observed_message_count": summary.observed_message_count(),
         "error_count": summary.error_count(),
         "first_error": summary
             .first_error()
             .map_or(Value::Null, conduit_error_to_json_value),
+        "deadlock_diagnostic": summary
+            .deadlock_diagnostic()
+            .map_or(Value::Null, workflow_deadlock_diagnostic_to_json_value),
     })
+}
+
+fn workflow_deadlock_diagnostic_to_json_value(diagnostic: &WorkflowDeadlockDiagnostic) -> Value {
+    json!({
+        "workflow_id": diagnostic.workflow_id().as_str(),
+        "scheduled_node_count": diagnostic.scheduled_node_count(),
+        "pending_node_count": diagnostic.pending_node_count(),
+        "completed_node_count": diagnostic.completed_node_count(),
+        "failed_node_count": diagnostic.failed_node_count(),
+        "cancelled_node_count": diagnostic.cancelled_node_count(),
+        "bounded_edge_count": diagnostic.bounded_edge_count(),
+        "no_progress_timeout_ms": duration_millis_u64(diagnostic.no_progress_timeout()),
+        "cycle_policy": cycle_run_policy_label(diagnostic.cycle_policy()),
+        "feedback_loop_startup": feedback_loop_startup_value(diagnostic.cycle_policy()),
+        "feedback_loop_termination": feedback_loop_termination_value(diagnostic.cycle_policy()),
+    })
+}
+
+fn duration_millis_u64(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+const fn cycle_run_policy_label(policy: CycleRunPolicy) -> &'static str {
+    match policy {
+        CycleRunPolicy::Reject => "reject",
+        CycleRunPolicy::AllowFeedbackLoops(_feedback_loop) => "allow_feedback_loops",
+    }
+}
+
+fn feedback_loop_startup_value(policy: CycleRunPolicy) -> Value {
+    match policy {
+        CycleRunPolicy::Reject => Value::Null,
+        CycleRunPolicy::AllowFeedbackLoops(feedback_loop) => {
+            json!(feedback_loop_startup_label(feedback_loop.startup()))
+        }
+    }
+}
+
+fn feedback_loop_termination_value(policy: CycleRunPolicy) -> Value {
+    match policy {
+        CycleRunPolicy::Reject => Value::Null,
+        CycleRunPolicy::AllowFeedbackLoops(feedback_loop) => {
+            json!(feedback_loop_termination_label(feedback_loop.termination()))
+        }
+    }
+}
+
+const fn feedback_loop_startup_label(startup: FeedbackLoopStartup) -> &'static str {
+    match startup {
+        FeedbackLoopStartup::StartAllNodes => "start_all_nodes",
+    }
+}
+
+const fn feedback_loop_termination_label(termination: FeedbackLoopTermination) -> &'static str {
+    match termination {
+        FeedbackLoopTermination::AllNodesComplete => "all_nodes_complete",
+    }
 }
 
 const fn workflow_terminal_state_label(state: WorkflowTerminalState) -> &'static str {
@@ -723,9 +785,11 @@ mod tests {
         assert_eq!(value["summary"]["completed_node_count"], 2);
         assert_eq!(value["summary"]["failed_node_count"], 0);
         assert_eq!(value["summary"]["cancelled_node_count"], 0);
+        assert_eq!(value["summary"]["pending_node_count"], 0);
         assert_eq!(value["summary"]["observed_message_count"], 0);
         assert_eq!(value["summary"]["error_count"], 0);
         assert_eq!(value["summary"]["first_error"], Value::Null);
+        assert_eq!(value["summary"]["deadlock_diagnostic"], Value::Null);
     }
 
     #[test]

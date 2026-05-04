@@ -12,7 +12,9 @@ use conduit_core::{
     context::{CancellationRequest, ExecutionMetadata, NodeContext},
     lifecycle::{LifecycleHook, NoopLifecycleHook},
     message::MessageEndpoint,
-    metadata::{ErrorMetadataRecord, NoopMetadataSink},
+    metadata::{
+        DeadlockDiagnosticMetadata, ErrorDiagnosticMetadata, ErrorMetadataRecord, NoopMetadataSink,
+    },
 };
 use conduit_runtime::run_node_with_observers;
 use conduit_types::{NodeId, PortId, WorkflowId};
@@ -281,6 +283,31 @@ impl WorkflowDeadlockDiagnostic {
     pub const fn cycle_policy(&self) -> CycleRunPolicy {
         self.cycle_policy
     }
+
+    fn to_metadata_diagnostic(&self) -> ErrorDiagnosticMetadata {
+        let metadata: DeadlockDiagnosticMetadata = DeadlockDiagnosticMetadata::new(
+            self.scheduled_node_count,
+            self.pending_node_count,
+            self.bounded_edge_count,
+            duration_millis_u64(self.no_progress_timeout),
+            cycle_run_policy_label(self.cycle_policy),
+        )
+        .with_terminal_counts(
+            self.completed_node_count,
+            self.failed_node_count,
+            self.cancelled_node_count,
+        );
+
+        match self.cycle_policy {
+            CycleRunPolicy::Reject => ErrorDiagnosticMetadata::workflow_deadlock(metadata),
+            CycleRunPolicy::AllowFeedbackLoops(feedback_loop) => {
+                ErrorDiagnosticMetadata::workflow_deadlock(metadata.with_feedback_loop(
+                    feedback_loop_startup_label(feedback_loop.startup()),
+                    feedback_loop_termination_label(feedback_loop.termination()),
+                ))
+            }
+        }
+    }
 }
 
 impl fmt::Display for WorkflowDeadlockDiagnostic {
@@ -298,6 +325,29 @@ impl fmt::Display for WorkflowDeadlockDiagnostic {
             self.bounded_edge_count,
             self.cycle_policy
         )
+    }
+}
+
+fn duration_millis_u64(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+const fn cycle_run_policy_label(policy: CycleRunPolicy) -> &'static str {
+    match policy {
+        CycleRunPolicy::Reject => "reject",
+        CycleRunPolicy::AllowFeedbackLoops(_feedback_loop) => "allow_feedback_loops",
+    }
+}
+
+const fn feedback_loop_startup_label(startup: FeedbackLoopStartup) -> &'static str {
+    match startup {
+        FeedbackLoopStartup::StartAllNodes => "start_all_nodes",
+    }
+}
+
+const fn feedback_loop_termination_label(termination: FeedbackLoopTermination) -> &'static str {
+    match termination {
+        FeedbackLoopTermination::AllNodesComplete => "all_nodes_complete",
     }
 }
 
@@ -324,6 +374,7 @@ pub struct WorkflowRunSummary {
     observed_message_count: usize,
     error_count: usize,
     first_error: Option<ConduitError>,
+    deadlock_diagnostic: Option<WorkflowDeadlockDiagnostic>,
 }
 
 impl WorkflowRunSummary {
@@ -339,6 +390,7 @@ impl WorkflowRunSummary {
             observed_message_count: 0,
             error_count: 0,
             first_error: None,
+            deadlock_diagnostic: None,
         }
     }
 
@@ -403,6 +455,12 @@ impl WorkflowRunSummary {
         self.first_error.as_ref()
     }
 
+    /// Deadlock diagnostic captured by the workflow watchdog, if it fired.
+    #[must_use]
+    pub const fn deadlock_diagnostic(&self) -> Option<&WorkflowDeadlockDiagnostic> {
+        self.deadlock_diagnostic.as_ref()
+    }
+
     /// Convert a summary into the legacy `Result<()>` shape.
     ///
     /// # Errors
@@ -434,6 +492,23 @@ impl WorkflowRunSummary {
             };
             self.first_error = Some(err);
         }
+    }
+
+    fn record_workflow_error(&mut self, err: ConduitError) {
+        self.error_count = self.error_count.saturating_add(1);
+
+        if self.first_error.is_none() {
+            self.terminal_state = if matches!(err, ConduitError::Cancellation(_)) {
+                WorkflowTerminalState::Cancelled
+            } else {
+                WorkflowTerminalState::Failed
+            };
+            self.first_error = Some(err);
+        }
+    }
+
+    fn record_deadlock_diagnostic(&mut self, diagnostic: WorkflowDeadlockDiagnostic) {
+        self.deadlock_diagnostic = Some(diagnostic);
     }
 }
 
@@ -793,6 +868,66 @@ where
     run_workflow_with_registry_policy_summary(workflow, execution, registry, policy)
         .await?
         .into_result()
+}
+
+/// Execute the workflow through a registry with an explicit run policy and
+/// emit metadata records.
+///
+/// # Errors
+///
+/// Returns an error if the run policy rejects the workflow shape or executor
+/// resolution fails.
+pub async fn run_workflow_with_registry_policy_and_metadata_sink_summary<R, M>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    registry: &R,
+    policy: WorkflowRunPolicy,
+    metadata_sink: Arc<M>,
+) -> Result<WorkflowRunSummary>
+where
+    R: NodeExecutorRegistry + ?Sized,
+    M: MetadataSink + 'static,
+{
+    let lifecycle_hook: NoopLifecycleHook = NoopLifecycleHook;
+    run_workflow_with_registry_and_observers_summary_inner(
+        workflow,
+        execution,
+        registry,
+        &lifecycle_hook,
+        metadata_sink,
+        policy,
+        None,
+    )
+    .await
+}
+
+/// Execute the workflow through a registry with an explicit run policy and
+/// emit metadata records.
+///
+/// # Errors
+///
+/// Returns an error if the run policy rejects the workflow shape, executor
+/// resolution fails, metadata collection fails, or any node execution fails.
+pub async fn run_workflow_with_registry_policy_and_metadata_sink<R, M>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    registry: &R,
+    policy: WorkflowRunPolicy,
+    metadata_sink: Arc<M>,
+) -> Result<()>
+where
+    R: NodeExecutorRegistry + ?Sized,
+    M: MetadataSink + 'static,
+{
+    run_workflow_with_registry_policy_and_metadata_sink_summary(
+        workflow,
+        execution,
+        registry,
+        policy,
+        metadata_sink,
+    )
+    .await?
+    .into_result()
 }
 
 /// Execute the workflow through a registry and emit metadata records.
@@ -1405,8 +1540,10 @@ where
                     watchdog,
                 );
                 let err: ConduitError = ConduitError::execution(diagnostic.to_string());
-                record_first_workflow_error(context, &err)?;
-                return Err(err);
+                record_first_workflow_error_with_diagnostic(context, &err, &diagnostic)?;
+                summary.record_workflow_error(err);
+                summary.record_deadlock_diagnostic(diagnostic);
+                return Ok(());
             }
         }
     }
@@ -1439,6 +1576,27 @@ fn record_first_workflow_error(
         context.execution.clone(),
         err.clone(),
     ));
+    context.metadata_sink.record(&record)?;
+    let _first_request: bool = context
+        .cancellation
+        .cancel(CancellationRequest::new(format!(
+            "node execution failed: {err}"
+        )));
+    Ok(())
+}
+
+fn record_first_workflow_error_with_diagnostic(
+    context: WorkflowCollectionContext<'_>,
+    err: &ConduitError,
+    diagnostic: &WorkflowDeadlockDiagnostic,
+) -> Result<()> {
+    let record: MetadataRecord =
+        MetadataRecord::Error(ErrorMetadataRecord::workflow_failed_with_diagnostic(
+            context.workflow.id().clone(),
+            context.execution.clone(),
+            err.clone(),
+            diagnostic.to_metadata_diagnostic(),
+        ));
     context.metadata_sink.record(&record)?;
     let _first_request: bool = context
         .cancellation
@@ -1554,8 +1712,8 @@ mod tests {
 
     use conduit_contract::{Determinism, ExecutionMode, PortContract, SchemaRef};
     use conduit_core::{
-        ConduitError, ErrorCode, ErrorMetadataKind, MetadataRecord, MetadataSink, PacketPayload,
-        PortPacket, PortRecvError, PortSendError, RetryDisposition,
+        ConduitError, ErrorCode, ErrorDiagnosticMetadata, ErrorMetadataKind, MetadataRecord,
+        MetadataSink, PacketPayload, PortPacket, PortRecvError, PortSendError, RetryDisposition,
         lifecycle::{LifecycleEvent, LifecycleEventKind},
         message::{MessageEndpoint, MessageMetadata, MessageRoute},
     };
@@ -2508,16 +2666,24 @@ mod tests {
             Duration::from_millis(1),
         ));
 
-        let err: ConduitError = block_on(run_workflow_with_policy_summary(
+        let summary: WorkflowRunSummary = block_on(run_workflow_with_policy_summary(
             &workflow, &execution, &executor, policy,
         ))
-        .expect_err("deadlock watchdog should cancel a stalled cyclic workflow");
-        let err_text: String = err.to_string();
+        .expect("deadlock watchdog should report a stalled cyclic workflow as summary data");
+        let diagnostic: &WorkflowDeadlockDiagnostic = summary
+            .deadlock_diagnostic()
+            .expect("deadlock diagnostic should be captured");
+        let err_text: String = summary
+            .first_error()
+            .expect("deadlock should be recorded as first error")
+            .to_string();
 
-        assert_eq!(err.code(), ErrorCode::NodeExecutionFailed);
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Failed);
+        assert_eq!(summary.error_count(), 1);
+        assert_eq!(summary.pending_node_count(), 2);
         assert!(err_text.contains("watchdog detected no workflow progress"));
-        assert!(err_text.contains("pending_nodes=2"));
-        assert!(err_text.contains("bounded_edges=2"));
+        assert_eq!(diagnostic.pending_node_count(), 2);
+        assert_eq!(diagnostic.bounded_edge_count(), 2);
         assert_eq!(
             executor.visited_node_names(),
             vec![String::from("first"), String::from("second")]
@@ -2596,7 +2762,62 @@ mod tests {
         assert_eq!(workflow_error.workflow_id().as_str(), "flow");
         assert!(workflow_error.node_id().is_none());
         assert!(workflow_error.error().to_string().contains("first failed"));
+        assert!(workflow_error.diagnostic().is_none());
         assert_eq!(node_error_count, 1);
+    }
+
+    #[test]
+    fn watchdog_metadata_records_deadlock_diagnostic_payload() {
+        let workflow: WorkflowDefinition = cyclic_workflow();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: WaitingInputExecutor = WaitingInputExecutor::default();
+        let registry: SingleNodeExecutorRegistry<'_, WaitingInputExecutor> =
+            SingleNodeExecutorRegistry::new(&executor);
+        let sink: Arc<RecordingMetadataSink> = Arc::new(RecordingMetadataSink::default());
+        let policy: WorkflowRunPolicy = WorkflowRunPolicy::feedback_loops(
+            FeedbackLoopRunPolicy::start_all_nodes_until_complete(),
+        )
+        .with_watchdog(WorkflowWatchdogPolicy::deadlock_after(
+            Duration::from_millis(1),
+        ));
+
+        let summary: WorkflowRunSummary =
+            block_on(run_workflow_with_registry_policy_and_metadata_sink_summary(
+                &workflow,
+                &execution,
+                &registry,
+                policy,
+                sink.clone(),
+            ))
+            .expect("watchdog run should return summary data");
+        let records: Vec<MetadataRecord> = sink.records();
+        let workflow_error = records
+            .iter()
+            .find_map(|record: &MetadataRecord| match record {
+                MetadataRecord::Error(error)
+                    if error.kind() == ErrorMetadataKind::WorkflowFailed =>
+                {
+                    Some(error)
+                }
+                _ => None,
+            })
+            .expect("workflow error metadata should be recorded");
+
+        assert!(summary.deadlock_diagnostic().is_some());
+        match workflow_error.diagnostic() {
+            Some(ErrorDiagnosticMetadata::WorkflowDeadlock(deadlock)) => {
+                assert_eq!(deadlock.pending_node_count(), 2);
+                assert_eq!(deadlock.bounded_edge_count(), 2);
+                assert_eq!(deadlock.no_progress_timeout_ms(), 1);
+                assert_eq!(deadlock.cycle_policy(), "allow_feedback_loops");
+                assert_eq!(deadlock.feedback_loop_startup(), Some("start_all_nodes"));
+                assert_eq!(
+                    deadlock.feedback_loop_termination(),
+                    Some("all_nodes_complete")
+                );
+            }
+            _ => panic!("workflow error should include deadlock diagnostic metadata"),
+        }
     }
 
     #[test]
