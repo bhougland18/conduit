@@ -15,10 +15,110 @@ use conduit_core::{
 };
 use conduit_runtime::run_node_with_observers;
 use conduit_types::{NodeId, PortId, WorkflowId};
-use conduit_workflow::{NodeDefinition, PortDirection, WorkflowDefinition};
+use conduit_workflow::{
+    NodeDefinition, PortDirection, WorkflowDefinition, WorkflowValidationError,
+};
 use futures::stream::{FuturesUnordered, StreamExt};
 
 const DEFAULT_EDGE_CAPACITY: NonZeroUsize = NonZeroUsize::MIN;
+
+/// Runtime policy for executing one workflow graph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkflowRunPolicy {
+    cycle_policy: CycleRunPolicy,
+}
+
+impl WorkflowRunPolicy {
+    /// Reject cyclic workflows at run time.
+    #[must_use]
+    pub const fn acyclic() -> Self {
+        Self {
+            cycle_policy: CycleRunPolicy::Reject,
+        }
+    }
+
+    /// Allow cycle-enabled workflow graphs to run as feedback loops.
+    #[must_use]
+    pub const fn feedback_loops(feedback_loop: FeedbackLoopRunPolicy) -> Self {
+        Self {
+            cycle_policy: CycleRunPolicy::AllowFeedbackLoops(feedback_loop),
+        }
+    }
+
+    /// Configured cycle behavior.
+    #[must_use]
+    pub const fn cycle_policy(&self) -> CycleRunPolicy {
+        self.cycle_policy
+    }
+}
+
+impl Default for WorkflowRunPolicy {
+    fn default() -> Self {
+        Self::acyclic()
+    }
+}
+
+/// Runtime behavior for cyclic workflow graphs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CycleRunPolicy {
+    /// Reject directed cycles before starting nodes.
+    Reject,
+    /// Start a cycle-enabled graph as an explicit feedback loop.
+    AllowFeedbackLoops(FeedbackLoopRunPolicy),
+}
+
+/// Startup and termination behavior for feedback-loop workflows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FeedbackLoopRunPolicy {
+    startup: FeedbackLoopStartup,
+    termination: FeedbackLoopTermination,
+}
+
+impl FeedbackLoopRunPolicy {
+    /// Create an explicit feedback-loop policy.
+    #[must_use]
+    pub const fn new(startup: FeedbackLoopStartup, termination: FeedbackLoopTermination) -> Self {
+        Self {
+            startup,
+            termination,
+        }
+    }
+
+    /// Start every node immediately and finish when all node tasks finish.
+    #[must_use]
+    pub const fn start_all_nodes_until_complete() -> Self {
+        Self::new(
+            FeedbackLoopStartup::StartAllNodes,
+            FeedbackLoopTermination::AllNodesComplete,
+        )
+    }
+
+    /// Configured feedback-loop startup behavior.
+    #[must_use]
+    pub const fn startup(&self) -> FeedbackLoopStartup {
+        self.startup
+    }
+
+    /// Configured feedback-loop termination behavior.
+    #[must_use]
+    pub const fn termination(&self) -> FeedbackLoopTermination {
+        self.termination
+    }
+}
+
+/// How a feedback-loop graph is started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeedbackLoopStartup {
+    /// Start every declared node immediately.
+    StartAllNodes,
+}
+
+/// How a feedback-loop graph reaches a terminal state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeedbackLoopTermination {
+    /// The run completes only after all node tasks complete successfully.
+    AllNodesComplete,
+}
 
 /// Terminal state for one workflow run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -416,7 +516,8 @@ impl OutputPacketValidator for ContractOutputValidator {
 ///
 /// # Errors
 ///
-/// Returns an error if executor resolution fails.
+/// Returns an error if the default run policy rejects the workflow shape or
+/// executor resolution fails.
 pub async fn run_workflow_with_registry_summary<R>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -436,11 +537,40 @@ where
     .await
 }
 
+/// Execute the workflow through a registry with an explicit run policy.
+///
+/// # Errors
+///
+/// Returns an error if the run policy rejects the workflow shape or executor
+/// resolution fails.
+pub async fn run_workflow_with_registry_policy_summary<R>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    registry: &R,
+    policy: WorkflowRunPolicy,
+) -> Result<WorkflowRunSummary>
+where
+    R: NodeExecutorRegistry + ?Sized,
+{
+    let lifecycle_hook: NoopLifecycleHook = NoopLifecycleHook;
+    run_workflow_with_registry_and_observers_summary_inner(
+        workflow,
+        execution,
+        registry,
+        &lifecycle_hook,
+        Arc::new(NoopMetadataSink),
+        policy,
+        None,
+    )
+    .await
+}
+
 /// Execute the workflow by resolving one executor for each node from a registry.
 ///
 /// # Errors
 ///
-/// Returns an error if executor resolution fails or any node execution fails.
+/// Returns an error if the default run policy rejects the workflow shape,
+/// executor resolution fails, or any node execution fails.
 pub async fn run_workflow_with_registry<R>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -454,11 +584,32 @@ where
         .into_result()
 }
 
+/// Execute the workflow through a registry with an explicit run policy.
+///
+/// # Errors
+///
+/// Returns an error if the run policy rejects the workflow shape, executor
+/// resolution fails, or any node execution fails.
+pub async fn run_workflow_with_registry_policy<R>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    registry: &R,
+    policy: WorkflowRunPolicy,
+) -> Result<()>
+where
+    R: NodeExecutorRegistry + ?Sized,
+{
+    run_workflow_with_registry_policy_summary(workflow, execution, registry, policy)
+        .await?
+        .into_result()
+}
+
 /// Execute the workflow through a registry and emit metadata records.
 ///
 /// # Errors
 ///
-/// Returns an error if executor resolution fails.
+/// Returns an error if the default run policy rejects the workflow shape or
+/// executor resolution fails.
 pub async fn run_workflow_with_registry_and_metadata_sink_summary<R, M>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -484,7 +635,8 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if executor resolution fails.
+/// Returns an error if the default run policy rejects the workflow shape or
+/// executor resolution fails.
 pub async fn run_workflow_with_registry_and_observers_summary<R, H, M>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -503,6 +655,7 @@ where
         registry,
         lifecycle_hook,
         metadata_sink,
+        WorkflowRunPolicy::default(),
         None,
     )
     .await
@@ -514,6 +667,7 @@ async fn run_workflow_with_registry_and_observers_summary_inner<R, H, M>(
     registry: &R,
     lifecycle_hook: &H,
     metadata_sink: Arc<M>,
+    policy: WorkflowRunPolicy,
     output_contracts: Option<&WorkflowOutputContracts>,
 ) -> Result<WorkflowRunSummary>
 where
@@ -521,6 +675,8 @@ where
     H: LifecycleHook + ?Sized,
     M: MetadataSink + 'static,
 {
+    validate_workflow_run_policy(workflow, policy)?;
+
     let (mut inputs_by_node, mut outputs_by_node): PortWiring = build_port_wiring(workflow);
     let cancellation: CancellationHandle = CancellationHandle::new();
 
@@ -586,7 +742,8 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if executor resolution or output contract setup fails.
+/// Returns an error if the default run policy rejects the workflow shape,
+/// executor resolution fails, or output contract setup fails.
 pub async fn run_workflow_with_registry_contracts_and_observers_summary<R, H, M>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -608,6 +765,7 @@ where
         registry,
         lifecycle_hook,
         metadata_sink,
+        WorkflowRunPolicy::default(),
         Some(&output_contracts),
     )
     .await
@@ -617,8 +775,9 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if executor resolution, output contract setup, output
-/// validation, observation, metadata collection, or node execution fails.
+/// Returns an error if the default run policy rejects the workflow shape,
+/// executor resolution fails, output contract setup fails, output validation
+/// fails, observation fails, metadata collection fails, or node execution fails.
 pub async fn run_workflow_with_registry_contracts_and_observers<R, H, M>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -648,7 +807,8 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if executor resolution or output contract setup fails.
+/// Returns an error if the default run policy rejects the workflow shape,
+/// executor resolution fails, or output contract setup fails.
 pub async fn run_workflow_with_registry_contracts_summary<R>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -674,8 +834,9 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if executor resolution, output contract setup, output
-/// validation, or node execution fails.
+/// Returns an error if the default run policy rejects the workflow shape,
+/// executor resolution fails, output contract setup fails, output validation
+/// fails, or node execution fails.
 pub async fn run_workflow_with_registry_contracts<R>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -694,8 +855,9 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if executor resolution, observation, metadata collection,
-/// or node execution fails.
+/// Returns an error if the default run policy rejects the workflow shape,
+/// executor resolution fails, observation fails, metadata collection fails, or
+/// node execution fails.
 pub async fn run_workflow_with_registry_and_observers<R, H, M>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -723,8 +885,9 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if executor resolution, metadata collection, or node
-/// execution fails.
+/// Returns an error if the default run policy rejects the workflow shape,
+/// executor resolution fails, metadata collection fails, or node execution
+/// fails.
 pub async fn run_workflow_with_registry_and_metadata_sink<R, M>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -749,7 +912,8 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if any node execution fails.
+/// Returns an error if the default run policy rejects the workflow shape or
+/// any node execution fails.
 pub async fn run_workflow<E: NodeExecutor + ?Sized>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -763,7 +927,8 @@ pub async fn run_workflow<E: NodeExecutor + ?Sized>(
 ///
 /// # Errors
 ///
-/// Returns an error if registry-style executor setup fails.
+/// Returns an error if the default run policy rejects the workflow shape or
+/// registry-style executor setup fails.
 pub async fn run_workflow_summary<E: NodeExecutor + ?Sized>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -773,11 +938,44 @@ pub async fn run_workflow_summary<E: NodeExecutor + ?Sized>(
     run_workflow_with_registry_summary(workflow, execution, &registry).await
 }
 
+/// Execute the workflow through one executor with an explicit run policy.
+///
+/// # Errors
+///
+/// Returns an error if the run policy rejects the workflow shape or
+/// registry-style executor setup fails.
+pub async fn run_workflow_with_policy_summary<E: NodeExecutor + ?Sized>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    executor: &E,
+    policy: WorkflowRunPolicy,
+) -> Result<WorkflowRunSummary> {
+    let registry: SingleNodeExecutorRegistry<'_, E> = SingleNodeExecutorRegistry::new(executor);
+    run_workflow_with_registry_policy_summary(workflow, execution, &registry, policy).await
+}
+
+/// Execute the workflow through one executor with an explicit run policy.
+///
+/// # Errors
+///
+/// Returns an error if the run policy rejects the workflow shape or any node
+/// execution fails.
+pub async fn run_workflow_with_policy<E: NodeExecutor + ?Sized>(
+    workflow: &WorkflowDefinition,
+    execution: &ExecutionMetadata,
+    executor: &E,
+    policy: WorkflowRunPolicy,
+) -> Result<()> {
+    let registry: SingleNodeExecutorRegistry<'_, E> = SingleNodeExecutorRegistry::new(executor);
+    run_workflow_with_registry_policy(workflow, execution, &registry, policy).await
+}
+
 /// Execute the workflow through one executor and report observer records.
 ///
 /// # Errors
 ///
-/// Returns an error if registry-style executor setup fails.
+/// Returns an error if the default run policy rejects the workflow shape or
+/// registry-style executor setup fails.
 pub async fn run_workflow_with_observers_summary<E, H, M>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -805,8 +1003,8 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if observation, metadata collection, or node execution
-/// fails.
+/// Returns an error if the default run policy rejects the workflow shape,
+/// observation fails, metadata collection fails, or node execution fails.
 pub async fn run_workflow_with_observers<E, H, M>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -834,7 +1032,8 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if output contract setup fails.
+/// Returns an error if the default run policy rejects the workflow shape or
+/// output contract setup fails.
 pub async fn run_workflow_with_contracts_summary<E: NodeExecutor + ?Sized>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -849,8 +1048,9 @@ pub async fn run_workflow_with_contracts_summary<E: NodeExecutor + ?Sized>(
 ///
 /// # Errors
 ///
-/// Returns an error if output contract setup, output validation, or node
-/// execution fails.
+/// Returns an error if the default run policy rejects the workflow shape,
+/// output contract setup fails, output validation fails, or node execution
+/// fails.
 pub async fn run_workflow_with_contracts<E: NodeExecutor + ?Sized>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -865,7 +1065,8 @@ pub async fn run_workflow_with_contracts<E: NodeExecutor + ?Sized>(
 ///
 /// # Errors
 ///
-/// Returns an error if metadata collection fails or any node execution fails.
+/// Returns an error if the default run policy rejects the workflow shape,
+/// metadata collection fails, or any node execution fails.
 pub async fn run_workflow_with_metadata_sink<E, M>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -885,7 +1086,8 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if registry-style executor setup fails.
+/// Returns an error if the default run policy rejects the workflow shape or
+/// registry-style executor setup fails.
 pub async fn run_workflow_with_metadata_sink_summary<E, M>(
     workflow: &WorkflowDefinition,
     execution: &ExecutionMetadata,
@@ -940,6 +1142,54 @@ where
     }
 
     Ok(summary)
+}
+
+fn validate_workflow_run_policy(
+    workflow: &WorkflowDefinition,
+    policy: WorkflowRunPolicy,
+) -> Result<()> {
+    match workflow.graph().topological_order() {
+        Ok(_order) => Ok(()),
+        Err(WorkflowValidationError::CycleDetected { cycle }) => {
+            validate_cycle_run_policy(workflow, policy, &cycle)
+        }
+        Err(err) => Err(ConduitError::execution(format!(
+            "workflow `{}` topology validation failed before execution: {err}",
+            workflow.id()
+        ))),
+    }
+}
+
+fn validate_cycle_run_policy(
+    workflow: &WorkflowDefinition,
+    policy: WorkflowRunPolicy,
+    cycle: &[NodeId],
+) -> Result<()> {
+    match policy.cycle_policy() {
+        CycleRunPolicy::Reject => Err(ConduitError::execution(format!(
+            "workflow `{}` contains directed cycle {}; use an explicit feedback-loop run policy to execute cyclic graphs",
+            workflow.id(),
+            cycle_label(cycle)
+        ))),
+        CycleRunPolicy::AllowFeedbackLoops(feedback_loop) => {
+            match (feedback_loop.startup(), feedback_loop.termination()) {
+                (FeedbackLoopStartup::StartAllNodes, FeedbackLoopTermination::AllNodesComplete) => {
+                    Ok(())
+                }
+            }
+        }
+    }
+}
+
+fn cycle_label(cycle: &[NodeId]) -> String {
+    let mut label: String = String::new();
+    for (index, node_id) in cycle.iter().enumerate() {
+        if index > 0 {
+            label.push_str(" -> ");
+        }
+        label.push_str(node_id.as_str());
+    }
+    label
 }
 
 type PortWiring = (
@@ -1633,12 +1883,54 @@ mod tests {
         ]
     }
 
+    fn cyclic_workflow() -> WorkflowDefinition {
+        let first: NodeDefinition = NodeBuilder::new("first").input("in").output("out").build();
+        let second: NodeDefinition = NodeBuilder::new("second").input("in").output("out").build();
+        let graph = conduit_workflow::WorkflowGraph::with_cycles_allowed(
+            [first, second],
+            [
+                EdgeDefinition::new(
+                    conduit_workflow::EdgeEndpoint::new(node_id("first"), port_id("out")),
+                    conduit_workflow::EdgeEndpoint::new(node_id("second"), port_id("in")),
+                ),
+                EdgeDefinition::new(
+                    conduit_workflow::EdgeEndpoint::new(node_id("second"), port_id("out")),
+                    conduit_workflow::EdgeEndpoint::new(node_id("first"), port_id("in")),
+                ),
+            ],
+        )
+        .expect("cycle-allowed workflow graph should build");
+
+        WorkflowDefinition::new(workflow_id("flow"), graph)
+    }
+
     fn packet_payload_bytes(packet: PortPacket) -> Vec<u8> {
         packet
             .into_payload()
             .as_bytes()
             .expect("engine backpressure tests send bytes")
             .to_vec()
+    }
+
+    #[test]
+    fn workflow_run_policy_names_feedback_loop_startup_and_termination() {
+        let feedback_loop: FeedbackLoopRunPolicy =
+            FeedbackLoopRunPolicy::start_all_nodes_until_complete();
+        let policy: WorkflowRunPolicy = WorkflowRunPolicy::feedback_loops(feedback_loop);
+
+        assert_eq!(feedback_loop.startup(), FeedbackLoopStartup::StartAllNodes);
+        assert_eq!(
+            feedback_loop.termination(),
+            FeedbackLoopTermination::AllNodesComplete
+        );
+        assert_eq!(
+            policy.cycle_policy(),
+            CycleRunPolicy::AllowFeedbackLoops(feedback_loop)
+        );
+        assert_eq!(
+            WorkflowRunPolicy::default().cycle_policy(),
+            CycleRunPolicy::Reject
+        );
     }
 
     #[test]
@@ -1795,6 +2087,47 @@ mod tests {
         assert_eq!(summary.error_count(), 0);
         assert_eq!(summary.observed_message_count(), 0);
         assert!(summary.first_error().is_none());
+    }
+
+    #[test]
+    fn run_workflow_summary_rejects_cycle_allowed_graph_by_default() {
+        let workflow: WorkflowDefinition = cyclic_workflow();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: RecordingExecutor = RecordingExecutor::default();
+
+        let err: ConduitError = block_on(run_workflow_summary(&workflow, &execution, &executor))
+            .expect_err("default run policy should reject cyclic workflow");
+
+        assert_eq!(err.code(), ErrorCode::NodeExecutionFailed);
+        assert!(err.to_string().contains("first -> second -> first"));
+        assert!(
+            err.to_string()
+                .contains("explicit feedback-loop run policy")
+        );
+        assert!(executor.visited_contexts().is_empty());
+    }
+
+    #[test]
+    fn run_workflow_with_feedback_loop_policy_allows_cycle_allowed_graph() {
+        let workflow: WorkflowDefinition = cyclic_workflow();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: RecordingExecutor = RecordingExecutor::default();
+        let policy: WorkflowRunPolicy = WorkflowRunPolicy::feedback_loops(
+            FeedbackLoopRunPolicy::start_all_nodes_until_complete(),
+        );
+
+        let summary: WorkflowRunSummary = block_on(run_workflow_with_policy_summary(
+            &workflow, &execution, &executor, policy,
+        ))
+        .expect("feedback-loop policy should allow cyclic workflow");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Completed);
+        assert_eq!(summary.scheduled_node_count(), 2);
+        assert_eq!(summary.completed_node_count(), 2);
+        assert_eq!(
+            executor.visited_node_names(),
+            vec![String::from("first"), String::from("second")]
+        );
     }
 
     #[test]
