@@ -394,6 +394,7 @@ dependencies = [
  "conduit-types",
  "conduit-workflow",
  "conduit-workflow-format",
+ "serde_json",
 ]
 
 [[package]]

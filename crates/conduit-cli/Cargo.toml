@@ -14,6 +14,7 @@ conduit-runtime.workspace = true
 conduit-types.workspace = true
 conduit-workflow.workspace = true
 conduit-workflow-format.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

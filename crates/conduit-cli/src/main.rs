@@ -16,15 +16,18 @@ use conduit_contract::{
     ContractValidationError, Determinism, ExecutionMode, NodeContract, PortContract,
 };
 use conduit_core::{
-    ConduitError, JsonlMetadataSink, NodeExecutor, PacketPayload, PortPacket, PortRecvError,
-    PortsIn, PortsOut, RetryDisposition, TieredMetadataSink,
+    ConduitError, ErrorVisibility, JsonlMetadataSink, NodeExecutor, PacketPayload, PortPacket,
+    PortRecvError, PortsIn, PortsOut, RetryDisposition, TieredMetadataSink,
     capability::{
         CapabilityValidationError, NodeCapabilities, PortCapability, PortCapabilityDirection,
     },
     context::{CancellationToken, ExecutionMetadata, NodeContext},
     message::{MessageEndpoint, MessageMetadata, MessageRoute},
 };
-use conduit_engine::{StaticNodeExecutorRegistry, run_workflow_with_registry_and_metadata_sink};
+use conduit_engine::{
+    StaticNodeExecutorRegistry, WorkflowRunSummary, WorkflowTerminalState,
+    run_workflow_with_registry_and_metadata_sink_summary,
+};
 use conduit_introspection::{
     IntrospectionJsonError, WorkflowIntrospection, introspect_workflow,
     workflow_introspection_to_json_string,
@@ -33,6 +36,7 @@ use conduit_runtime::AsupersyncRuntime;
 use conduit_types::{ExecutionId, MessageId, NodeId, PortId};
 use conduit_workflow::{EdgeCapacity, NodeDefinition, PortDirection, WorkflowDefinition};
 use conduit_workflow_format::{WorkflowJsonError, workflow_from_json_str};
+use serde_json::{Value, json};
 
 type CliResult<T> = Result<T, CliError>;
 
@@ -82,6 +86,18 @@ fn command_output(
                 "ran workflow `{}`\nnodes: {}\nedges: {}\nmetadata: {}\nrecords: {}\n",
                 run.workflow_id, run.node_count, run.edge_count, metadata_path, run.record_count
             )))
+        }
+        [command, flag, workflow_path, metadata_path] if command == "run" && flag == "--json" => {
+            let input: String = read(Path::new(workflow_path))?;
+            let run: CliRunOutput = run_workflow_json(&input)?;
+            write(Path::new(metadata_path), &run.metadata_jsonl)?;
+            cli_run_output_to_json_string(&run, metadata_path).map(Some)
+        }
+        [command, workflow_path, metadata_path, flag] if command == "run" && flag == "--json" => {
+            let input: String = read(Path::new(workflow_path))?;
+            let run: CliRunOutput = run_workflow_json(&input)?;
+            write(Path::new(metadata_path), &run.metadata_jsonl)?;
+            cli_run_output_to_json_string(&run, metadata_path).map(Some)
         }
         _ => Err(CliError::Usage),
     }
@@ -174,6 +190,7 @@ struct CliRunOutput {
     edge_count: usize,
     metadata_jsonl: String,
     record_count: usize,
+    summary: WorkflowRunSummary,
 }
 
 fn run_workflow_json(input: &str) -> CliResult<CliRunOutput> {
@@ -186,12 +203,13 @@ fn run_workflow_json(input: &str) -> CliResult<CliRunOutput> {
     let metadata_sink: Arc<TieredMetadataSink<JsonlMetadataSink<Vec<u8>>>> =
         Arc::new(TieredMetadataSink::new(JsonlMetadataSink::new(Vec::new())));
 
-    runtime.block_on(run_workflow_with_registry_and_metadata_sink(
-        &workflow,
-        &execution,
-        &registry,
-        metadata_sink.clone(),
-    ))?;
+    let summary: WorkflowRunSummary =
+        runtime.block_on(run_workflow_with_registry_and_metadata_sink_summary(
+            &workflow,
+            &execution,
+            &registry,
+            metadata_sink.clone(),
+        ))?;
 
     let metadata_sink: TieredMetadataSink<JsonlMetadataSink<Vec<u8>>> =
         Arc::try_unwrap(metadata_sink).map_err(
@@ -212,7 +230,80 @@ fn run_workflow_json(input: &str) -> CliResult<CliRunOutput> {
         edge_count: workflow.edges().len(),
         metadata_jsonl,
         record_count,
+        summary,
     })
+}
+
+fn cli_run_output_to_json_string(run: &CliRunOutput, metadata_path: &str) -> CliResult<String> {
+    let mut output: String = serde_json::to_string_pretty(&json!({
+        "status": workflow_terminal_state_label(run.summary.terminal_state()),
+        "error": run
+            .summary
+            .first_error()
+            .map_or(Value::Null, conduit_error_to_json_value),
+        "workflow": {
+            "id": run.workflow_id,
+            "node_count": run.node_count,
+            "edge_count": run.edge_count,
+        },
+        "metadata": {
+            "path": metadata_path,
+            "record_count": run.record_count,
+        },
+        "summary": workflow_run_summary_to_json_value(&run.summary),
+    }))
+    .map_err(|source: serde_json::Error| {
+        ConduitError::metadata(format!("failed to encode run summary JSON: {source}"))
+    })?;
+    output.push('\n');
+    Ok(output)
+}
+
+fn workflow_run_summary_to_json_value(summary: &WorkflowRunSummary) -> Value {
+    json!({
+        "terminal_state": workflow_terminal_state_label(summary.terminal_state()),
+        "scheduled_node_count": summary.scheduled_node_count(),
+        "completed_node_count": summary.completed_node_count(),
+        "failed_node_count": summary.failed_node_count(),
+        "cancelled_node_count": summary.cancelled_node_count(),
+        "observed_message_count": summary.observed_message_count(),
+        "error_count": summary.error_count(),
+        "first_error": summary
+            .first_error()
+            .map_or(Value::Null, conduit_error_to_json_value),
+    })
+}
+
+const fn workflow_terminal_state_label(state: WorkflowTerminalState) -> &'static str {
+    match state {
+        WorkflowTerminalState::Completed => "completed",
+        WorkflowTerminalState::Failed => "failed",
+        WorkflowTerminalState::Cancelled => "cancelled",
+    }
+}
+
+fn conduit_error_to_json_value(error: &ConduitError) -> Value {
+    json!({
+        "code": error.code().as_str(),
+        "message": error.to_string(),
+        "visibility": error_visibility_label(error.visibility()),
+        "retry_disposition": retry_disposition_label(error.retry_disposition()),
+    })
+}
+
+const fn error_visibility_label(visibility: ErrorVisibility) -> &'static str {
+    match visibility {
+        ErrorVisibility::User => "user",
+        ErrorVisibility::Internal => "internal",
+    }
+}
+
+const fn retry_disposition_label(disposition: RetryDisposition) -> &'static str {
+    match disposition {
+        RetryDisposition::Never => "never",
+        RetryDisposition::Safe => "safe",
+        RetryDisposition::Unknown => "unknown",
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -430,7 +521,7 @@ fn passive_native_capabilities_for_node(node: &NodeDefinition) -> CliResult<Node
 }
 
 const fn usage() -> &'static str {
-    "Usage:\n  conduit validate <workflow.json>\n  conduit inspect <workflow.json>\n  conduit explain <workflow.json>\n  conduit run <workflow.json> <metadata.jsonl>"
+    "Usage:\n  conduit validate <workflow.json>\n  conduit inspect <workflow.json>\n  conduit explain <workflow.json>\n  conduit run <workflow.json> <metadata.jsonl>\n  conduit run --json <workflow.json> <metadata.jsonl>"
 }
 
 #[derive(Debug)]
@@ -529,6 +620,7 @@ impl From<conduit_types::IdentifierError> for CliError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
 
     const WORKFLOW_JSON: &str = r#"{
   "conduit_version": "1",
@@ -582,6 +674,14 @@ mod tests {
         assert_eq!(output.node_count, 2);
         assert_eq!(output.edge_count, 1);
         assert_eq!(output.record_count, 13);
+        assert_eq!(
+            output.summary.terminal_state(),
+            WorkflowTerminalState::Completed
+        );
+        assert_eq!(output.summary.scheduled_node_count(), 2);
+        assert_eq!(output.summary.completed_node_count(), 2);
+        assert_eq!(output.summary.error_count(), 0);
+        assert!(output.summary.first_error().is_none());
         assert!(
             output
                 .metadata_jsonl
@@ -602,6 +702,83 @@ mod tests {
                 .metadata_jsonl
                 .contains("\"execution_id\":\"cli-run-1\"")
         );
+    }
+
+    #[test]
+    fn run_json_output_reports_machine_facing_summary_fields() {
+        let output = run_workflow_json(WORKFLOW_JSON).expect("workflow should run");
+        let json_output = cli_run_output_to_json_string(&output, "metadata.jsonl")
+            .expect("run JSON should encode");
+        let value: Value = serde_json::from_str(&json_output).expect("run output should be JSON");
+
+        assert_eq!(value["status"], "completed");
+        assert_eq!(value["error"], Value::Null);
+        assert_eq!(value["workflow"]["id"], "flow");
+        assert_eq!(value["workflow"]["node_count"], 2);
+        assert_eq!(value["workflow"]["edge_count"], 1);
+        assert_eq!(value["metadata"]["path"], "metadata.jsonl");
+        assert_eq!(value["metadata"]["record_count"], 13);
+        assert_eq!(value["summary"]["terminal_state"], "completed");
+        assert_eq!(value["summary"]["scheduled_node_count"], 2);
+        assert_eq!(value["summary"]["completed_node_count"], 2);
+        assert_eq!(value["summary"]["failed_node_count"], 0);
+        assert_eq!(value["summary"]["cancelled_node_count"], 0);
+        assert_eq!(value["summary"]["observed_message_count"], 0);
+        assert_eq!(value["summary"]["error_count"], 0);
+        assert_eq!(value["summary"]["first_error"], Value::Null);
+    }
+
+    #[test]
+    fn run_json_command_writes_metadata_and_returns_json() {
+        let written_metadata: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let written_metadata_for_closure: Arc<Mutex<Option<String>>> = written_metadata.clone();
+        let args: Vec<String> = vec![
+            String::from("run"),
+            String::from("--json"),
+            String::from("workflow.json"),
+            String::from("metadata.jsonl"),
+        ];
+
+        let output = command_output(
+            &args,
+            |path: &Path| {
+                assert_eq!(path, Path::new("workflow.json"));
+                Ok(String::from(WORKFLOW_JSON))
+            },
+            |path: &Path, contents: &str| {
+                assert_eq!(path, Path::new("metadata.jsonl"));
+                *written_metadata_for_closure
+                    .lock()
+                    .expect("metadata write lock should not be poisoned") =
+                    Some(contents.to_owned());
+                Ok(())
+            },
+        )
+        .expect("run command should succeed")
+        .expect("run command should produce output");
+        let value: Value = serde_json::from_str(&output).expect("run output should be JSON");
+        let metadata = written_metadata
+            .lock()
+            .expect("metadata write lock should not be poisoned")
+            .clone()
+            .expect("metadata should be written");
+
+        assert_eq!(value["status"], "completed");
+        assert_eq!(value["metadata"]["record_count"], metadata.lines().count());
+        assert!(metadata.contains("\"record_type\":\"lifecycle\""));
+    }
+
+    #[test]
+    fn cli_error_json_uses_stable_machine_fields() {
+        let value: Value = conduit_error_to_json_value(&ConduitError::execution("boom"));
+
+        assert_eq!(value["code"], "CDT-EXEC-001");
+        assert_eq!(
+            value["message"],
+            "CDT-EXEC-001: node execution failed: boom"
+        );
+        assert_eq!(value["visibility"], "internal");
+        assert_eq!(value["retry_disposition"], "unknown");
     }
 
     #[test]
