@@ -395,6 +395,7 @@ dependencies = [
  "conduit-workflow",
  "conduit-workflow-format",
  "serde_json",
+ "tracing-subscriber",
 ]
 
 [[package]]

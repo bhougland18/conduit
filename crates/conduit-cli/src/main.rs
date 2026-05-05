@@ -9,6 +9,7 @@ use std::{
     future::Future,
     path::Path,
     pin::Pin,
+    str::FromStr,
     sync::Arc,
 };
 
@@ -38,8 +39,16 @@ use conduit_types::{ExecutionId, MessageId, NodeId, PortId};
 use conduit_workflow::{EdgeCapacity, NodeDefinition, PortDirection, WorkflowDefinition};
 use conduit_workflow_format::{WorkflowJsonError, workflow_from_json_str};
 use serde_json::{Value, json};
+use tracing_subscriber::{
+    filter::{ParseError, Targets},
+    layer::SubscriberExt,
+    util::{SubscriberInitExt, TryInitError},
+};
 
 type CliResult<T> = Result<T, CliError>;
+
+const CONDUIT_TRACE_ENV: &str = "CONDUIT_TRACE";
+const RUST_LOG_ENV: &str = "RUST_LOG";
 
 fn main() {
     if let Err(error) = run() {
@@ -49,6 +58,8 @@ fn main() {
 }
 
 fn run() -> CliResult<()> {
+    initialize_tracing_from_env()?;
+
     let args: Vec<String> = env::args().skip(1).collect();
     let Some(output): Option<String> = command_output(&args, read_file, write_file)? else {
         println!("{}", usage());
@@ -57,6 +68,70 @@ fn run() -> CliResult<()> {
 
     print!("{output}");
     Ok(())
+}
+
+fn initialize_tracing_from_env() -> CliResult<()> {
+    let Some(targets): Option<Targets> =
+        tracing_targets_from_env(|name: &str| env::var(name).ok())?
+    else {
+        return Ok(());
+    };
+
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_ansi(false),
+        )
+        .with(targets)
+        .try_init()
+        .map_err(|source: TryInitError| {
+            CliError::Tracing(format!("failed to initialize tracing subscriber: {source}"))
+        })
+}
+
+fn tracing_targets_from_env(
+    read_env: impl Fn(&str) -> Option<String>,
+) -> CliResult<Option<Targets>> {
+    if let Some(value) = read_env(CONDUIT_TRACE_ENV) {
+        return tracing_targets_from_value(CONDUIT_TRACE_ENV, &value);
+    }
+    if let Some(value) = read_env(RUST_LOG_ENV) {
+        return tracing_targets_from_value(RUST_LOG_ENV, &value);
+    }
+
+    Ok(None)
+}
+
+fn tracing_targets_from_value(env_name: &'static str, value: &str) -> CliResult<Option<Targets>> {
+    let trimmed: &str = value.trim();
+    if tracing_value_disables_output(trimmed) {
+        return Ok(None);
+    }
+
+    let filter: &str = if tracing_value_uses_default_filter(trimmed) {
+        "info"
+    } else {
+        trimmed
+    };
+
+    Targets::from_str(filter)
+        .map(Some)
+        .map_err(|source: ParseError| {
+            CliError::Tracing(format!(
+                "{env_name} has invalid tracing filter `{value}`: {source}"
+            ))
+        })
+}
+
+fn tracing_value_disables_output(value: &str) -> bool {
+    let lowercase: String = value.to_ascii_lowercase();
+    matches!(lowercase.as_str(), "" | "0" | "false" | "off")
+}
+
+fn tracing_value_uses_default_filter(value: &str) -> bool {
+    let lowercase: String = value.to_ascii_lowercase();
+    matches!(lowercase.as_str(), "1" | "true" | "yes")
 }
 
 fn command_output(
@@ -599,6 +674,7 @@ enum CliError {
     Capability(CapabilityValidationError),
     IntrospectionJson(IntrospectionJsonError),
     Runtime(ConduitError),
+    Tracing(String),
 }
 
 impl CliError {
@@ -610,7 +686,8 @@ impl CliError {
             | Self::Contract(_)
             | Self::Capability(_)
             | Self::IntrospectionJson(_)
-            | Self::Runtime(_) => 1,
+            | Self::Runtime(_)
+            | Self::Tracing(_) => 1,
         }
     }
 }
@@ -631,6 +708,7 @@ impl fmt::Display for CliError {
             }
             Self::IntrospectionJson(source) => write!(f, "{source}"),
             Self::Runtime(source) => write!(f, "{source}"),
+            Self::Tracing(message) => write!(f, "{message}"),
         }
     }
 }
@@ -638,7 +716,7 @@ impl fmt::Display for CliError {
 impl Error for CliError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Usage => None,
+            Self::Usage | Self::Tracing(_) => None,
             Self::Io { source, .. } => Some(source),
             Self::WorkflowJson(source) => Some(source),
             Self::Contract(source) => Some(source),
@@ -701,6 +779,45 @@ mod tests {
 }"#;
     const NATIVE_LINEAR_ETL_WORKFLOW_JSON: &str =
         include_str!("../../../examples/native-linear-etl.workflow.json");
+
+    #[test]
+    fn tracing_targets_are_opt_in() {
+        let disabled: Option<Targets> =
+            tracing_targets_from_env(|_name: &str| None).expect("missing env should parse");
+        let explicit_off: Option<Targets> =
+            tracing_targets_from_value(CONDUIT_TRACE_ENV, "off").expect("off should parse");
+        let explicit_true: Option<Targets> =
+            tracing_targets_from_value(CONDUIT_TRACE_ENV, "true").expect("true should parse");
+        let rust_log_directive: Option<Targets> =
+            tracing_targets_from_value(RUST_LOG_ENV, "conduit.runtime=debug")
+                .expect("target directive should parse");
+
+        assert!(disabled.is_none());
+        assert!(explicit_off.is_none());
+        assert!(explicit_true.is_some());
+        assert!(rust_log_directive.is_some());
+    }
+
+    #[test]
+    fn conduit_trace_takes_precedence_over_rust_log() {
+        let targets: Option<Targets> = tracing_targets_from_env(|name: &str| match name {
+            CONDUIT_TRACE_ENV => Some(String::from("off")),
+            RUST_LOG_ENV => Some(String::from("trace")),
+            _ => None,
+        })
+        .expect("env should parse");
+
+        assert!(targets.is_none());
+    }
+
+    #[test]
+    fn invalid_tracing_filter_reports_env_name() {
+        let err: CliError = tracing_targets_from_value(RUST_LOG_ENV, "conduit.runtime=verbose")
+            .expect_err("invalid tracing filter should fail");
+
+        assert!(err.to_string().contains(RUST_LOG_ENV));
+        assert!(err.to_string().contains("invalid tracing filter"));
+    }
 
     #[test]
     fn validate_reports_valid_workflow_summary() {
