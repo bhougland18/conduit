@@ -486,6 +486,7 @@ dependencies = [
  "conduit-types",
  "conduit-workflow",
  "futures",
+ "serde",
  "serde_json",
  "wasmtime",
  "wit-bindgen 0.57.1",

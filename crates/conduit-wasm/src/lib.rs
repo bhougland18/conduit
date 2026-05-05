@@ -574,11 +574,137 @@ mod tests {
     use super::*;
     use conduit_core::{
         capability::{EffectCapability, PortCapability, PortCapabilityDirection},
-        context::ExecutionMetadata,
+        context::{ExecutionAttempt, ExecutionMetadata},
         message::{MessageEndpoint, MessageMetadata, MessageRoute},
     };
     use conduit_types::{ExecutionId, MessageId, NodeId, WorkflowId};
+    use serde::Deserialize;
     use serde_json::json;
+    use std::num::NonZeroU32;
+
+    const UPPERCASE_FIXTURE_INPUTS_JSON: &str =
+        include_str!("../fixtures/uppercase-guest/testdata/inputs.json");
+    const UPPERCASE_FIXTURE_EXPECTED_OUTPUTS_JSON: &str =
+        include_str!("../fixtures/uppercase-guest/testdata/expected-outputs.json");
+
+    #[derive(Debug, Deserialize)]
+    struct FixturePortBatch {
+        #[serde(rename = "port-id")]
+        port_id: String,
+        packets: Vec<FixturePacket>,
+    }
+
+    impl FixturePortBatch {
+        fn into_wit(self) -> WitPortBatch {
+            WitPortBatch {
+                port_id: self.port_id,
+                packets: self
+                    .packets
+                    .into_iter()
+                    .map(FixturePacket::into_wit)
+                    .collect(),
+            }
+        }
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct FixturePacket {
+        metadata: FixtureMessageMetadata,
+        payload: FixturePayload,
+    }
+
+    impl FixturePacket {
+        fn into_wit(self) -> WitPacket {
+            WitPacket {
+                metadata: self.metadata.into_message_metadata(),
+                payload: self.payload.into_wit(),
+            }
+        }
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct FixtureMessageMetadata {
+        #[serde(rename = "message-id")]
+        message_id: String,
+        #[serde(rename = "workflow-id")]
+        workflow_id: String,
+        execution: FixtureExecution,
+        route: FixtureRoute,
+    }
+
+    impl FixtureMessageMetadata {
+        fn into_message_metadata(self) -> MessageMetadata {
+            MessageMetadata::new(
+                message_id(&self.message_id),
+                workflow_id(&self.workflow_id),
+                self.execution.into_execution_metadata(),
+                self.route.into_message_route(),
+            )
+        }
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct FixtureExecution {
+        #[serde(rename = "execution-id")]
+        execution_id: String,
+        attempt: u32,
+    }
+
+    impl FixtureExecution {
+        fn into_execution_metadata(self) -> ExecutionMetadata {
+            let attempt: NonZeroU32 =
+                NonZeroU32::new(self.attempt).expect("fixture attempt must be non-zero");
+            ExecutionMetadata::new(
+                execution_id(&self.execution_id),
+                ExecutionAttempt::new(attempt),
+            )
+        }
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct FixtureRoute {
+        source: Option<FixtureEndpoint>,
+        target: FixtureEndpoint,
+    }
+
+    impl FixtureRoute {
+        fn into_message_route(self) -> MessageRoute {
+            MessageRoute::new(
+                self.source.map(FixtureEndpoint::into_message_endpoint),
+                self.target.into_message_endpoint(),
+            )
+        }
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct FixtureEndpoint {
+        #[serde(rename = "node-id")]
+        node_id: String,
+        #[serde(rename = "port-id")]
+        port_id: String,
+    }
+
+    impl FixtureEndpoint {
+        fn into_message_endpoint(self) -> MessageEndpoint {
+            MessageEndpoint::new(node_id(&self.node_id), port_id(&self.port_id))
+        }
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "kebab-case")]
+    enum FixturePayload {
+        Bytes(Vec<u8>),
+        Control(String),
+    }
+
+    impl FixturePayload {
+        fn into_wit(self) -> WitPayload {
+            match self {
+                Self::Bytes(bytes) => WitPayload::Bytes(bytes),
+                Self::Control(value) => WitPayload::Control(value),
+            }
+        }
+    }
 
     fn execution_id(value: &str) -> ExecutionId {
         ExecutionId::new(value).expect("valid execution id")
@@ -606,6 +732,39 @@ mod tests {
         let route: MessageRoute = MessageRoute::new(Some(source), target);
         let execution: ExecutionMetadata = ExecutionMetadata::first_attempt(execution_id("run-1"));
         MessageMetadata::new(message_id("msg-1"), workflow_id("flow"), execution, route)
+    }
+
+    fn fixture_port_batches_from_json(json: &str) -> Vec<WitPortBatch> {
+        serde_json::from_str::<Vec<FixturePortBatch>>(json)
+            .expect("fixture JSON must parse")
+            .into_iter()
+            .map(FixturePortBatch::into_wit)
+            .collect()
+    }
+
+    fn uppercase_fixture_outputs(inputs: &[WitPortBatch]) -> Vec<WitPortBatch> {
+        let mut packets: Vec<WitPacket> = Vec::new();
+
+        for port_batch in inputs {
+            for packet in &port_batch.packets {
+                let mut packet: WitPacket = packet.clone();
+                let WitPayload::Bytes(bytes) = packet.payload else {
+                    panic!("uppercase fixture success vectors must contain only byte payloads");
+                };
+                packet.payload = WitPayload::Bytes(
+                    bytes
+                        .into_iter()
+                        .map(|byte: u8| byte.to_ascii_uppercase())
+                        .collect(),
+                );
+                packets.push(packet);
+            }
+        }
+
+        vec![WitPortBatch {
+            port_id: "out".to_owned(),
+            packets,
+        }]
     }
 
     #[test]
@@ -711,5 +870,21 @@ mod tests {
         let err = batch_outputs_from_result_val(result).expect_err("guest error should fail");
 
         assert_eq!(err.code(), conduit_core::ErrorCode::NodeExecutionFailed);
+    }
+
+    #[test]
+    fn uppercase_guest_fixture_testdata_matches_wit_shape() {
+        let inputs: Vec<WitPortBatch> =
+            fixture_port_batches_from_json(UPPERCASE_FIXTURE_INPUTS_JSON);
+        let expected_outputs: Vec<WitPortBatch> =
+            fixture_port_batches_from_json(UPPERCASE_FIXTURE_EXPECTED_OUTPUTS_JSON);
+
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].port_id, "in");
+        assert_eq!(expected_outputs, uppercase_fixture_outputs(&inputs));
+
+        let outputs: BatchOutputs =
+            from_wit_port_batches(expected_outputs).expect("expected fixture outputs must decode");
+        assert_eq!(outputs.packets(&port_id("out")).len(), 2);
     }
 }

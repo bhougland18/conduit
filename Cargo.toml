@@ -13,6 +13,9 @@ members = [
   "crates/conduit-workflow-format",
 ]
 resolver = "2"
+exclude = [
+  "crates/conduit-wasm/fixtures/uppercase-guest",
+]
 
 [workspace.package]
 edition = "2024"
