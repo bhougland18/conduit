@@ -200,115 +200,115 @@
 
         dendritic.devShell.shellHookFragments = [
           ''
-            export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath nativeRuntimeDeps}:$LD_LIBRARY_PATH"
-            export DYLINT_DRIVER_PATH="$PWD/.cache/dylint-drivers"
-            export DYLINT_DRIVER_BUILD_ROOT="$PWD/.cache/dylint-driver-build"
-            dylint_driver_toolchain="$DYLINT_DRIVER_BUILD_TOOLCHAIN"
-            dylint_driver_channel="${dylintNightlyChannel}"
+                        export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath nativeRuntimeDeps}:$LD_LIBRARY_PATH"
+                        export DYLINT_DRIVER_PATH="$PWD/.cache/dylint-drivers"
+                        export DYLINT_DRIVER_BUILD_ROOT="$PWD/.cache/dylint-driver-build"
+                        dylint_driver_toolchain="$DYLINT_DRIVER_BUILD_TOOLCHAIN"
+                        dylint_driver_channel="${dylintNightlyChannel}"
 
-            if [ -n "$dylint_driver_toolchain" ]; then
-              mkdir -p "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain"
-              mkdir -p "$DYLINT_DRIVER_PATH/$dylint_driver_channel"
-              if [ ! -x "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain/dylint-driver" ] || ! "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain/dylint-driver" -V >/dev/null 2>&1; then
-                mkdir -p "$DYLINT_DRIVER_BUILD_ROOT/src"
+                        if [ -n "$dylint_driver_toolchain" ]; then
+                          mkdir -p "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain"
+                          mkdir -p "$DYLINT_DRIVER_PATH/$dylint_driver_channel"
+                          if [ ! -x "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain/dylint-driver" ] || ! "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain/dylint-driver" -V >/dev/null 2>&1; then
+                            mkdir -p "$DYLINT_DRIVER_BUILD_ROOT/src"
 
-                if [ ! -f "$DYLINT_DRIVER_BUILD_ROOT/Cargo.toml" ]; then
-                  cp -r ${dylint-src}/driver "$DYLINT_DRIVER_BUILD_ROOT/driver"
-                  cp -r ${dylint-src}/internal "$DYLINT_DRIVER_BUILD_ROOT/internal"
+                            if [ ! -f "$DYLINT_DRIVER_BUILD_ROOT/Cargo.toml" ]; then
+                              cp -r ${dylint-src}/driver "$DYLINT_DRIVER_BUILD_ROOT/driver"
+                              cp -r ${dylint-src}/internal "$DYLINT_DRIVER_BUILD_ROOT/internal"
 
-                  cat > "$DYLINT_DRIVER_BUILD_ROOT/Cargo.toml" <<'EOF'
-[package]
-name = "dylint-driver-runner"
-version = "5.0.0"
-edition = "2024"
+                              cat > "$DYLINT_DRIVER_BUILD_ROOT/Cargo.toml" <<'EOF'
+            [package]
+            name = "dylint-driver-runner"
+            version = "5.0.0"
+            edition = "2024"
 
-[dependencies]
-anyhow = "1.0"
-env_logger = "0.11"
-dylint_driver = { path = "driver" }
+            [dependencies]
+            anyhow = "1.0"
+            env_logger = "0.11"
+            dylint_driver = { path = "driver" }
 
-[workspace]
-exclude = ["driver"]
+            [workspace]
+            exclude = ["driver"]
 
-[workspace.dependencies]
-anstyle = "1.0"
-anyhow = "1.0"
-assert_cmd = "2.0"
-bitflags = "2.9"
-cargo-util = "0.2"
-cargo_metadata = "0.23"
-ctor = "0.6"
-env_logger = "0.11"
-git2 = "0.20"
-home = "=0.5.9"
-if_chain = "1.0"
-log = "0.4"
-predicates = "3.1"
-regex = "1.11"
-rustversion = "1.0"
-semver = "1.0"
-serde = "1.0"
-tar = "0.4"
-tempfile = "3.23"
-thiserror = "2.0"
-toml = "0.9"
-toml_edit = "0.23"
-walkdir = "2.5"
+            [workspace.dependencies]
+            anstyle = "1.0"
+            anyhow = "1.0"
+            assert_cmd = "2.0"
+            bitflags = "2.9"
+            cargo-util = "0.2"
+            cargo_metadata = "0.23"
+            ctor = "0.6"
+            env_logger = "0.11"
+            git2 = "0.20"
+            home = "=0.5.9"
+            if_chain = "1.0"
+            log = "0.4"
+            predicates = "3.1"
+            regex = "1.11"
+            rustversion = "1.0"
+            semver = "1.0"
+            serde = "1.0"
+            tar = "0.4"
+            tempfile = "3.23"
+            thiserror = "2.0"
+            toml = "0.9"
+            toml_edit = "0.23"
+            walkdir = "2.5"
 
-[workspace.lints.clippy]
-nursery = { level = "warn", priority = -1 }
-pedantic = { level = "warn", priority = -1 }
-option-if-let-else = "allow"
-missing-errors-doc = "allow"
-missing-panics-doc = "allow"
-significant-drop-tightening = "allow"
-struct-field-names = "allow"
+            [workspace.lints.clippy]
+            nursery = { level = "warn", priority = -1 }
+            pedantic = { level = "warn", priority = -1 }
+            option-if-let-else = "allow"
+            missing-errors-doc = "allow"
+            missing-panics-doc = "allow"
+            significant-drop-tightening = "allow"
+            struct-field-names = "allow"
 
-[workspace.lints.rust.unexpected_cfgs]
-level = "deny"
-check-cfg = [
-    "cfg(coverage)",
-    "cfg(dylint_lib, values(any()))",
-    "cfg(nightly)",
-    "cfg(__cargo_cli)",
-    "cfg(__library_packages)",
-]
-EOF
+            [workspace.lints.rust.unexpected_cfgs]
+            level = "deny"
+            check-cfg = [
+                "cfg(coverage)",
+                "cfg(dylint_lib, values(any()))",
+                "cfg(nightly)",
+                "cfg(__cargo_cli)",
+                "cfg(__library_packages)",
+            ]
+            EOF
 
-                  cat > "$DYLINT_DRIVER_BUILD_ROOT/src/main.rs" <<'EOF'
-#![feature(rustc_private)]
+                              cat > "$DYLINT_DRIVER_BUILD_ROOT/src/main.rs" <<'EOF'
+            #![feature(rustc_private)]
 
-use anyhow::Result;
-use std::env;
+            use anyhow::Result;
+            use std::env;
 
-fn main() -> Result<()> {
-    env_logger::init();
+            fn main() -> Result<()> {
+                env_logger::init();
 
-    let args: Vec<_> = env::args_os().collect();
-    dylint_driver::dylint_driver(&args)
-}
-EOF
-                fi
+                let args: Vec<_> = env::args_os().collect();
+                dylint_driver::dylint_driver(&args)
+            }
+            EOF
+                            fi
 
-                (
-                  cd "$DYLINT_DRIVER_BUILD_ROOT"
-                  export RUSTUP_TOOLCHAIN="$dylint_driver_toolchain"
-                  export PATH="${dylintNightlyToolchain}/bin:$PATH"
-                  export RUSTFLAGS="''${RUSTFLAGS:-} -C link-args=-Wl,-rpath,${dylintNightlyToolchain}/lib"
-                  cargo build --quiet
-                )
+                            (
+                              cd "$DYLINT_DRIVER_BUILD_ROOT"
+                              export RUSTUP_TOOLCHAIN="$dylint_driver_toolchain"
+                              export PATH="${dylintNightlyToolchain}/bin:$PATH"
+                              export RUSTFLAGS="''${RUSTFLAGS:-} -C link-args=-Wl,-rpath,${dylintNightlyToolchain}/lib"
+                              cargo build --quiet
+                            )
 
-                ln -sfn \
-                  "$DYLINT_DRIVER_BUILD_ROOT/target/debug/dylint-driver-runner" \
-                  "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain/dylint-driver"
-              fi
+                            ln -sfn \
+                              "$DYLINT_DRIVER_BUILD_ROOT/target/debug/dylint-driver-runner" \
+                              "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain/dylint-driver"
+                          fi
 
-              ln -sfn \
-                "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain/dylint-driver" \
-                "$DYLINT_DRIVER_PATH/$dylint_driver_channel/dylint-driver"
-            fi
+                          ln -sfn \
+                            "$DYLINT_DRIVER_PATH/$dylint_driver_toolchain/dylint-driver" \
+                            "$DYLINT_DRIVER_PATH/$dylint_driver_channel/dylint-driver"
+                        fi
 
-            export RUSTFLAGS="-C linker=dylint-link ''${RUSTFLAGS:-}"
+                        export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="dylint-link"
           ''
         ];
       };

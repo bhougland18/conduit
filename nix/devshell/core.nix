@@ -52,6 +52,7 @@
           rinf.enable = lib.mkEnableOption "rinf bridge tooling";
           rust_devtools.enable = lib.mkEnableOption "Optional Rust workflow and profiling CLI tooling";
           rust_lint_dylint.enable = lib.mkEnableOption "Dylint runtime and lint authoring support";
+          rust_wasm.enable = lib.mkEnableOption "Rust wasm32-wasip2 Component Model tooling";
           rust.enable = lib.mkEnableOption "Rust toolchain support";
           stac.enable = lib.mkEnableOption "STAC CLI tooling";
           ubs.enable = lib.mkEnableOption "Ultimate Bug Scanner tooling";
@@ -78,6 +79,7 @@
             rinf.enable = lib.mkDefault true;
             rust_devtools.enable = lib.mkDefault true;
             rust_lint_dylint.enable = lib.mkDefault false;
+            rust_wasm.enable = lib.mkDefault false;
             rust.enable = lib.mkDefault true;
             stac.enable = lib.mkDefault true;
             ubs.enable = lib.mkDefault false;

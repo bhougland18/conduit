@@ -11,10 +11,12 @@ default workspace checks do not require a `wasm32-wasip2` standard library.
 letters, and emits every transformed packet on the `out` port. Control payloads
 return `batch-error::unsupported-payload`.
 
-Build it with a toolchain that includes the `wasm32-wasip2` target:
+Build it through the repo dev shell, which enables the `rust_wasm` feature and
+provides the `wasm32-wasip2` Rust standard library plus `wasm-tools`,
+`wasmtime`, and `binaryen`:
 
 ```bash
-cargo build \
+nix develop . --command cargo build \
   --manifest-path crates/conduit-wasm/fixtures/uppercase-guest/Cargo.toml \
   --target wasm32-wasip2 \
   --release

@@ -45,6 +45,10 @@
             "rustc"
             "rustfmt"
           ];
+          fenixWasmToolchain = fenix.packages.${system}.combine [
+            fenixToolchain
+            fenix.packages.${system}.targets.wasm32-wasip2.stable.rust-std
+          ];
           dylintNightlyBase = fenix.packages.${system}.toolchainOf {
             channel = "nightly";
             date = "2025-09-18";
@@ -67,6 +71,7 @@
             inherit
               pkgs
               fenixToolchain
+              fenixWasmToolchain
               fenixRustSrc
               craneLib
               codex-cli-nix
@@ -87,6 +92,7 @@
               jujutsu.enable = true;
               quarto.enable = true;
               rust.enable = true;
+              rust_wasm.enable = true;
               rust_devtools.enable = true;
               rust_lint_dylint.enable = true;
 
