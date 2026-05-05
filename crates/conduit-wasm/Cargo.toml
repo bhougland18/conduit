@@ -15,6 +15,7 @@ wasmtime.workspace = true
 conduit-engine.workspace = true
 conduit-workflow.workspace = true
 futures.workspace = true
+quickcheck.workspace = true
 serde.workspace = true
 wit-bindgen.workspace = true
 

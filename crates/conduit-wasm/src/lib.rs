@@ -73,6 +73,9 @@ impl WasmtimeBatchComponent {
     pub fn invoke(&self, inputs: &BatchInputs) -> Result<BatchOutputs> {
         let linker: Linker<()> = Linker::new(&self.engine);
         let mut store: Store<()> = Store::new(&self.engine, ());
+        // Epoch interruption is enabled on the engine; an unset deadline
+        // interrupts immediately on the first guest call.
+        store.set_epoch_deadline(u64::MAX);
         let instance: Instance =
             linker
                 .instantiate(&mut store, &self.component)
@@ -578,14 +581,28 @@ mod tests {
         message::{MessageEndpoint, MessageMetadata, MessageRoute},
     };
     use conduit_types::{ExecutionId, MessageId, NodeId, WorkflowId};
+    use quickcheck::{Arbitrary, Gen, QuickCheck};
     use serde::Deserialize;
     use serde_json::json;
-    use std::num::NonZeroU32;
+    use std::{
+        collections::BTreeMap,
+        env,
+        ffi::OsString,
+        fs,
+        num::NonZeroU32,
+        path::{Path, PathBuf},
+        process::{Command, Output},
+        sync::OnceLock,
+    };
 
     const UPPERCASE_FIXTURE_INPUTS_JSON: &str =
         include_str!("../fixtures/uppercase-guest/testdata/inputs.json");
     const UPPERCASE_FIXTURE_EXPECTED_OUTPUTS_JSON: &str =
         include_str!("../fixtures/uppercase-guest/testdata/expected-outputs.json");
+    const UPPERCASE_FIXTURE_MANIFEST: &str = "fixtures/uppercase-guest/Cargo.toml";
+    const UPPERCASE_FIXTURE_ARTIFACT: &str =
+        "wasm32-wasip2/release/conduit_wasm_uppercase_guest_fixture.wasm";
+    static QUICKCHECK_UPPERCASE_COMPONENT: OnceLock<WasmtimeBatchComponent> = OnceLock::new();
 
     #[derive(Debug, Deserialize)]
     struct FixturePortBatch {
@@ -706,6 +723,94 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone)]
+    struct GeneratedBatch {
+        ports: Vec<GeneratedPortBatch>,
+    }
+
+    impl GeneratedBatch {
+        fn into_wit(self) -> Vec<WitPortBatch> {
+            self.ports
+                .into_iter()
+                .map(GeneratedPortBatch::into_wit)
+                .collect()
+        }
+    }
+
+    impl Arbitrary for GeneratedBatch {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let port_count = usize::arbitrary(g) % 4;
+            let ports = (0..port_count)
+                .map(|port_index| GeneratedPortBatch::arbitrary(g, port_index))
+                .collect();
+
+            Self { ports }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct GeneratedPortBatch {
+        port_id: String,
+        packets: Vec<GeneratedPacket>,
+    }
+
+    impl GeneratedPortBatch {
+        fn arbitrary(g: &mut Gen, port_index: usize) -> Self {
+            let packet_count = usize::arbitrary(g) % 5;
+            let port_id = format!("in{port_index}");
+            let packets = (0..packet_count)
+                .map(|packet_index| GeneratedPacket::arbitrary(g, port_index, packet_index))
+                .collect();
+
+            Self { port_id, packets }
+        }
+
+        fn into_wit(self) -> WitPortBatch {
+            WitPortBatch {
+                port_id: self.port_id,
+                packets: self
+                    .packets
+                    .into_iter()
+                    .map(GeneratedPacket::into_wit)
+                    .collect(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct GeneratedPacket {
+        metadata: MessageMetadata,
+        bytes: Vec<u8>,
+    }
+
+    impl GeneratedPacket {
+        fn arbitrary(g: &mut Gen, port_index: usize, packet_index: usize) -> Self {
+            let byte_count = usize::arbitrary(g) % 65;
+            let bytes = (0..byte_count).map(|_| u8::arbitrary(g)).collect();
+            let source: MessageEndpoint = MessageEndpoint::new(node_id("source"), port_id("out"));
+            let target: MessageEndpoint =
+                MessageEndpoint::new(node_id("wasm"), port_id(&format!("in{port_index}")));
+            let route: MessageRoute = MessageRoute::new(Some(source), target);
+            let execution: ExecutionMetadata =
+                ExecutionMetadata::first_attempt(execution_id("run-quickcheck"));
+            let metadata = MessageMetadata::new(
+                message_id(&format!("msg-{port_index}-{packet_index}")),
+                workflow_id("flow-quickcheck"),
+                execution,
+                route,
+            );
+
+            Self { metadata, bytes }
+        }
+
+        fn into_wit(self) -> WitPacket {
+            WitPacket {
+                metadata: self.metadata,
+                payload: WitPayload::Bytes(self.bytes),
+            }
+        }
+    }
+
     fn execution_id(value: &str) -> ExecutionId {
         ExecutionId::new(value).expect("valid execution id")
     }
@@ -742,6 +847,21 @@ mod tests {
             .collect()
     }
 
+    fn batch_inputs_from_wit_port_batches(port_batches: Vec<WitPortBatch>) -> BatchInputs {
+        let mut packets_by_port: BTreeMap<PortId, Vec<PortPacket>> = BTreeMap::new();
+        for port_batch in port_batches {
+            let port_id: PortId = port_id(&port_batch.port_id);
+            let packets: Vec<PortPacket> = port_batch
+                .packets
+                .into_iter()
+                .map(|packet: WitPacket| from_wit_packet(packet).expect("fixture packet decodes"))
+                .collect();
+            packets_by_port.insert(port_id, packets);
+        }
+
+        BatchInputs::from_packets(packets_by_port)
+    }
+
     fn uppercase_fixture_outputs(inputs: &[WitPortBatch]) -> Vec<WitPortBatch> {
         let mut packets: Vec<WitPacket> = Vec::new();
 
@@ -765,6 +885,72 @@ mod tests {
             port_id: "out".to_owned(),
             packets,
         }]
+    }
+
+    fn build_uppercase_guest_fixture() -> PathBuf {
+        let crate_dir: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let manifest_path: PathBuf = crate_dir.join(UPPERCASE_FIXTURE_MANIFEST);
+        let target_dir: PathBuf = env::temp_dir().join(format!(
+            "conduit-wasm-uppercase-guest-fixture-{}",
+            std::process::id()
+        ));
+        let artifact_path: PathBuf = target_dir.join(UPPERCASE_FIXTURE_ARTIFACT);
+        let cargo: OsString = env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"));
+        let output: Output = Command::new(cargo)
+            .args([
+                "build",
+                "--manifest-path",
+                path_as_str(&manifest_path),
+                "--target",
+                "wasm32-wasip2",
+                "--release",
+                "--target-dir",
+                path_as_str(&target_dir),
+            ])
+            .env_remove("RUSTFLAGS")
+            .output()
+            .expect("fixture build command should run");
+
+        assert!(
+            output.status.success(),
+            "fixture build failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        assert!(
+            artifact_path.is_file(),
+            "fixture artifact was not written to {}",
+            artifact_path.display(),
+        );
+
+        artifact_path
+    }
+
+    fn wasm32_wasip2_target_available() -> bool {
+        let rustc: OsString = env::var_os("RUSTC").unwrap_or_else(|| OsString::from("rustc"));
+        let Ok(output) = Command::new(rustc)
+            .args(["--print", "target-libdir", "--target", "wasm32-wasip2"])
+            .env_remove("RUSTFLAGS")
+            .output()
+        else {
+            return false;
+        };
+        if !output.status.success() {
+            return false;
+        }
+        let libdir: PathBuf = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+        fs::read_dir(libdir).is_ok_and(|entries| {
+            entries.filter_map(std::result::Result::ok).any(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with("libcore-") && name.ends_with(".rlib"))
+            })
+        })
+    }
+
+    fn path_as_str(path: &Path) -> &str {
+        path.to_str().expect("fixture path should be UTF-8")
     }
 
     #[test]
@@ -886,5 +1072,74 @@ mod tests {
         let outputs: BatchOutputs =
             from_wit_port_batches(expected_outputs).expect("expected fixture outputs must decode");
         assert_eq!(outputs.packets(&port_id("out")).len(), 2);
+    }
+
+    #[test]
+    fn wasmtime_adapter_invokes_real_uppercase_guest_fixture() {
+        if !wasm32_wasip2_target_available() {
+            eprintln!(
+                "skipping real WASM guest conformance test; run through `nix develop .` to provide wasm32-wasip2"
+            );
+            return;
+        }
+
+        let fixture_path: PathBuf = build_uppercase_guest_fixture();
+        let fixture_bytes: Vec<u8> = fs::read(fixture_path).expect("fixture component is readable");
+        let component: WasmtimeBatchComponent =
+            WasmtimeBatchComponent::from_component_bytes(fixture_bytes)
+                .expect("fixture component compiles");
+        let empty_outputs: BatchOutputs = component
+            .invoke(&BatchInputs::new())
+            .expect("fixture guest accepts an empty batch");
+        assert!(empty_outputs.packets(&port_id("out")).is_empty());
+
+        let inputs: Vec<WitPortBatch> =
+            fixture_port_batches_from_json(UPPERCASE_FIXTURE_INPUTS_JSON);
+        let expected_outputs: BatchOutputs = from_wit_port_batches(fixture_port_batches_from_json(
+            UPPERCASE_FIXTURE_EXPECTED_OUTPUTS_JSON,
+        ))
+        .expect("expected fixture outputs decode");
+
+        let actual_outputs: BatchOutputs = component
+            .invoke(&batch_inputs_from_wit_port_batches(inputs))
+            .expect("fixture guest invocation succeeds");
+
+        assert_eq!(actual_outputs, expected_outputs);
+    }
+
+    #[test]
+    fn wasmtime_adapter_preserves_generated_byte_batches_across_component_boundary() {
+        if !wasm32_wasip2_target_available() {
+            eprintln!(
+                "skipping generated WASM boundary conformance test; run through `nix develop .` to provide wasm32-wasip2"
+            );
+            return;
+        }
+
+        let fixture_path: PathBuf = build_uppercase_guest_fixture();
+        let fixture_bytes: Vec<u8> = fs::read(fixture_path).expect("fixture component is readable");
+        let component: WasmtimeBatchComponent =
+            WasmtimeBatchComponent::from_component_bytes(fixture_bytes)
+                .expect("fixture component compiles");
+        let _ = QUICKCHECK_UPPERCASE_COMPONENT.set(component);
+
+        QuickCheck::new()
+            .tests(32)
+            .quickcheck(generated_byte_batch_boundary_holds as fn(GeneratedBatch) -> bool);
+    }
+
+    fn generated_byte_batch_boundary_holds(generated: GeneratedBatch) -> bool {
+        let component = QUICKCHECK_UPPERCASE_COMPONENT
+            .get()
+            .expect("quickcheck component initialized");
+        let inputs: Vec<WitPortBatch> = generated.into_wit();
+        let expected_outputs: BatchOutputs =
+            from_wit_port_batches(uppercase_fixture_outputs(&inputs))
+                .expect("generated expected outputs decode");
+        let actual_outputs: BatchOutputs = component
+            .invoke(&batch_inputs_from_wit_port_batches(inputs))
+            .expect("generated fixture guest invocation succeeds");
+
+        actual_outputs == expected_outputs
     }
 }
