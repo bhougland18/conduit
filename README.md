@@ -47,12 +47,14 @@ cargo run -p conduit-cli -- run examples/native-linear-etl.workflow.json /tmp/co
 ```
 
 See `examples/native-linear-etl.md` for the expected summary and metadata
-records.
+records. See `docs/metadata-json.md` for the stable metadata JSONL and
+`conduit run --json` summary shapes.
 
 ## Key Docs
 
 - `docs/conduit_proposal.md` - architecture and requirements proposal
 - `docs/epics/epic-1-foundation.md` - completed foundation bead plan
 - `docs/audits/Audit_4_23.md` - latest audit findings and follow-on ideas
+- `docs/metadata-json.md` - metadata JSONL and CLI run summary JSON reference
 - `docs/handoff_2026-04-30.md` - latest handoff snapshot
 - `docs/AGENTS.md` - repo-local working conventions for coding agents

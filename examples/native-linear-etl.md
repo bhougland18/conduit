@@ -43,3 +43,6 @@ The metadata file contains 24 records:
 - transform input dequeued from `source.rows`
 - transform output enqueued on `transform.cleaned`
 - sink input dequeued from `transform.cleaned`
+
+See `../docs/metadata-json.md` for the stable metadata JSONL and
+`conduit run --json` summary shapes.
