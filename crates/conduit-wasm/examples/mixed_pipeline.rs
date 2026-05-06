@@ -1,61 +1,112 @@
 //! Native source -> WASM batch boundary -> native sink example.
 //!
-//! The middle node uses the same `BatchExecutor` shape implemented by
-//! `WasmtimeBatchComponent`. This example keeps the batch executor in-process so
-//! it is always buildable; swapping in a compiled component is limited to
-//! constructing `WasmtimeBatchComponent` from guest bytes.
+//! The middle node is a real `wasm32-wasip2` component invoked through
+//! `WasmtimeBatchComponent`. The host still owns graph channels: native nodes
+//! use `PortsIn`/`PortsOut`, while the WASM node is adapted through
+//! `BatchNodeExecutor`.
 
-use std::sync::Mutex;
+use std::{
+    collections::BTreeMap,
+    env,
+    ffi::OsString,
+    fs,
+    path::{Path, PathBuf},
+    process::{Command, Output},
+    sync::{Arc, Mutex},
+};
 
 use conduit_core::{
-    BatchExecutor, BatchInputs, BatchOutputs, NodeExecutor, PacketPayload, PortPacket, PortsIn,
-    PortsOut, Result,
+    NodeExecutor, PacketPayload, PortPacket, PortsIn, PortsOut, Result,
     context::{ExecutionMetadata, NodeContext},
     message::{MessageEndpoint, MessageMetadata, MessageRoute},
 };
-use conduit_engine::run_workflow;
+use conduit_engine::{BatchNodeExecutor, StaticNodeExecutorRegistry, run_workflow_with_registry};
 use conduit_types::{ExecutionId, MessageId, NodeId, PortId, WorkflowId};
+use conduit_wasm::WasmtimeBatchComponent;
 use conduit_workflow::{EdgeDefinition, EdgeEndpoint, NodeDefinition, WorkflowDefinition};
 use futures::{executor::block_on, future::BoxFuture};
+
+const UPPERCASE_FIXTURE_MANIFEST: &str = "fixtures/uppercase-guest/Cargo.toml";
+const UPPERCASE_FIXTURE_ARTIFACT: &str =
+    "wasm32-wasip2/release/conduit_wasm_uppercase_guest_fixture.wasm";
 
 fn main() -> Result<()> {
     let workflow: WorkflowDefinition = workflow();
     let execution: ExecutionMetadata =
         ExecutionMetadata::first_attempt(execution_id("mixed-run-1"));
-    let executor: MixedPipelineExecutor = MixedPipelineExecutor::default();
+    let received_payloads: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+    let registry: StaticNodeExecutorRegistry<MixedPipelineExecutor> =
+        StaticNodeExecutorRegistry::new(BTreeMap::from([
+            (
+                node_id("native-source"),
+                MixedPipelineExecutor::Native(NativePipelineExecutor::source()),
+            ),
+            (
+                node_id("wasm-upper"),
+                MixedPipelineExecutor::Wasm(BatchNodeExecutor::new(wasm_uppercase_component()?)),
+            ),
+            (
+                node_id("native-sink"),
+                MixedPipelineExecutor::Native(NativePipelineExecutor::sink(Arc::clone(
+                    &received_payloads,
+                ))),
+            ),
+        ]));
 
-    block_on(run_workflow(&workflow, &execution, &executor))?;
+    block_on(run_workflow_with_registry(&workflow, &execution, &registry))?;
 
     assert_eq!(
-        executor.received_payloads(),
+        received_payloads
+            .lock()
+            .expect("received payload lock should not be poisoned")
+            .clone(),
         vec![b"HELLO FROM WASM".to_vec()]
     );
     Ok(())
 }
 
-#[derive(Debug, Default)]
-struct MixedPipelineExecutor {
-    received_payloads: Mutex<Vec<Vec<u8>>>,
-    wasm: UppercaseBatchExecutor,
-}
-
-impl MixedPipelineExecutor {
-    fn received_payloads(&self) -> Vec<Vec<u8>> {
-        self.received_payloads
-            .lock()
-            .expect("received payload lock should not be poisoned")
-            .clone()
-    }
+enum MixedPipelineExecutor {
+    Native(NativePipelineExecutor),
+    Wasm(BatchNodeExecutor<WasmtimeBatchComponent>),
 }
 
 impl NodeExecutor for MixedPipelineExecutor {
     type RunFuture<'a> = BoxFuture<'a, Result<()>>;
 
+    fn run(&self, ctx: NodeContext, inputs: PortsIn, outputs: PortsOut) -> Self::RunFuture<'_> {
+        match self {
+            Self::Native(executor) => executor.run(ctx, inputs, outputs),
+            Self::Wasm(executor) => executor.run(ctx, inputs, outputs),
+        }
+    }
+}
+
+#[derive(Clone)]
+enum NativePipelineExecutor {
+    Source,
+    Sink {
+        received_payloads: Arc<Mutex<Vec<Vec<u8>>>>,
+    },
+}
+
+impl NativePipelineExecutor {
+    const fn source() -> Self {
+        Self::Source
+    }
+
+    const fn sink(received_payloads: Arc<Mutex<Vec<Vec<u8>>>>) -> Self {
+        Self::Sink { received_payloads }
+    }
+}
+
+impl NodeExecutor for NativePipelineExecutor {
+    type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
     fn run(&self, ctx: NodeContext, mut inputs: PortsIn, outputs: PortsOut) -> Self::RunFuture<'_> {
         Box::pin(async move {
             let cancellation = ctx.cancellation_token();
-            match ctx.node_id().as_str() {
-                "native-source" => {
+            match self {
+                Self::Source => {
                     outputs
                         .send(
                             &port_id("out"),
@@ -70,27 +121,12 @@ impl NodeExecutor for MixedPipelineExecutor {
                         )
                         .await?;
                 }
-                "wasm-upper" => {
-                    let packet: PortPacket = inputs
-                        .recv(&port_id("in"), &cancellation)
-                        .await?
-                        .expect("source should send one packet");
-                    let mut batch_inputs: BatchInputs = BatchInputs::new();
-                    batch_inputs.push(port_id("in"), packet);
-
-                    let batch_outputs: BatchOutputs = self.wasm.invoke(batch_inputs)?;
-                    for packet in batch_outputs.packets(&port_id("out")) {
-                        outputs
-                            .send(&port_id("out"), packet.clone(), &cancellation)
-                            .await?;
-                    }
-                }
-                "native-sink" => {
+                Self::Sink { received_payloads } => {
                     let packet: PortPacket = inputs
                         .recv(&port_id("in"), &cancellation)
                         .await?
                         .expect("WASM node should send one packet");
-                    self.received_payloads
+                    received_payloads
                         .lock()
                         .expect("received payload lock should not be poisoned")
                         .push(
@@ -101,35 +137,10 @@ impl NodeExecutor for MixedPipelineExecutor {
                                 .to_vec(),
                         );
                 }
-                _ => {}
             }
 
             Ok(())
         })
-    }
-}
-
-#[derive(Debug, Default)]
-struct UppercaseBatchExecutor;
-
-impl BatchExecutor for UppercaseBatchExecutor {
-    fn invoke(&self, inputs: BatchInputs) -> Result<BatchOutputs> {
-        let mut outputs: BatchOutputs = BatchOutputs::new();
-        for packet in inputs.packets(&port_id("in")) {
-            let bytes = packet
-                .payload()
-                .as_bytes()
-                .expect("example sends byte payloads")
-                .iter()
-                .map(u8::to_ascii_uppercase)
-                .collect::<Vec<u8>>();
-            outputs.push(
-                port_id("out"),
-                PortPacket::new(packet.metadata().clone(), PacketPayload::from(bytes)),
-            );
-        }
-
-        Ok(outputs)
     }
 }
 
@@ -188,6 +199,60 @@ fn packet(
     );
 
     PortPacket::new(metadata, PacketPayload::from(payload))
+}
+
+fn wasm_uppercase_component() -> Result<WasmtimeBatchComponent> {
+    let fixture_path: PathBuf = build_uppercase_guest_fixture();
+    let fixture_bytes: Vec<u8> = fs::read(&fixture_path).map_err(|err: std::io::Error| {
+        conduit_core::ConduitError::execution(format!(
+            "failed to read fixture component `{}`: {err}",
+            fixture_path.display()
+        ))
+    })?;
+    WasmtimeBatchComponent::from_component_bytes(fixture_bytes)
+}
+
+fn build_uppercase_guest_fixture() -> PathBuf {
+    let crate_dir: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let manifest_path: PathBuf = crate_dir.join(UPPERCASE_FIXTURE_MANIFEST);
+    let target_dir: PathBuf = env::temp_dir().join(format!(
+        "conduit-wasm-uppercase-guest-example-{}",
+        std::process::id()
+    ));
+    let artifact_path: PathBuf = target_dir.join(UPPERCASE_FIXTURE_ARTIFACT);
+    let cargo: OsString = env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"));
+    let output: Output = Command::new(cargo)
+        .args([
+            "build",
+            "--manifest-path",
+            path_as_str(&manifest_path),
+            "--target",
+            "wasm32-wasip2",
+            "--release",
+            "--target-dir",
+            path_as_str(&target_dir),
+        ])
+        .env_remove("RUSTFLAGS")
+        .output()
+        .expect("fixture build command should run");
+
+    assert!(
+        output.status.success(),
+        "fixture build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert!(
+        artifact_path.is_file(),
+        "fixture artifact was not written to {}",
+        artifact_path.display(),
+    );
+
+    artifact_path
+}
+
+fn path_as_str(path: &Path) -> &str {
+    path.to_str().expect("fixture path should be UTF-8")
 }
 
 fn execution_id(value: &str) -> ExecutionId {

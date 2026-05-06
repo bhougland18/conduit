@@ -9,7 +9,7 @@ use conduit_core::{
     BatchExecutor, BatchInputs, BatchOutputs, CancellationHandle, ConduitError, InputPortHandle,
     MetadataRecord, MetadataSink, NodeExecutor, OutputPacketValidator, OutputPortHandle,
     PortPacket, PortSendError, PortsIn, PortsOut, Result, bounded_edge_channel,
-    context::{CancellationRequest, ExecutionMetadata, NodeContext},
+    context::{CancellationRequest, CancellationToken, ExecutionMetadata, NodeContext},
     lifecycle::{LifecycleHook, NoopLifecycleHook},
     message::MessageEndpoint,
     metadata::{
@@ -627,24 +627,56 @@ where
     where
         Self: 'a;
 
-    fn run(&self, ctx: NodeContext, mut inputs: PortsIn, outputs: PortsOut) -> Self::RunFuture<'_> {
-        Box::pin(async move {
-            let cancellation = ctx.cancellation_token();
-            let mut batch_inputs: BatchInputs = BatchInputs::new();
-            while let Some((port_id, packet)) = inputs.recv_any(&cancellation).await? {
-                batch_inputs.push(port_id, packet);
-            }
-
-            let batch_outputs: BatchOutputs = self.executor.invoke(batch_inputs)?;
-            for (port_id, packets) in batch_outputs.into_packets_by_port() {
-                for packet in packets {
-                    outputs.send(&port_id, packet, &cancellation).await?;
-                }
-            }
-
-            Ok(())
-        })
+    fn run(&self, ctx: NodeContext, inputs: PortsIn, outputs: PortsOut) -> Self::RunFuture<'_> {
+        Box::pin(run_batch_node_executor(
+            &self.executor,
+            ctx,
+            inputs,
+            outputs,
+        ))
     }
+}
+
+async fn run_batch_node_executor<E>(
+    executor: &E,
+    ctx: NodeContext,
+    mut inputs: PortsIn,
+    outputs: PortsOut,
+) -> Result<()>
+where
+    E: BatchExecutor,
+{
+    let cancellation: CancellationToken = ctx.cancellation_token();
+    let mut batch_inputs: BatchInputs = BatchInputs::new();
+    while let Some((port_id, packet)) = inputs.recv_any(&cancellation).await? {
+        batch_inputs.push(port_id, packet);
+    }
+
+    let batch_outputs: BatchOutputs = executor.invoke(batch_inputs)?;
+    send_batch_outputs(&outputs, batch_outputs, &cancellation).await
+}
+
+async fn send_batch_outputs(
+    outputs: &PortsOut,
+    batch_outputs: BatchOutputs,
+    cancellation: &CancellationToken,
+) -> Result<()> {
+    for (port_id, packets) in batch_outputs.into_packets_by_port() {
+        send_batch_output_port(outputs, &port_id, packets, cancellation).await?;
+    }
+    Ok(())
+}
+
+async fn send_batch_output_port(
+    outputs: &PortsOut,
+    port_id: &PortId,
+    packets: Vec<PortPacket>,
+    cancellation: &CancellationToken,
+) -> Result<()> {
+    for packet in packets {
+        outputs.send(port_id, packet, cancellation).await?;
+    }
+    Ok(())
 }
 
 /// Output-port contract subset used by the workflow runner.
@@ -2509,8 +2541,8 @@ mod tests {
                             .push(packet_payload_bytes(packet));
                     }
                     Ok(None)
-                    | Err(PortRecvError::Disconnected { .. })
-                    | Err(PortRecvError::Cancelled { .. }) => {}
+                    | Err(PortRecvError::Disconnected { .. } | PortRecvError::Cancelled { .. }) => {
+                    }
                     Err(err) => return Err(err.into()),
                 }
 

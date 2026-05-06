@@ -10,10 +10,11 @@ The current CLI native executor is intentionally small. It proves the real
 registry, bounded port, lifecycle metadata, and message metadata path; it does
 not load user-defined ETL code yet.
 
-Validate and inspect the topology:
+Validate, inspect, and explain the topology:
 
 ```bash
 cargo run -p conduit-cli -- validate examples/native-linear-etl.workflow.json
+cargo run -p conduit-cli -- inspect examples/native-linear-etl.workflow.json
 cargo run -p conduit-cli -- explain examples/native-linear-etl.workflow.json
 ```
 

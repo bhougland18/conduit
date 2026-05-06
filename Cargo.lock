@@ -392,8 +392,10 @@ dependencies = [
  "conduit-introspection",
  "conduit-runtime",
  "conduit-types",
+ "conduit-wasm",
  "conduit-workflow",
  "conduit-workflow-format",
+ "serde",
  "serde_json",
  "tracing-subscriber",
 ]

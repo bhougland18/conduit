@@ -7,7 +7,7 @@ use std::{
     fmt::{self, Write as FmtWrite},
     fs,
     future::Future,
-    path::Path,
+    path::{Path, PathBuf},
     pin::Pin,
     str::FromStr,
     sync::Arc,
@@ -26,8 +26,9 @@ use conduit_core::{
     message::{MessageEndpoint, MessageMetadata, MessageRoute},
 };
 use conduit_engine::{
-    CycleRunPolicy, FeedbackLoopStartup, FeedbackLoopTermination, StaticNodeExecutorRegistry,
-    WorkflowDeadlockDiagnostic, WorkflowRunSummary, WorkflowTerminalState,
+    BatchNodeExecutor, CycleRunPolicy, FeedbackLoopStartup, FeedbackLoopTermination,
+    NodeExecutorRegistry, StaticNodeExecutorRegistry, WorkflowDeadlockDiagnostic,
+    WorkflowRunSummary, WorkflowTerminalState,
     run_workflow_with_registry_and_metadata_sink_summary,
 };
 use conduit_introspection::{
@@ -36,8 +37,10 @@ use conduit_introspection::{
 };
 use conduit_runtime::AsupersyncRuntime;
 use conduit_types::{ExecutionId, MessageId, NodeId, PortId};
+use conduit_wasm::{WasmtimeBatchComponent, WasmtimeExecutionLimits};
 use conduit_workflow::{EdgeCapacity, NodeDefinition, PortDirection, WorkflowDefinition};
 use conduit_workflow_format::{WorkflowJsonError, workflow_from_json_str};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing_subscriber::{
     filter::{ParseError, Targets},
@@ -61,7 +64,9 @@ fn run() -> CliResult<()> {
     initialize_tracing_from_env()?;
 
     let args: Vec<String> = env::args().skip(1).collect();
-    let Some(output): Option<String> = command_output(&args, read_file, write_file)? else {
+    let Some(output): Option<String> =
+        command_output(&args, read_file, read_bytes_file, write_file)?
+    else {
         println!("{}", usage());
         return Ok(());
     };
@@ -137,6 +142,7 @@ fn tracing_value_uses_default_filter(value: &str) -> bool {
 fn command_output(
     args: &[String],
     read: impl Fn(&Path) -> CliResult<String>,
+    read_bytes: impl Fn(&Path) -> CliResult<Vec<u8>>,
     write: impl Fn(&Path, &str) -> CliResult<()>,
 ) -> CliResult<Option<String>> {
     match args {
@@ -154,26 +160,32 @@ fn command_output(
             let input: String = read(Path::new(path))?;
             explain_workflow_json(&input).map(Some)
         }
-        [command, workflow_path, metadata_path] if command == "run" => {
-            let input: String = read(Path::new(workflow_path))?;
-            let run: CliRunOutput = run_workflow_json(&input)?;
-            write(Path::new(metadata_path), &run.metadata_jsonl)?;
-            Ok(Some(format!(
-                "ran workflow `{}`\nnodes: {}\nedges: {}\nmetadata: {}\nrecords: {}\n",
-                run.workflow_id, run.node_count, run.edge_count, metadata_path, run.record_count
-            )))
-        }
-        [command, flag, workflow_path, metadata_path] if command == "run" && flag == "--json" => {
-            let input: String = read(Path::new(workflow_path))?;
-            let run: CliRunOutput = run_workflow_json(&input)?;
-            write(Path::new(metadata_path), &run.metadata_jsonl)?;
-            cli_run_output_to_json_string(&run, metadata_path).map(Some)
-        }
-        [command, workflow_path, metadata_path, flag] if command == "run" && flag == "--json" => {
-            let input: String = read(Path::new(workflow_path))?;
-            let run: CliRunOutput = run_workflow_json(&input)?;
-            write(Path::new(metadata_path), &run.metadata_jsonl)?;
-            cli_run_output_to_json_string(&run, metadata_path).map(Some)
+        [command, run_args @ ..] if command == "run" => {
+            let command: RunCommand<'_> = parse_run_command(run_args)?;
+            let input: String = read(Path::new(command.workflow_path))?;
+            let run: CliRunOutput = if let Some(wasm_components_path) = command.wasm_components_path
+            {
+                let manifest_path: &Path = Path::new(wasm_components_path);
+                let manifest_input: String = read(manifest_path)?;
+                let components: Vec<CliWasmComponentSpec> =
+                    wasm_component_specs_from_manifest(&manifest_input, manifest_path)?;
+                run_workflow_json_with_wasm_components(&input, components, &read_bytes)?
+            } else {
+                run_workflow_json(&input)?
+            };
+            write(Path::new(command.metadata_path), &run.metadata_jsonl)?;
+            if command.json {
+                cli_run_output_to_json_string(&run, command.metadata_path).map(Some)
+            } else {
+                Ok(Some(format!(
+                    "ran workflow `{}`\nnodes: {}\nedges: {}\nmetadata: {}\nrecords: {}\n",
+                    run.workflow_id,
+                    run.node_count,
+                    run.edge_count,
+                    command.metadata_path,
+                    run.record_count
+                )))
+            }
         }
         _ => Err(CliError::Usage),
     }
@@ -181,6 +193,14 @@ fn command_output(
 
 fn read_file(path: &Path) -> CliResult<String> {
     fs::read_to_string(path).map_err(|source: std::io::Error| CliError::Io {
+        action: "read",
+        path: path.display().to_string(),
+        source,
+    })
+}
+
+fn read_bytes_file(path: &Path) -> CliResult<Vec<u8>> {
+    fs::read(path).map_err(|source: std::io::Error| CliError::Io {
         action: "read",
         path: path.display().to_string(),
         source,
@@ -259,6 +279,53 @@ fn explain_workflow_json(input: &str) -> CliResult<String> {
     Ok(output)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RunCommand<'a> {
+    workflow_path: &'a str,
+    metadata_path: &'a str,
+    json: bool,
+    wasm_components_path: Option<&'a str>,
+}
+
+fn parse_run_command(args: &[String]) -> CliResult<RunCommand<'_>> {
+    let mut json: bool = false;
+    let mut wasm_components_path: Option<&str> = None;
+    let mut positional: Vec<&str> = Vec::with_capacity(2);
+    let mut index: usize = 0;
+
+    while let Some(arg) = args.get(index) {
+        match arg.as_str() {
+            "--json" => {
+                json = true;
+                index = index.saturating_add(1);
+            }
+            "--wasm-components" => {
+                let path: &String = args.get(index.saturating_add(1)).ok_or(CliError::Usage)?;
+                if wasm_components_path.replace(path.as_str()).is_some() {
+                    return Err(CliError::Usage);
+                }
+                index = index.saturating_add(2);
+            }
+            value if value.starts_with('-') => return Err(CliError::Usage),
+            value => {
+                positional.push(value);
+                index = index.saturating_add(1);
+            }
+        }
+    }
+
+    let [workflow_path, metadata_path]: [&str; 2] = positional
+        .try_into()
+        .map_err(|_values: Vec<&str>| CliError::Usage)?;
+
+    Ok(RunCommand {
+        workflow_path,
+        metadata_path,
+        json,
+        wasm_components_path,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CliRunOutput {
     workflow_id: String,
@@ -271,19 +338,42 @@ struct CliRunOutput {
 
 fn run_workflow_json(input: &str) -> CliResult<CliRunOutput> {
     let workflow: WorkflowDefinition = workflow_from_json_str(input)?;
+    let registry: StaticNodeExecutorRegistry<CliNativeExecutor> =
+        native_registry_for_workflow(&workflow);
+
+    run_workflow_with_registry_json(&workflow, &registry)
+}
+
+fn run_workflow_json_with_wasm_components(
+    input: &str,
+    components: Vec<CliWasmComponentSpec>,
+    read_bytes: impl Fn(&Path) -> CliResult<Vec<u8>>,
+) -> CliResult<CliRunOutput> {
+    let workflow: WorkflowDefinition = workflow_from_json_str(input)?;
+    let registry: StaticNodeExecutorRegistry<CliNodeExecutor> =
+        mixed_registry_for_workflow(&workflow, components, read_bytes)?;
+
+    run_workflow_with_registry_json(&workflow, &registry)
+}
+
+fn run_workflow_with_registry_json<R>(
+    workflow: &WorkflowDefinition,
+    registry: &R,
+) -> CliResult<CliRunOutput>
+where
+    R: NodeExecutorRegistry,
+{
     let runtime: AsupersyncRuntime = AsupersyncRuntime::new()?;
     let execution: ExecutionMetadata =
         ExecutionMetadata::first_attempt(ExecutionId::new("cli-run-1")?);
-    let registry: StaticNodeExecutorRegistry<CliNativeExecutor> =
-        native_registry_for_workflow(&workflow);
     let metadata_sink: Arc<TieredMetadataSink<JsonlMetadataSink<Vec<u8>>>> =
         Arc::new(TieredMetadataSink::new(JsonlMetadataSink::new(Vec::new())));
 
     let summary: WorkflowRunSummary =
         runtime.block_on(run_workflow_with_registry_and_metadata_sink_summary(
-            &workflow,
+            workflow,
             &execution,
-            &registry,
+            registry,
             metadata_sink.clone(),
         ))?;
 
@@ -308,6 +398,70 @@ fn run_workflow_json(input: &str) -> CliResult<CliRunOutput> {
         record_count,
         summary,
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CliWasmComponentSpec {
+    node_id: NodeId,
+    component_path: PathBuf,
+    limits: WasmtimeExecutionLimits,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawWasmComponentManifest {
+    components: Vec<RawWasmComponentSpec>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawWasmComponentSpec {
+    node: String,
+    component: String,
+    fuel: Option<u64>,
+}
+
+fn wasm_component_specs_from_manifest(
+    input: &str,
+    manifest_path: &Path,
+) -> CliResult<Vec<CliWasmComponentSpec>> {
+    let manifest: RawWasmComponentManifest =
+        serde_json::from_str(input).map_err(|source: serde_json::Error| {
+            CliError::WasmManifestJson {
+                path: manifest_path.display().to_string(),
+                source,
+            }
+        })?;
+    let manifest_dir: &Path = manifest_path.parent().unwrap_or_else(|| Path::new(""));
+
+    manifest
+        .components
+        .into_iter()
+        .map(|raw: RawWasmComponentSpec| {
+            let node_id: NodeId = NodeId::new(raw.node)?;
+            let component_path: PathBuf =
+                resolve_manifest_component_path(manifest_dir, &raw.component);
+            let limits: WasmtimeExecutionLimits = raw.fuel.map_or_else(
+                WasmtimeExecutionLimits::default,
+                WasmtimeExecutionLimits::new,
+            );
+
+            Ok(CliWasmComponentSpec {
+                node_id,
+                component_path,
+                limits,
+            })
+        })
+        .collect()
+}
+
+fn resolve_manifest_component_path(manifest_dir: &Path, component: &str) -> PathBuf {
+    let component_path: &Path = Path::new(component);
+    if component_path.is_absolute() {
+        component_path.to_path_buf()
+    } else {
+        manifest_dir.join(component_path)
+    }
 }
 
 fn cli_run_output_to_json_string(run: &CliRunOutput, metadata_path: &str) -> CliResult<String> {
@@ -557,6 +711,22 @@ async fn send_cli_output_packet(
     Ok(())
 }
 
+enum CliNodeExecutor {
+    Native(CliNativeExecutor),
+    Wasm(BatchNodeExecutor<WasmtimeBatchComponent>),
+}
+
+impl NodeExecutor for CliNodeExecutor {
+    type RunFuture<'a> = Pin<Box<dyn Future<Output = conduit_core::Result<()>> + Send + 'a>>;
+
+    fn run(&self, ctx: NodeContext, inputs: PortsIn, outputs: PortsOut) -> Self::RunFuture<'_> {
+        match self {
+            Self::Native(executor) => executor.run(ctx, inputs, outputs),
+            Self::Wasm(executor) => executor.run(ctx, inputs, outputs),
+        }
+    }
+}
+
 fn native_registry_for_workflow(
     workflow: &WorkflowDefinition,
 ) -> StaticNodeExecutorRegistry<CliNativeExecutor> {
@@ -591,6 +761,62 @@ fn native_registry_for_workflow(
     }
 
     StaticNodeExecutorRegistry::new(executors)
+}
+
+fn mixed_registry_for_workflow(
+    workflow: &WorkflowDefinition,
+    components: Vec<CliWasmComponentSpec>,
+    read_bytes: impl Fn(&Path) -> CliResult<Vec<u8>>,
+) -> CliResult<StaticNodeExecutorRegistry<CliNodeExecutor>> {
+    let native_registry: StaticNodeExecutorRegistry<CliNativeExecutor> =
+        native_registry_for_workflow(workflow);
+    let mut components_by_node: BTreeMap<NodeId, CliWasmComponentSpec> = BTreeMap::new();
+    for component in components {
+        let node_id: NodeId = component.node_id.clone();
+        if components_by_node
+            .insert(node_id.clone(), component)
+            .is_some()
+        {
+            return Err(CliError::WasmManifest(format!(
+                "duplicate WASM component entry for node `{node_id}`"
+            )));
+        }
+    }
+
+    let mut executors: BTreeMap<NodeId, CliNodeExecutor> = BTreeMap::new();
+    for node in workflow.nodes() {
+        let executor: CliNodeExecutor =
+            if let Some(component) = components_by_node.remove(node.id()) {
+                let component_bytes: Vec<u8> = read_bytes(&component.component_path)?;
+                let wasm_component: WasmtimeBatchComponent =
+                    WasmtimeBatchComponent::from_component_bytes_with_limits(
+                        component_bytes,
+                        component.limits,
+                    )?;
+                CliNodeExecutor::Wasm(BatchNodeExecutor::new(wasm_component))
+            } else {
+                let native_executor: CliNativeExecutor = native_registry
+                    .executors()
+                    .get(node.id())
+                    .ok_or_else(|| {
+                        CliError::WasmManifest(format!(
+                            "failed to construct native executor for workflow node `{}`",
+                            node.id()
+                        ))
+                    })?
+                    .clone();
+                CliNodeExecutor::Native(native_executor)
+            };
+        executors.insert(node.id().clone(), executor);
+    }
+
+    if let Some(node_id) = components_by_node.keys().next() {
+        return Err(CliError::WasmManifest(format!(
+            "WASM component manifest references unknown workflow node `{node_id}`"
+        )));
+    }
+
+    Ok(StaticNodeExecutorRegistry::new(executors))
 }
 
 fn passive_native_contracts_for_workflow(
@@ -658,7 +884,7 @@ fn passive_native_capabilities_for_node(node: &NodeDefinition) -> CliResult<Node
 }
 
 const fn usage() -> &'static str {
-    "Usage:\n  conduit validate <workflow.json>\n  conduit inspect <workflow.json>\n  conduit explain <workflow.json>\n  conduit run <workflow.json> <metadata.jsonl>\n  conduit run --json <workflow.json> <metadata.jsonl>"
+    "Usage:\n  conduit validate <workflow.json>\n  conduit inspect <workflow.json>\n  conduit explain <workflow.json>\n  conduit run [--json] [--wasm-components <components.json>] <workflow.json> <metadata.jsonl>"
 }
 
 #[derive(Debug)]
@@ -675,6 +901,11 @@ enum CliError {
     IntrospectionJson(IntrospectionJsonError),
     Runtime(ConduitError),
     Tracing(String),
+    WasmManifest(String),
+    WasmManifestJson {
+        path: String,
+        source: serde_json::Error,
+    },
 }
 
 impl CliError {
@@ -687,7 +918,9 @@ impl CliError {
             | Self::Capability(_)
             | Self::IntrospectionJson(_)
             | Self::Runtime(_)
-            | Self::Tracing(_) => 1,
+            | Self::Tracing(_)
+            | Self::WasmManifest(_)
+            | Self::WasmManifestJson { .. } => 1,
         }
     }
 }
@@ -709,6 +942,13 @@ impl fmt::Display for CliError {
             Self::IntrospectionJson(source) => write!(f, "{source}"),
             Self::Runtime(source) => write!(f, "{source}"),
             Self::Tracing(message) => write!(f, "{message}"),
+            Self::WasmManifest(message) => write!(f, "invalid WASM component manifest: {message}"),
+            Self::WasmManifestJson { path, source } => {
+                write!(
+                    f,
+                    "failed to decode WASM component manifest `{path}`: {source}"
+                )
+            }
         }
     }
 }
@@ -716,13 +956,14 @@ impl fmt::Display for CliError {
 impl Error for CliError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Usage | Self::Tracing(_) => None,
+            Self::Usage | Self::Tracing(_) | Self::WasmManifest(_) => None,
             Self::Io { source, .. } => Some(source),
             Self::WorkflowJson(source) => Some(source),
             Self::Contract(source) => Some(source),
             Self::Capability(source) => Some(source),
             Self::IntrospectionJson(source) => Some(source),
             Self::Runtime(source) => Some(source),
+            Self::WasmManifestJson { source, .. } => Some(source),
         }
     }
 }
@@ -926,6 +1167,7 @@ mod tests {
                 assert_eq!(path, Path::new("workflow.json"));
                 Ok(String::from(WORKFLOW_JSON))
             },
+            |_path: &Path| panic!("run without wasm components should not read bytes"),
             |path: &Path, contents: &str| {
                 assert_eq!(path, Path::new("metadata.jsonl"));
                 *written_metadata_for_closure
@@ -947,6 +1189,85 @@ mod tests {
         assert_eq!(value["status"], "completed");
         assert_eq!(value["metadata"]["record_count"], metadata.lines().count());
         assert!(metadata.contains("\"record_type\":\"lifecycle\""));
+    }
+
+    #[test]
+    fn run_command_accepts_wasm_components_manifest() {
+        let written_metadata: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let written_metadata_for_closure: Arc<Mutex<Option<String>>> = written_metadata.clone();
+        let args: Vec<String> = vec![
+            String::from("run"),
+            String::from("--wasm-components"),
+            String::from("components.json"),
+            String::from("workflow.json"),
+            String::from("metadata.jsonl"),
+        ];
+
+        let output = command_output(
+            &args,
+            |path: &Path| match path.to_str().expect("test path should be UTF-8") {
+                "workflow.json" => Ok(String::from(WORKFLOW_JSON)),
+                "components.json" => Ok(String::from(r#"{"components":[]}"#)),
+                other => panic!("unexpected text read path {other}"),
+            },
+            |_path: &Path| panic!("empty wasm manifest should not read component bytes"),
+            |path: &Path, contents: &str| {
+                assert_eq!(path, Path::new("metadata.jsonl"));
+                *written_metadata_for_closure
+                    .lock()
+                    .expect("metadata write lock should not be poisoned") =
+                    Some(contents.to_owned());
+                Ok(())
+            },
+        )
+        .expect("run command should succeed")
+        .expect("run command should produce output");
+        let metadata = written_metadata
+            .lock()
+            .expect("metadata write lock should not be poisoned")
+            .clone()
+            .expect("metadata should be written");
+
+        assert!(output.contains("ran workflow `flow`"));
+        assert!(metadata.contains("\"record_type\":\"lifecycle\""));
+    }
+
+    #[test]
+    fn wasm_component_manifest_resolves_relative_component_paths() {
+        let specs: Vec<CliWasmComponentSpec> = wasm_component_specs_from_manifest(
+            r#"{"components":[{"node":"transform","component":"components/uppercase.wasm","fuel":123}]}"#,
+            Path::new("manifests/wasm-components.json"),
+        )
+        .expect("manifest should parse");
+
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].node_id.as_str(), "transform");
+        assert_eq!(
+            specs[0].component_path,
+            PathBuf::from("manifests/components/uppercase.wasm")
+        );
+        assert_eq!(specs[0].limits.fuel(), 123);
+    }
+
+    #[test]
+    fn mixed_registry_rejects_unknown_wasm_node_before_reading_component() {
+        let workflow: WorkflowDefinition =
+            workflow_from_json_str(WORKFLOW_JSON).expect("workflow should parse");
+        let specs = vec![CliWasmComponentSpec {
+            node_id: node_id("missing"),
+            component_path: PathBuf::from("missing.wasm"),
+            limits: WasmtimeExecutionLimits::default(),
+        }];
+
+        let result = mixed_registry_for_workflow(&workflow, specs, |_path: &Path| {
+            panic!("unknown node should fail before component bytes are read")
+        });
+        let err = match result {
+            Ok(_registry) => panic!("unknown node should fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("unknown workflow node `missing`"));
     }
 
     #[test]
@@ -980,5 +1301,9 @@ mod tests {
         let err = validate_workflow_json("{").expect_err("malformed JSON should fail");
 
         assert!(matches!(err, CliError::WorkflowJson(_)));
+    }
+
+    fn node_id(value: &str) -> NodeId {
+        NodeId::new(value).expect("valid node id")
     }
 }

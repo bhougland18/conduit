@@ -12,8 +12,10 @@ conduit-engine.workspace = true
 conduit-introspection = { workspace = true, features = ["serde"] }
 conduit-runtime = { workspace = true, features = ["tracing"] }
 conduit-types.workspace = true
+conduit-wasm.workspace = true
 conduit-workflow.workspace = true
 conduit-workflow-format.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tracing-subscriber.workspace = true
 

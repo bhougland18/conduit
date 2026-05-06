@@ -18,7 +18,7 @@ use std::{
 use conduit_core::{
     BatchExecutor, BatchInputs, BatchOutputs, ConduitError, PacketPayload, PortPacket, Result,
     capability::{CapabilityValidationError, NodeCapabilities},
-    context::{CancellationToken, ExecutionAttempt, ExecutionMetadata},
+    context::{CancellationRequest, CancellationToken, ExecutionAttempt, ExecutionMetadata},
     message::{MessageEndpoint, MessageMetadata, MessageRoute},
 };
 use conduit_types::{ExecutionId, MessageId, NodeId, PortId, WorkflowId};
@@ -245,13 +245,13 @@ impl WasmtimeBatchComponent {
         if interrupted {
             let reason: String = cancellation.request().map_or_else(
                 || String::from("wasm guest invocation cancelled"),
-                |request| request.reason().to_owned(),
+                |request: CancellationRequest| request.reason().to_owned(),
             );
             return Err(ConduitError::cancelled(reason));
         }
         let remaining_fuel: Option<u64> = store.get_fuel().ok();
         call_result.map_err(|err: wasmtime::Error| {
-            map_guest_call_error(err, self.limits, remaining_fuel)
+            map_guest_call_error(&err, self.limits, remaining_fuel)
         })?;
 
         let [result]: [Val; 1] = results;
@@ -412,7 +412,7 @@ impl Drop for CancellationWatcher {
 }
 
 fn map_guest_call_error(
-    err: wasmtime::Error,
+    err: &wasmtime::Error,
     limits: WasmtimeExecutionLimits,
     remaining_fuel: Option<u64>,
 ) -> ConduitError {
@@ -1163,10 +1163,12 @@ mod tests {
         let libdir: PathBuf = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
         fs::read_dir(libdir).is_ok_and(|entries| {
             entries.filter_map(std::result::Result::ok).any(|entry| {
-                entry
-                    .file_name()
-                    .to_str()
-                    .is_some_and(|name| name.starts_with("libcore-") && name.ends_with(".rlib"))
+                entry.file_name().to_str().is_some_and(|name| {
+                    name.starts_with("libcore-")
+                        && Path::new(name)
+                            .extension()
+                            .is_some_and(|extension| extension.eq_ignore_ascii_case("rlib"))
+                })
             })
         })
     }
