@@ -6,9 +6,9 @@ use std::{collections::BTreeMap, fmt, future::Future, sync::Arc};
 
 use conduit_contract::{NodeContract, PortContract, SchemaRef};
 use conduit_core::{
-    CancellationHandle, ConduitError, InputPortHandle, MetadataRecord, MetadataSink, NodeExecutor,
-    OutputPacketValidator, OutputPortHandle, PortPacket, PortSendError, PortsIn, PortsOut, Result,
-    bounded_edge_channel,
+    BatchExecutor, BatchInputs, BatchOutputs, CancellationHandle, ConduitError, InputPortHandle,
+    MetadataRecord, MetadataSink, NodeExecutor, OutputPacketValidator, OutputPortHandle,
+    PortPacket, PortSendError, PortsIn, PortsOut, Result, bounded_edge_channel,
     context::{CancellationRequest, ExecutionMetadata, NodeContext},
     lifecycle::{LifecycleHook, NoopLifecycleHook},
     message::MessageEndpoint,
@@ -589,6 +589,60 @@ where
             ConduitError::execution(format!(
                 "no executor registered for workflow node `{node_id}`"
             ))
+        })
+    }
+}
+
+/// Node executor adapter for host-owned batch implementations such as WASM.
+///
+/// The adapter owns the host side of the batch boundary: it drains all
+/// currently connected input edges, invokes the topology-blind batch executor,
+/// and sends every returned packet through normal [`PortsOut`] validation
+/// before a packet can enter graph edges.
+#[derive(Debug)]
+pub struct BatchNodeExecutor<E> {
+    executor: E,
+}
+
+impl<E> BatchNodeExecutor<E> {
+    /// Wrap one batch executor as a runtime node executor.
+    #[must_use]
+    pub const fn new(executor: E) -> Self {
+        Self { executor }
+    }
+
+    /// Borrow the wrapped batch executor.
+    #[must_use]
+    pub const fn executor(&self) -> &E {
+        &self.executor
+    }
+}
+
+impl<E> NodeExecutor for BatchNodeExecutor<E>
+where
+    E: BatchExecutor,
+{
+    type RunFuture<'a>
+        = BoxFuture<'a, Result<()>>
+    where
+        Self: 'a;
+
+    fn run(&self, ctx: NodeContext, mut inputs: PortsIn, outputs: PortsOut) -> Self::RunFuture<'_> {
+        Box::pin(async move {
+            let cancellation = ctx.cancellation_token();
+            let mut batch_inputs: BatchInputs = BatchInputs::new();
+            while let Some((port_id, packet)) = inputs.recv_any(&cancellation).await? {
+                batch_inputs.push(port_id, packet);
+            }
+
+            let batch_outputs: BatchOutputs = self.executor.invoke(batch_inputs)?;
+            for (port_id, packets) in batch_outputs.into_packets_by_port() {
+                for packet in packets {
+                    outputs.send(&port_id, packet, &cancellation).await?;
+                }
+            }
+
+            Ok(())
         })
     }
 }
@@ -1712,8 +1766,9 @@ mod tests {
 
     use conduit_contract::{Determinism, ExecutionMode, PortContract, SchemaRef};
     use conduit_core::{
-        ConduitError, ErrorCode, ErrorDiagnosticMetadata, ErrorMetadataKind, MetadataRecord,
-        MetadataSink, PacketPayload, PortPacket, PortRecvError, PortSendError, RetryDisposition,
+        BatchExecutor, BatchInputs, BatchOutputs, ConduitError, ErrorCode, ErrorDiagnosticMetadata,
+        ErrorMetadataKind, MetadataRecord, MetadataSink, PacketPayload, PortPacket, PortRecvError,
+        PortSendError, RetryDisposition,
         lifecycle::{LifecycleEvent, LifecycleEventKind},
         message::{MessageEndpoint, MessageMetadata, MessageRoute},
     };
@@ -2333,8 +2388,20 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Copy)]
+    enum ContractBatchOutputMode {
+        MatchingSource,
+        MismatchedSource,
+        UnknownPort,
+    }
+
+    #[derive(Debug, Clone, Copy)]
     struct ContractOutputExecutor {
         mode: ContractOutputMode,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct ContractBatchExecutor {
+        mode: ContractBatchOutputMode,
     }
 
     impl ContractOutputExecutor {
@@ -2347,6 +2414,26 @@ mod tests {
         const fn mismatched_source() -> Self {
             Self {
                 mode: ContractOutputMode::MismatchedSource,
+            }
+        }
+    }
+
+    impl ContractBatchExecutor {
+        const fn matching_source() -> Self {
+            Self {
+                mode: ContractBatchOutputMode::MatchingSource,
+            }
+        }
+
+        const fn mismatched_source() -> Self {
+            Self {
+                mode: ContractBatchOutputMode::MismatchedSource,
+            }
+        }
+
+        const fn unknown_port() -> Self {
+            Self {
+                mode: ContractBatchOutputMode::UnknownPort,
             }
         }
     }
@@ -2374,6 +2461,78 @@ mod tests {
                     .await?;
                 Ok(())
             })
+        }
+    }
+
+    impl BatchExecutor for ContractBatchExecutor {
+        fn invoke(&self, _inputs: BatchInputs) -> Result<BatchOutputs> {
+            let (output_port, source_node): (&str, &str) = match self.mode {
+                ContractBatchOutputMode::MatchingSource => ("out", "source"),
+                ContractBatchOutputMode::MismatchedSource => ("out", "other"),
+                ContractBatchOutputMode::UnknownPort => ("rogue", "source"),
+            };
+            let mut outputs: BatchOutputs = BatchOutputs::new();
+            outputs.push(
+                port_id(output_port),
+                packet_between(b"contracted", source_node, "sink"),
+            );
+            Ok(outputs)
+        }
+    }
+
+    #[derive(Debug)]
+    struct RecordingSinkExecutor {
+        received: Arc<Mutex<Vec<Vec<u8>>>>,
+    }
+
+    impl RecordingSinkExecutor {
+        fn new(received: Arc<Mutex<Vec<Vec<u8>>>>) -> Self {
+            Self { received }
+        }
+    }
+
+    impl NodeExecutor for RecordingSinkExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            mut inputs: PortsIn,
+            _outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                match inputs.recv(&port_id("in"), &ctx.cancellation_token()).await {
+                    Ok(Some(packet)) => {
+                        self.received
+                            .lock()
+                            .expect("recording sink lock should not be poisoned")
+                            .push(packet_payload_bytes(packet));
+                    }
+                    Ok(None)
+                    | Err(PortRecvError::Disconnected { .. })
+                    | Err(PortRecvError::Cancelled { .. }) => {}
+                    Err(err) => return Err(err.into()),
+                }
+
+                Ok(())
+            })
+        }
+    }
+
+    #[derive(Debug)]
+    enum ContractBatchRegistryExecutor {
+        Batch(BatchNodeExecutor<ContractBatchExecutor>),
+        Sink(RecordingSinkExecutor),
+    }
+
+    impl NodeExecutor for ContractBatchRegistryExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(&self, ctx: NodeContext, inputs: PortsIn, outputs: PortsOut) -> Self::RunFuture<'_> {
+            match self {
+                Self::Batch(executor) => executor.run(ctx, inputs, outputs),
+                Self::Sink(executor) => executor.run(ctx, inputs, outputs),
+            }
         }
     }
 
@@ -3120,6 +3279,120 @@ mod tests {
                 .expect("summary should retain output validation error")
                 .to_string()
                 .contains("does not match output")
+        );
+    }
+
+    #[test]
+    fn batch_node_executor_sends_matching_outputs_through_graph_edges() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .node(NodeBuilder::new("sink").input("in").build())
+            .edge("source", "out", "sink", "in")
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let received: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+        let registry: StaticNodeExecutorRegistry<ContractBatchRegistryExecutor> =
+            StaticNodeExecutorRegistry::new(BTreeMap::from([
+                (
+                    node_id("source"),
+                    ContractBatchRegistryExecutor::Batch(BatchNodeExecutor::new(
+                        ContractBatchExecutor::matching_source(),
+                    )),
+                ),
+                (
+                    node_id("sink"),
+                    ContractBatchRegistryExecutor::Sink(RecordingSinkExecutor::new(Arc::clone(
+                        &received,
+                    ))),
+                ),
+            ]));
+
+        let summary: WorkflowRunSummary = block_on(run_workflow_with_registry_contracts_summary(
+            &workflow,
+            &execution,
+            &registry,
+            &source_output_contracts(),
+        ))
+        .expect("batch workflow should run through output contracts");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Completed);
+        assert_eq!(
+            *received
+                .lock()
+                .expect("batch sink received lock should not be poisoned"),
+            vec![b"contracted".to_vec()]
+        );
+    }
+
+    #[test]
+    fn batch_node_executor_rejects_mismatched_output_before_sink_observes_it() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .node(NodeBuilder::new("sink").input("in").build())
+            .edge("source", "out", "sink", "in")
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let received: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+        let registry: StaticNodeExecutorRegistry<ContractBatchRegistryExecutor> =
+            StaticNodeExecutorRegistry::new(BTreeMap::from([
+                (
+                    node_id("source"),
+                    ContractBatchRegistryExecutor::Batch(BatchNodeExecutor::new(
+                        ContractBatchExecutor::mismatched_source(),
+                    )),
+                ),
+                (
+                    node_id("sink"),
+                    ContractBatchRegistryExecutor::Sink(RecordingSinkExecutor::new(Arc::clone(
+                        &received,
+                    ))),
+                ),
+            ]));
+
+        let summary: WorkflowRunSummary = block_on(run_workflow_with_registry_contracts_summary(
+            &workflow,
+            &execution,
+            &registry,
+            &source_output_contracts(),
+        ))
+        .expect("batch output validation failures should be preserved as summary data");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Failed);
+        assert!(
+            summary
+                .first_error()
+                .expect("summary should retain output validation error")
+                .to_string()
+                .contains("does not match output")
+        );
+        assert!(
+            received
+                .lock()
+                .expect("batch sink received lock should not be poisoned")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn batch_node_executor_rejects_undeclared_output_ports() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let executor: BatchNodeExecutor<ContractBatchExecutor> =
+            BatchNodeExecutor::new(ContractBatchExecutor::unknown_port());
+
+        let summary: WorkflowRunSummary =
+            block_on(run_workflow_summary(&workflow, &execution, &executor))
+                .expect("batch output validation failures should be summary data");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Failed);
+        assert!(
+            summary
+                .first_error()
+                .expect("summary should retain unknown output error")
+                .to_string()
+                .contains("output port `rogue` is not declared")
         );
     }
 
