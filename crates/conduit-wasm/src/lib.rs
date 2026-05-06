@@ -5,12 +5,20 @@
 //! from `wit/conduit-batch.wit`; the host remains responsible for output port
 //! validation before packets are sent through `PortsOut`.
 
-use std::num::NonZeroU32;
+use std::{
+    num::NonZeroU32,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::{self, JoinHandle},
+    time::Duration,
+};
 
 use conduit_core::{
     BatchExecutor, BatchInputs, BatchOutputs, ConduitError, PacketPayload, PortPacket, Result,
     capability::{CapabilityValidationError, NodeCapabilities},
-    context::{ExecutionAttempt, ExecutionMetadata},
+    context::{CancellationToken, ExecutionAttempt, ExecutionMetadata},
     message::{MessageEndpoint, MessageMetadata, MessageRoute},
 };
 use conduit_types::{ExecutionId, MessageId, NodeId, PortId, WorkflowId};
@@ -26,10 +34,73 @@ pub const WIT_PACKAGE: &str = "conduit:batch@0.1.0";
 /// WIT world exported by Conduit WASM batch guests.
 pub const WIT_WORLD: &str = "conduit-node";
 
+const DEFAULT_GUEST_FUEL: u64 = 100_000_000;
+const DEFAULT_CANCELLATION_EPOCH_DEADLINE: u64 = 1;
+const DEFAULT_CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(1);
+
+/// Execution limits applied to each Wasmtime guest invocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WasmtimeExecutionLimits {
+    fuel: u64,
+    cancellation_epoch_deadline: u64,
+    cancellation_poll_interval: Duration,
+}
+
+impl WasmtimeExecutionLimits {
+    /// Create limits with a fuel budget per invocation.
+    #[must_use]
+    pub const fn new(fuel: u64) -> Self {
+        Self {
+            fuel,
+            cancellation_epoch_deadline: DEFAULT_CANCELLATION_EPOCH_DEADLINE,
+            cancellation_poll_interval: DEFAULT_CANCELLATION_POLL_INTERVAL,
+        }
+    }
+
+    /// Fuel units available to one guest invocation.
+    #[must_use]
+    pub const fn fuel(&self) -> u64 {
+        self.fuel
+    }
+
+    /// Epoch ticks after which a cancellation increment interrupts the store.
+    #[must_use]
+    pub const fn cancellation_epoch_deadline(&self) -> u64 {
+        self.cancellation_epoch_deadline
+    }
+
+    /// Poll interval used by the synchronous cancellation watcher.
+    #[must_use]
+    pub const fn cancellation_poll_interval(&self) -> Duration {
+        self.cancellation_poll_interval
+    }
+
+    /// Return limits with a different epoch deadline.
+    #[must_use]
+    pub const fn with_cancellation_epoch_deadline(mut self, ticks: u64) -> Self {
+        self.cancellation_epoch_deadline = ticks;
+        self
+    }
+
+    /// Return limits with a different cancellation poll interval.
+    #[must_use]
+    pub const fn with_cancellation_poll_interval(mut self, interval: Duration) -> Self {
+        self.cancellation_poll_interval = interval;
+        self
+    }
+}
+
+impl Default for WasmtimeExecutionLimits {
+    fn default() -> Self {
+        Self::new(DEFAULT_GUEST_FUEL)
+    }
+}
+
 /// Wasmtime component prepared for Conduit batch execution.
 pub struct WasmtimeBatchComponent {
     engine: Engine,
     component: Component,
+    limits: WasmtimeExecutionLimits,
 }
 
 impl WasmtimeBatchComponent {
@@ -40,13 +111,30 @@ impl WasmtimeBatchComponent {
     /// Returns an error if Wasmtime cannot configure the engine or compile the
     /// supplied component bytes.
     pub fn from_component_bytes(bytes: impl AsRef<[u8]>) -> Result<Self> {
+        Self::from_component_bytes_with_limits(bytes, WasmtimeExecutionLimits::default())
+    }
+
+    /// Compile a guest component from bytes with explicit execution limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if Wasmtime cannot configure the engine or compile the
+    /// supplied component bytes.
+    pub fn from_component_bytes_with_limits(
+        bytes: impl AsRef<[u8]>,
+        limits: WasmtimeExecutionLimits,
+    ) -> Result<Self> {
         let engine: Engine = component_engine()?;
         let component: Component =
             Component::from_binary(&engine, bytes.as_ref()).map_err(|err: wasmtime::Error| {
                 ConduitError::execution(format!("failed to compile component: {err}"))
             })?;
 
-        Ok(Self { engine, component })
+        Ok(Self {
+            engine,
+            component,
+            limits,
+        })
     }
 
     /// Compile a guest component after validating the WASM capability boundary.
@@ -60,8 +148,34 @@ impl WasmtimeBatchComponent {
         bytes: impl AsRef<[u8]>,
         capabilities: &NodeCapabilities,
     ) -> Result<Self> {
+        Self::from_component_bytes_with_capabilities_and_limits(
+            bytes,
+            capabilities,
+            WasmtimeExecutionLimits::default(),
+        )
+    }
+
+    /// Compile a guest component after validating the WASM capability boundary
+    /// and applying explicit execution limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the capability descriptor declares effects that the
+    /// current import-free WASM world cannot enforce, or if component
+    /// compilation fails.
+    pub fn from_component_bytes_with_capabilities_and_limits(
+        bytes: impl AsRef<[u8]>,
+        capabilities: &NodeCapabilities,
+        limits: WasmtimeExecutionLimits,
+    ) -> Result<Self> {
         validate_wasm_capabilities(capabilities)?;
-        Self::from_component_bytes(bytes)
+        Self::from_component_bytes_with_limits(bytes, limits)
+    }
+
+    /// Execution limits used for each guest invocation.
+    #[must_use]
+    pub const fn limits(&self) -> WasmtimeExecutionLimits {
+        self.limits
     }
 
     /// Instantiate and invoke the guest component with one batch.
@@ -71,11 +185,40 @@ impl WasmtimeBatchComponent {
     /// Returns an error if the component cannot instantiate, the guest traps,
     /// or the guest returns malformed Conduit data.
     pub fn invoke(&self, inputs: &BatchInputs) -> Result<BatchOutputs> {
+        self.invoke_with_cancellation(inputs, &CancellationToken::active())
+    }
+
+    /// Instantiate and invoke the guest component with one batch, interrupting
+    /// Wasmtime execution if cancellation is requested while the synchronous
+    /// guest call is in progress.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if cancellation is already requested, the component
+    /// cannot instantiate, the guest traps or exceeds its fuel budget, or the
+    /// guest returns malformed Conduit data.
+    pub fn invoke_with_cancellation(
+        &self,
+        inputs: &BatchInputs,
+        cancellation: &CancellationToken,
+    ) -> Result<BatchOutputs> {
+        if let Some(request) = cancellation.request() {
+            return Err(ConduitError::cancelled(request.reason()));
+        }
+
         let linker: Linker<()> = Linker::new(&self.engine);
         let mut store: Store<()> = Store::new(&self.engine, ());
-        // Epoch interruption is enabled on the engine; an unset deadline
-        // interrupts immediately on the first guest call.
-        store.set_epoch_deadline(u64::MAX);
+        store.set_epoch_deadline(self.limits.cancellation_epoch_deadline());
+        store
+            .set_fuel(self.limits.fuel())
+            .map_err(|err: wasmtime::Error| {
+                ConduitError::execution(format!("failed to configure guest fuel: {err}"))
+            })?;
+        let watcher: CancellationWatcher = CancellationWatcher::spawn(
+            self.engine.clone(),
+            cancellation.clone(),
+            self.limits.cancellation_poll_interval(),
+        )?;
         let instance: Instance =
             linker
                 .instantiate(&mut store, &self.component)
@@ -96,11 +239,20 @@ impl WasmtimeBatchComponent {
 
         let params: [Val; 1] = [batch_inputs_to_val(inputs)?];
         let mut results: [Val; 1] = [Val::Bool(false)];
-        invoke
-            .call(&mut store, &params, &mut results)
-            .map_err(|err: wasmtime::Error| {
-                ConduitError::execution(format!("guest invoke failed: {err}"))
-            })?;
+        let call_result: std::result::Result<(), wasmtime::Error> =
+            invoke.call(&mut store, &params, &mut results);
+        let interrupted: bool = watcher.finish();
+        if interrupted {
+            let reason: String = cancellation.request().map_or_else(
+                || String::from("wasm guest invocation cancelled"),
+                |request| request.reason().to_owned(),
+            );
+            return Err(ConduitError::cancelled(reason));
+        }
+        let remaining_fuel: Option<u64> = store.get_fuel().ok();
+        call_result.map_err(|err: wasmtime::Error| {
+            map_guest_call_error(err, self.limits, remaining_fuel)
+        })?;
 
         let [result]: [Val; 1] = results;
         batch_outputs_from_result_val(result)
@@ -200,9 +352,79 @@ fn component_engine() -> Result<Engine> {
     let mut config: Config = Config::new();
     config.wasm_component_model(true);
     config.epoch_interruption(true);
+    config.consume_fuel(true);
     Engine::new(&config).map_err(|err: wasmtime::Error| {
         ConduitError::execution(format!("failed to create Wasmtime engine: {err}"))
     })
+}
+
+struct CancellationWatcher {
+    complete: Arc<AtomicBool>,
+    interrupted: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl CancellationWatcher {
+    fn spawn(engine: Engine, cancellation: CancellationToken, interval: Duration) -> Result<Self> {
+        let complete: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+        let interrupted: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+        let thread_complete: Arc<AtomicBool> = Arc::clone(&complete);
+        let thread_interrupted: Arc<AtomicBool> = Arc::clone(&interrupted);
+        let thread: JoinHandle<()> = thread::Builder::new()
+            .name(String::from("conduit-wasm-cancellation"))
+            .spawn(move || {
+                while !thread_complete.load(Ordering::Acquire) {
+                    if cancellation.is_cancelled() {
+                        thread_interrupted.store(true, Ordering::Release);
+                        engine.increment_epoch();
+                        break;
+                    }
+                    thread::sleep(interval);
+                }
+            })
+            .map_err(|err: std::io::Error| {
+                ConduitError::execution(format!("failed to start WASM cancellation watcher: {err}"))
+            })?;
+
+        Ok(Self {
+            complete,
+            interrupted,
+            thread: Some(thread),
+        })
+    }
+
+    fn finish(mut self) -> bool {
+        self.complete.store(true, Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+        self.interrupted.load(Ordering::Acquire)
+    }
+}
+
+impl Drop for CancellationWatcher {
+    fn drop(&mut self) {
+        self.complete.store(true, Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+fn map_guest_call_error(
+    err: wasmtime::Error,
+    limits: WasmtimeExecutionLimits,
+    remaining_fuel: Option<u64>,
+) -> ConduitError {
+    let message: String = err.to_string();
+    if remaining_fuel == Some(0) || message.to_ascii_lowercase().contains("fuel") {
+        ConduitError::execution(format!(
+            "guest exceeded Wasmtime fuel limit of {} units",
+            limits.fuel()
+        ))
+    } else {
+        ConduitError::execution(format!("guest invoke failed: {err}"))
+    }
 }
 
 fn batch_inputs_to_val(inputs: &BatchInputs) -> Result<Val> {
@@ -577,7 +799,7 @@ mod tests {
     use super::*;
     use conduit_core::{
         capability::{EffectCapability, PortCapability, PortCapabilityDirection},
-        context::{ExecutionAttempt, ExecutionMetadata},
+        context::{CancellationRequest, CancellationToken, ExecutionAttempt, ExecutionMetadata},
         message::{MessageEndpoint, MessageMetadata, MessageRoute},
     };
     use conduit_types::{ExecutionId, MessageId, NodeId, WorkflowId};
@@ -1105,6 +1327,63 @@ mod tests {
             .expect("fixture guest invocation succeeds");
 
         assert_eq!(actual_outputs, expected_outputs);
+    }
+
+    #[test]
+    fn wasmtime_adapter_rejects_pre_cancelled_invocation() {
+        if !wasm32_wasip2_target_available() {
+            eprintln!(
+                "skipping WASM cancellation test; run through `nix develop .` to provide wasm32-wasip2"
+            );
+            return;
+        }
+
+        let fixture_path: PathBuf = build_uppercase_guest_fixture();
+        let fixture_bytes: Vec<u8> = fs::read(fixture_path).expect("fixture component is readable");
+        let component: WasmtimeBatchComponent =
+            WasmtimeBatchComponent::from_component_bytes(fixture_bytes)
+                .expect("fixture component compiles");
+        let cancellation: CancellationToken =
+            CancellationToken::cancelled(CancellationRequest::new("test shutdown"));
+
+        let err: ConduitError = component
+            .invoke_with_cancellation(&BatchInputs::new(), &cancellation)
+            .expect_err("pre-cancelled invocation must fail before guest execution");
+
+        assert_eq!(err.code(), conduit_core::ErrorCode::ExecutionCancelled);
+        assert!(err.to_string().contains("test shutdown"));
+    }
+
+    #[test]
+    fn wasmtime_adapter_reports_stable_fuel_limit_error() {
+        if !wasm32_wasip2_target_available() {
+            eprintln!(
+                "skipping WASM fuel limit test; run through `nix develop .` to provide wasm32-wasip2"
+            );
+            return;
+        }
+
+        let fixture_path: PathBuf = build_uppercase_guest_fixture();
+        let fixture_bytes: Vec<u8> = fs::read(fixture_path).expect("fixture component is readable");
+        let component: WasmtimeBatchComponent =
+            WasmtimeBatchComponent::from_component_bytes_with_limits(
+                fixture_bytes,
+                WasmtimeExecutionLimits::new(0),
+            )
+            .expect("fixture component compiles");
+        let inputs: Vec<WitPortBatch> =
+            fixture_port_batches_from_json(UPPERCASE_FIXTURE_INPUTS_JSON);
+
+        let err: ConduitError = component
+            .invoke(&batch_inputs_from_wit_port_batches(inputs))
+            .expect_err("zero fuel should trap with a stable host error");
+
+        assert_eq!(err.code(), conduit_core::ErrorCode::NodeExecutionFailed);
+        assert!(
+            err.to_string()
+                .contains("guest exceeded Wasmtime fuel limit of 0 units"),
+            "unexpected fuel error: {err}"
+        );
     }
 
     #[test]
