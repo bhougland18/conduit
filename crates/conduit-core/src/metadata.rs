@@ -517,6 +517,7 @@ pub fn metadata_record_to_json_value(record: &MetadataRecord) -> Value {
     match record {
         MetadataRecord::ExecutionContext(context) => json!({
             "record_type": "execution_context",
+            "kind": "execution_context",
             "context": node_context_to_json_value(context),
         }),
         MetadataRecord::Lifecycle(event) => json!({
@@ -907,10 +908,13 @@ fn tiered_lock_error() -> crate::ConduitError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::ExecutionMetadata;
+    use crate::context::{CancellationRequest, ExecutionAttempt, ExecutionMetadata};
     use conduit_types::{ExecutionId, MessageId, NodeId, PortId, WorkflowId};
     use std::io;
+    use std::num::NonZeroU32;
     use std::sync::Arc;
+
+    use quickcheck::{Arbitrary, Gen, QuickCheck};
 
     fn execution_id(value: &str) -> ExecutionId {
         ExecutionId::new(value).expect("valid execution id")
@@ -952,6 +956,245 @@ mod tests {
         )
     }
 
+    #[derive(Debug, Clone)]
+    struct ArbitraryMetadataRecord(MetadataRecord);
+
+    impl Arbitrary for ArbitraryMetadataRecord {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let record = match u8::arbitrary(g) % 5 {
+                0 => MetadataRecord::ExecutionContext(generated_context(g)),
+                1 => MetadataRecord::Lifecycle(LifecycleEvent::new(
+                    generated_lifecycle_kind(g),
+                    generated_context(g),
+                )),
+                2 => MetadataRecord::Message(MessageBoundaryRecord::new(
+                    generated_message_boundary_kind(g),
+                    generated_message_metadata(g),
+                )),
+                3 => MetadataRecord::QueuePressure(QueuePressureRecord::new(
+                    bool::arbitrary(g).then(|| generated_context(g)),
+                    generated_queue_port_direction(g),
+                    generated_port_id(g, "port"),
+                    generated_queue_pressure_kind(g),
+                    bounded_usize(g, 8),
+                    bool::arbitrary(g).then(|| bounded_usize(g, 256)),
+                    bool::arbitrary(g).then(|| bounded_usize(g, 256)),
+                )),
+                _ => MetadataRecord::Error(generated_error_metadata(g)),
+            };
+
+            Self(record)
+        }
+    }
+
+    fn bounded_usize(g: &mut Gen, upper_exclusive: usize) -> usize {
+        usize::arbitrary(g) % upper_exclusive
+    }
+
+    fn generated_execution(g: &mut Gen) -> ExecutionMetadata {
+        let attempt = NonZeroU32::new(u32::arbitrary(g) % 32 + 1)
+            .expect("generated execution attempt is nonzero");
+
+        ExecutionMetadata::new(
+            generated_execution_id(g, "run"),
+            ExecutionAttempt::new(attempt),
+        )
+    }
+
+    fn generated_context(g: &mut Gen) -> NodeContext {
+        let context = NodeContext::new(
+            generated_workflow_id(g, "flow"),
+            generated_node_id(g, "node"),
+            generated_execution(g),
+        );
+
+        if bool::arbitrary(g) {
+            context.with_cancellation(CancellationRequest::new(format!(
+                "cancelled_{}",
+                bounded_usize(g, 16)
+            )))
+        } else {
+            context
+        }
+    }
+
+    fn generated_message_metadata(g: &mut Gen) -> MessageMetadata {
+        let source = bool::arbitrary(g).then(|| {
+            MessageEndpoint::new(generated_node_id(g, "source"), generated_port_id(g, "out"))
+        });
+        let target = MessageEndpoint::new(generated_node_id(g, "sink"), generated_port_id(g, "in"));
+
+        MessageMetadata::new(
+            generated_message_id(g, "msg"),
+            generated_workflow_id(g, "flow"),
+            generated_execution(g),
+            MessageRoute::new(source, target),
+        )
+    }
+
+    fn generated_error_metadata(g: &mut Gen) -> ErrorMetadataRecord {
+        match u8::arbitrary(g) % 3 {
+            0 => ErrorMetadataRecord::node_failed(&generated_context(g), generated_error(g)),
+            1 => ErrorMetadataRecord::workflow_failed(
+                generated_workflow_id(g, "flow"),
+                generated_execution(g),
+                generated_error(g),
+            ),
+            _ => ErrorMetadataRecord::workflow_failed_with_diagnostic(
+                generated_workflow_id(g, "flow"),
+                generated_execution(g),
+                generated_error(g),
+                ErrorDiagnosticMetadata::workflow_deadlock(
+                    DeadlockDiagnosticMetadata::new(
+                        bounded_usize(g, 16),
+                        bounded_usize(g, 16),
+                        bounded_usize(g, 16),
+                        u64::arbitrary(g) % 60_000,
+                        generated_cycle_policy(g),
+                    )
+                    .with_terminal_counts(
+                        bounded_usize(g, 16),
+                        bounded_usize(g, 16),
+                        bounded_usize(g, 16),
+                    )
+                    .with_feedback_loop("start_all_nodes", "all_nodes_complete"),
+                ),
+            ),
+        }
+    }
+
+    fn generated_error(g: &mut Gen) -> crate::ConduitError {
+        let message = format!("generated_failure_{}", bounded_usize(g, 32));
+        match u8::arbitrary(g) % 4 {
+            0 => crate::ConduitError::execution(message),
+            1 => crate::ConduitError::cancelled(message),
+            2 => crate::ConduitError::lifecycle(message),
+            _ => crate::ConduitError::metadata(message),
+        }
+    }
+
+    fn generated_lifecycle_kind(g: &mut Gen) -> LifecycleEventKind {
+        match u8::arbitrary(g) % 5 {
+            0 => LifecycleEventKind::NodeScheduled,
+            1 => LifecycleEventKind::NodeStarted,
+            2 => LifecycleEventKind::NodeCompleted,
+            3 => LifecycleEventKind::NodeFailed,
+            _ => LifecycleEventKind::NodeCancelled,
+        }
+    }
+
+    fn generated_message_boundary_kind(g: &mut Gen) -> MessageBoundaryKind {
+        match u8::arbitrary(g) % 3 {
+            0 => MessageBoundaryKind::Enqueued,
+            1 => MessageBoundaryKind::Dequeued,
+            _ => MessageBoundaryKind::Dropped,
+        }
+    }
+
+    fn generated_queue_port_direction(g: &mut Gen) -> QueuePortDirection {
+        if bool::arbitrary(g) {
+            QueuePortDirection::Input
+        } else {
+            QueuePortDirection::Output
+        }
+    }
+
+    fn generated_queue_pressure_kind(g: &mut Gen) -> QueuePressureBoundaryKind {
+        match u8::arbitrary(g) % 9 {
+            0 => QueuePressureBoundaryKind::ReceiveAttempted,
+            1 => QueuePressureBoundaryKind::ReceiveReady,
+            2 => QueuePressureBoundaryKind::ReceiveEmpty,
+            3 => QueuePressureBoundaryKind::ReceiveClosed,
+            4 => QueuePressureBoundaryKind::ReserveAttempted,
+            5 => QueuePressureBoundaryKind::ReserveReady,
+            6 => QueuePressureBoundaryKind::ReserveFull,
+            7 => QueuePressureBoundaryKind::SendCommitted,
+            _ => QueuePressureBoundaryKind::SendDropped,
+        }
+    }
+
+    fn generated_cycle_policy(g: &mut Gen) -> &'static str {
+        if bool::arbitrary(g) {
+            "reject_cycles"
+        } else {
+            "allow_feedback_loops"
+        }
+    }
+
+    fn generated_workflow_id(g: &mut Gen, prefix: &str) -> WorkflowId {
+        workflow_id(&format!("{prefix}_{}", bounded_usize(g, 64)))
+    }
+
+    fn generated_execution_id(g: &mut Gen, prefix: &str) -> ExecutionId {
+        execution_id(&format!("{prefix}_{}", bounded_usize(g, 64)))
+    }
+
+    fn generated_message_id(g: &mut Gen, prefix: &str) -> MessageId {
+        MessageId::new(format!("{prefix}_{}", bounded_usize(g, 64))).expect("valid message id")
+    }
+
+    fn generated_node_id(g: &mut Gen, prefix: &str) -> NodeId {
+        node_id(&format!("{prefix}_{}", bounded_usize(g, 64)))
+    }
+
+    fn generated_port_id(g: &mut Gen, prefix: &str) -> PortId {
+        port_id(&format!("{prefix}_{}", bounded_usize(g, 64)))
+    }
+
+    fn top_level_kind(value: &Value) -> Option<&str> {
+        value.as_object()?.get("kind")?.as_str()
+    }
+
+    fn is_known_kind(kind: &str) -> bool {
+        matches!(
+            kind,
+            "execution_context"
+                | "node_scheduled"
+                | "node_started"
+                | "node_completed"
+                | "node_failed"
+                | "node_cancelled"
+                | "enqueued"
+                | "dequeued"
+                | "dropped"
+                | "receive_attempted"
+                | "receive_ready"
+                | "receive_empty"
+                | "receive_closed"
+                | "reserve_attempted"
+                | "reserve_ready"
+                | "reserve_full"
+                | "send_committed"
+                | "send_dropped"
+                | "workflow_failed"
+        )
+    }
+
+    fn contains_reproducibility_sensitive_key(value: &Value) -> bool {
+        match value {
+            Value::Object(map) => map.iter().any(|(key, value)| {
+                is_reproducibility_sensitive_key(key)
+                    || contains_reproducibility_sensitive_key(value)
+            }),
+            Value::Array(values) => values.iter().any(contains_reproducibility_sensitive_key),
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => false,
+        }
+    }
+
+    fn is_reproducibility_sensitive_key(key: &str) -> bool {
+        matches!(
+            key,
+            "timestamp"
+                | "wall_clock_timestamp"
+                | "thread_id"
+                | "process_id"
+                | "pid"
+                | "payload"
+                | "payload_bytes"
+                | "raw_payload_bytes"
+        )
+    }
+
     #[derive(Debug, Default)]
     struct RecordingMetadataSink {
         records: Mutex<Vec<MetadataRecord>>,
@@ -987,6 +1230,20 @@ mod tests {
         fn record(&self, record: &MetadataRecord) -> Result<()> {
             self.as_ref().record(record)
         }
+    }
+
+    #[test]
+    fn generated_metadata_json_preserves_stable_machine_contract() {
+        fn property(record: ArbitraryMetadataRecord) -> bool {
+            let value = metadata_record_to_json_value(&record.0);
+
+            top_level_kind(&value).is_some_and(is_known_kind)
+                && !contains_reproducibility_sensitive_key(&value)
+        }
+
+        QuickCheck::new()
+            .tests(128)
+            .quickcheck(property as fn(ArbitraryMetadataRecord) -> bool);
     }
 
     #[test]

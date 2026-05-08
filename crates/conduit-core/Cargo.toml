@@ -16,6 +16,7 @@ serde_json.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+quickcheck.workspace = true
 
 [features]
 default = []

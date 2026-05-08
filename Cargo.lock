@@ -423,6 +423,7 @@ dependencies = [
  "conduit-types",
  "conduit-workflow",
  "criterion",
+ "quickcheck",
  "serde_json",
 ]
 
