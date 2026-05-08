@@ -1122,6 +1122,21 @@ mod tests {
                 .metadata_jsonl
                 .contains("\"execution_id\":\"cli-run-1\"")
         );
+        insta::assert_snapshot!(output.metadata_jsonl, @r###"
+{"context":{"cancellation":{"state":"active"},"execution":{"attempt":1,"execution_id":"cli-run-1"},"node_id":"source","workflow_id":"flow"},"kind":"node_started","record_type":"lifecycle"}
+{"capacity":8,"connected_edge_count":1,"context":{"cancellation":{"state":"active"},"execution":{"attempt":1,"execution_id":"cli-run-1"},"node_id":"source","workflow_id":"flow"},"direction":"output","kind":"reserve_attempted","port_id":"out","queued_count":null,"record_type":"queue_pressure"}
+{"capacity":8,"connected_edge_count":1,"context":{"cancellation":{"state":"active"},"execution":{"attempt":1,"execution_id":"cli-run-1"},"node_id":"source","workflow_id":"flow"},"direction":"output","kind":"reserve_ready","port_id":"out","queued_count":null,"record_type":"queue_pressure"}
+{"capacity":8,"connected_edge_count":1,"context":{"cancellation":{"state":"active"},"execution":{"attempt":1,"execution_id":"cli-run-1"},"node_id":"source","workflow_id":"flow"},"direction":"output","kind":"send_committed","port_id":"out","queued_count":null,"record_type":"queue_pressure"}
+{"kind":"enqueued","message":{"execution":{"attempt":1,"execution_id":"cli-run-1"},"message_id":"cli-source-out-0","route":{"source":{"node_id":"source","port_id":"out"},"target":{"node_id":"sink","port_id":"in"}},"workflow_id":"flow"},"record_type":"message"}
+{"context":{"cancellation":{"state":"active"},"execution":{"attempt":1,"execution_id":"cli-run-1"},"node_id":"source","workflow_id":"flow"},"kind":"node_completed","record_type":"lifecycle"}
+{"context":{"cancellation":{"state":"active"},"execution":{"attempt":1,"execution_id":"cli-run-1"},"node_id":"sink","workflow_id":"flow"},"kind":"node_started","record_type":"lifecycle"}
+{"capacity":8,"connected_edge_count":1,"context":{"cancellation":{"state":"active"},"execution":{"attempt":1,"execution_id":"cli-run-1"},"node_id":"sink","workflow_id":"flow"},"direction":"input","kind":"receive_attempted","port_id":"in","queued_count":1,"record_type":"queue_pressure"}
+{"capacity":8,"connected_edge_count":1,"context":{"cancellation":{"state":"active"},"execution":{"attempt":1,"execution_id":"cli-run-1"},"node_id":"sink","workflow_id":"flow"},"direction":"input","kind":"receive_ready","port_id":"in","queued_count":0,"record_type":"queue_pressure"}
+{"kind":"dequeued","message":{"execution":{"attempt":1,"execution_id":"cli-run-1"},"message_id":"cli-source-out-0","route":{"source":{"node_id":"source","port_id":"out"},"target":{"node_id":"sink","port_id":"in"}},"workflow_id":"flow"},"record_type":"message"}
+{"capacity":8,"connected_edge_count":1,"context":{"cancellation":{"state":"active"},"execution":{"attempt":1,"execution_id":"cli-run-1"},"node_id":"sink","workflow_id":"flow"},"direction":"input","kind":"receive_attempted","port_id":"in","queued_count":0,"record_type":"queue_pressure"}
+{"capacity":8,"connected_edge_count":1,"context":{"cancellation":{"state":"active"},"execution":{"attempt":1,"execution_id":"cli-run-1"},"node_id":"sink","workflow_id":"flow"},"direction":"input","kind":"receive_closed","port_id":"in","queued_count":0,"record_type":"queue_pressure"}
+{"context":{"cancellation":{"state":"active"},"execution":{"attempt":1,"execution_id":"cli-run-1"},"node_id":"sink","workflow_id":"flow"},"kind":"node_completed","record_type":"lifecycle"}
+"###);
     }
 
     #[test]
@@ -1148,6 +1163,33 @@ mod tests {
         assert_eq!(value["summary"]["error_count"], 0);
         assert_eq!(value["summary"]["first_error"], Value::Null);
         assert_eq!(value["summary"]["deadlock_diagnostic"], Value::Null);
+        insta::assert_snapshot!(json_output, @r###"
+{
+  "error": null,
+  "metadata": {
+    "path": "metadata.jsonl",
+    "record_count": 13
+  },
+  "status": "completed",
+  "summary": {
+    "cancelled_node_count": 0,
+    "completed_node_count": 2,
+    "deadlock_diagnostic": null,
+    "error_count": 0,
+    "failed_node_count": 0,
+    "first_error": null,
+    "observed_message_count": 0,
+    "pending_node_count": 0,
+    "scheduled_node_count": 2,
+    "terminal_state": "completed"
+  },
+  "workflow": {
+    "edge_count": 1,
+    "id": "flow",
+    "node_count": 2
+  }
+}
+"###);
     }
 
     #[test]

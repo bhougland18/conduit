@@ -395,6 +395,7 @@ dependencies = [
  "conduit-wasm",
  "conduit-workflow",
  "conduit-workflow-format",
+ "insta",
  "serde",
  "serde_json",
  "tracing-subscriber",
