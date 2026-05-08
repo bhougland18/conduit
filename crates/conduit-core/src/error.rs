@@ -461,10 +461,49 @@ impl From<PortRecvError> for ConduitError {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
     use crate::capability::{EffectCapability, NodeCapabilities};
     use asupersync::types::{CancelReason, PanicPayload};
     use conduit_types::NodeId;
+
+    const ALL_ERROR_CODES: [ErrorCode; 6] = [
+        ErrorCode::InvalidIdentifier,
+        ErrorCode::InvalidCapabilities,
+        ErrorCode::NodeExecutionFailed,
+        ErrorCode::ExecutionCancelled,
+        ErrorCode::LifecycleObservationFailed,
+        ErrorCode::MetadataCollectionFailed,
+    ];
+
+    const fn expected_category_prefix(code: ErrorCode) -> &'static str {
+        match code {
+            ErrorCode::InvalidIdentifier | ErrorCode::InvalidCapabilities => "CDT-VAL-",
+            ErrorCode::NodeExecutionFailed => "CDT-EXEC-",
+            ErrorCode::ExecutionCancelled => "CDT-CANCEL-",
+            ErrorCode::LifecycleObservationFailed => "CDT-LIFE-",
+            ErrorCode::MetadataCollectionFailed => "CDT-META-",
+        }
+    }
+
+    #[test]
+    fn error_code_strings_are_unique_nonempty_and_category_prefixed() {
+        let mut seen: BTreeSet<&'static str> = BTreeSet::new();
+
+        for code in ALL_ERROR_CODES {
+            let value: &'static str = code.as_str();
+
+            assert!(!value.is_empty(), "error code must not be empty: {code:?}");
+            assert!(
+                value.starts_with(expected_category_prefix(code)),
+                "error code {value} should match category for {code:?}"
+            );
+            assert!(seen.insert(value), "duplicate error code string: {value}");
+        }
+
+        assert_eq!(seen.len(), ALL_ERROR_CODES.len());
+    }
 
     #[test]
     fn identifier_errors_map_to_user_facing_non_retryable_codes() {
