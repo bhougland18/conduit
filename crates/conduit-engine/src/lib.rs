@@ -1810,6 +1810,7 @@ mod tests {
     };
     use conduit_types::{ExecutionId, MessageId};
     use conduit_workflow::EdgeDefinition;
+    use futures::channel::oneshot;
     use futures::executor::block_on;
     use futures::future::BoxFuture;
 
@@ -2202,6 +2203,321 @@ mod tests {
             }
 
             ready(Ok(()))
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum FailureMatrixRole {
+        SourceFails,
+        SourceForTransformFailure,
+        TransformFails,
+        PassthroughTransform,
+        SinkWaits,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct FailureMatrixExecutor {
+        role: FailureMatrixRole,
+    }
+
+    impl FailureMatrixExecutor {
+        const fn source_fails() -> Self {
+            Self {
+                role: FailureMatrixRole::SourceFails,
+            }
+        }
+
+        const fn source_for_transform_failure() -> Self {
+            Self {
+                role: FailureMatrixRole::SourceForTransformFailure,
+            }
+        }
+
+        const fn transform_fails() -> Self {
+            Self {
+                role: FailureMatrixRole::TransformFails,
+            }
+        }
+
+        const fn passthrough_transform() -> Self {
+            Self {
+                role: FailureMatrixRole::PassthroughTransform,
+            }
+        }
+
+        const fn sink_waits() -> Self {
+            Self {
+                role: FailureMatrixRole::SinkWaits,
+            }
+        }
+    }
+
+    impl NodeExecutor for FailureMatrixExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            mut inputs: PortsIn,
+            outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                let cancellation = ctx.cancellation_token();
+
+                match self.role {
+                    FailureMatrixRole::SourceFails => {
+                        Err(ConduitError::execution("matrix source failed"))
+                    }
+                    FailureMatrixRole::SourceForTransformFailure => outputs
+                        .send(
+                            &port_id("out"),
+                            packet_between(b"source", "source", "transform"),
+                            &cancellation,
+                        )
+                        .await
+                        .map_err(ConduitError::from),
+                    FailureMatrixRole::TransformFails => {
+                        let _packet = inputs.recv(&port_id("in"), &cancellation).await?;
+                        Err(ConduitError::execution("matrix transform failed"))
+                    }
+                    FailureMatrixRole::PassthroughTransform => {
+                        let packet = inputs
+                            .recv(&port_id("in"), &cancellation)
+                            .await?
+                            .expect("source should send transform input");
+                        outputs
+                            .send(&port_id("out"), packet, &cancellation)
+                            .await
+                            .map_err(ConduitError::from)
+                    }
+                    FailureMatrixRole::SinkWaits => {
+                        let _packet = inputs.recv(&port_id("in"), &cancellation).await?;
+                        Ok(())
+                    }
+                }
+            })
+        }
+    }
+
+    #[derive(Debug)]
+    struct DisconnectedDownstreamExecutor {
+        role: DisconnectedDownstreamRole,
+        signal: Arc<DisconnectedDownstreamSignal>,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum DisconnectedDownstreamRole {
+        Source,
+        Sink,
+    }
+
+    #[derive(Debug)]
+    struct DisconnectedDownstreamSignal {
+        sender: Mutex<Option<oneshot::Sender<()>>>,
+        receiver: Mutex<Option<oneshot::Receiver<()>>>,
+    }
+
+    impl DisconnectedDownstreamExecutor {
+        fn pair() -> (Self, Self) {
+            let (sender, receiver) = oneshot::channel();
+            let signal = Arc::new(DisconnectedDownstreamSignal {
+                sender: Mutex::new(Some(sender)),
+                receiver: Mutex::new(Some(receiver)),
+            });
+
+            (
+                Self {
+                    role: DisconnectedDownstreamRole::Source,
+                    signal: Arc::clone(&signal),
+                },
+                Self {
+                    role: DisconnectedDownstreamRole::Sink,
+                    signal,
+                },
+            )
+        }
+    }
+
+    impl NodeExecutor for DisconnectedDownstreamExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            _inputs: PortsIn,
+            outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                match self.role {
+                    DisconnectedDownstreamRole::Source => {
+                        let receiver = self
+                            .signal
+                            .receiver
+                            .lock()
+                            .expect("disconnect receiver lock should not be poisoned")
+                            .take()
+                            .expect("source should own disconnect receiver");
+                        receiver
+                            .await
+                            .expect("sink should signal before source sends");
+                        outputs
+                            .send(
+                                &port_id("out"),
+                                packet_between(b"late", "source", "sink"),
+                                &ctx.cancellation_token(),
+                            )
+                            .await
+                            .map_err(ConduitError::from)
+                    }
+                    DisconnectedDownstreamRole::Sink => {
+                        if let Some(sender) = self
+                            .signal
+                            .sender
+                            .lock()
+                            .expect("disconnect sender lock should not be poisoned")
+                            .take()
+                        {
+                            let _send_result = sender.send(());
+                        }
+                        Ok(())
+                    }
+                }
+            })
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum FanOutPartialFailureRole {
+        Source,
+        GoodSink,
+        DroppingSink,
+    }
+
+    #[derive(Debug)]
+    struct FanOutPartialFailureExecutor {
+        role: FanOutPartialFailureRole,
+        state: Arc<FanOutPartialFailureState>,
+    }
+
+    #[derive(Debug)]
+    struct FanOutPartialFailureState {
+        dropped_sender: Mutex<Option<oneshot::Sender<()>>>,
+        dropped_receiver: Mutex<Option<oneshot::Receiver<()>>>,
+        good_sink_observation: Mutex<Option<String>>,
+    }
+
+    impl FanOutPartialFailureExecutor {
+        fn registry() -> StaticNodeExecutorRegistry<Self> {
+            let (dropped_sender, dropped_receiver) = oneshot::channel();
+            let state = Arc::new(FanOutPartialFailureState {
+                dropped_sender: Mutex::new(Some(dropped_sender)),
+                dropped_receiver: Mutex::new(Some(dropped_receiver)),
+                good_sink_observation: Mutex::new(None),
+            });
+
+            StaticNodeExecutorRegistry::new(BTreeMap::from([
+                (
+                    node_id("source"),
+                    Self {
+                        role: FanOutPartialFailureRole::Source,
+                        state: Arc::clone(&state),
+                    },
+                ),
+                (
+                    node_id("good"),
+                    Self {
+                        role: FanOutPartialFailureRole::GoodSink,
+                        state: Arc::clone(&state),
+                    },
+                ),
+                (
+                    node_id("drop"),
+                    Self {
+                        role: FanOutPartialFailureRole::DroppingSink,
+                        state,
+                    },
+                ),
+            ]))
+        }
+
+        fn good_sink_observation(&self) -> Option<String> {
+            self.state
+                .good_sink_observation
+                .lock()
+                .expect("fan-out partial observation lock should not be poisoned")
+                .clone()
+        }
+    }
+
+    impl NodeExecutor for FanOutPartialFailureExecutor {
+        type RunFuture<'a> = BoxFuture<'a, Result<()>>;
+
+        fn run(
+            &self,
+            ctx: NodeContext,
+            mut inputs: PortsIn,
+            outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            Box::pin(async move {
+                match self.role {
+                    FanOutPartialFailureRole::Source => {
+                        let receiver = self
+                            .state
+                            .dropped_receiver
+                            .lock()
+                            .expect("fan-out dropped receiver lock should not be poisoned")
+                            .take()
+                            .expect("source should own dropped receiver");
+                        receiver
+                            .await
+                            .expect("dropping sink should signal before source sends");
+                        outputs
+                            .send(
+                                &port_id("out"),
+                                packet_between(b"fan", "source", "good"),
+                                &ctx.cancellation_token(),
+                            )
+                            .await
+                            .map_err(ConduitError::from)
+                    }
+                    FanOutPartialFailureRole::GoodSink => {
+                        let observation =
+                            match inputs.recv(&port_id("in"), &ctx.cancellation_token()).await {
+                                Ok(Some(_packet)) => "unexpected_packet",
+                                Ok(None) => "closed_without_packet",
+                                Err(PortRecvError::Cancelled { .. }) => "cancelled_without_packet",
+                                Err(PortRecvError::Disconnected { .. }) => {
+                                    "disconnected_without_packet"
+                                }
+                                Err(PortRecvError::UnknownPort { .. }) => "unknown_port",
+                            };
+                        *self
+                            .state
+                            .good_sink_observation
+                            .lock()
+                            .expect("fan-out partial observation lock should not be poisoned") =
+                            Some(observation.to_owned());
+                        if observation == "unexpected_packet" {
+                            return Err(ConduitError::execution(
+                                "fan-out partial send delivered to good sink",
+                            ));
+                        }
+                        Ok(())
+                    }
+                    FanOutPartialFailureRole::DroppingSink => {
+                        if let Some(sender) = self
+                            .state
+                            .dropped_sender
+                            .lock()
+                            .expect("fan-out dropped sender lock should not be poisoned")
+                            .take()
+                        {
+                            let _send_result = sender.send(());
+                        }
+                        Ok(())
+                    }
+                }
+            })
         }
     }
 
@@ -3243,6 +3559,207 @@ mod tests {
             }
             _ => panic!("workflow error should include deadlock diagnostic metadata"),
         }
+    }
+
+    #[test]
+    fn supervisor_summary_covers_failing_source_and_downstream_cancellation() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .node(
+                NodeBuilder::new("transform")
+                    .input("in")
+                    .output("out")
+                    .build(),
+            )
+            .node(NodeBuilder::new("sink").input("in").build())
+            .edge("source", "out", "transform", "in")
+            .edge("transform", "out", "sink", "in")
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let registry: StaticNodeExecutorRegistry<FailureMatrixExecutor> =
+            StaticNodeExecutorRegistry::new(BTreeMap::from([
+                (node_id("source"), FailureMatrixExecutor::source_fails()),
+                (
+                    node_id("transform"),
+                    FailureMatrixExecutor::passthrough_transform(),
+                ),
+                (node_id("sink"), FailureMatrixExecutor::sink_waits()),
+            ]));
+
+        let summary: WorkflowRunSummary = block_on(run_workflow_with_registry_summary(
+            &workflow, &execution, &registry,
+        ))
+        .expect("summary should preserve source failure as data");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Failed);
+        assert_eq!(summary.scheduled_node_count(), 3);
+        assert_eq!(summary.completed_node_count(), 0);
+        assert_eq!(summary.failed_node_count(), 1);
+        assert_eq!(summary.cancelled_node_count(), 2);
+        assert_eq!(summary.pending_node_count(), 0);
+        assert_eq!(summary.error_count(), 3);
+        assert!(
+            summary
+                .first_error()
+                .expect("summary should retain source failure")
+                .to_string()
+                .contains("matrix source failed")
+        );
+    }
+
+    #[test]
+    fn supervisor_summary_covers_failing_transform_and_error_metadata() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .node(
+                NodeBuilder::new("transform")
+                    .input("in")
+                    .output("out")
+                    .build(),
+            )
+            .node(NodeBuilder::new("sink").input("in").build())
+            .edge("source", "out", "transform", "in")
+            .edge("transform", "out", "sink", "in")
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let registry: StaticNodeExecutorRegistry<FailureMatrixExecutor> =
+            StaticNodeExecutorRegistry::new(BTreeMap::from([
+                (
+                    node_id("source"),
+                    FailureMatrixExecutor::source_for_transform_failure(),
+                ),
+                (
+                    node_id("transform"),
+                    FailureMatrixExecutor::transform_fails(),
+                ),
+                (node_id("sink"), FailureMatrixExecutor::sink_waits()),
+            ]));
+        let sink: Arc<RecordingMetadataSink> = Arc::new(RecordingMetadataSink::default());
+
+        let summary: WorkflowRunSummary =
+            block_on(run_workflow_with_registry_and_metadata_sink_summary(
+                &workflow,
+                &execution,
+                &registry,
+                sink.clone(),
+            ))
+            .expect("summary should preserve transform failure as data");
+        let records = sink.records();
+        let node_error_count = records
+            .iter()
+            .filter(|record| {
+                matches!(
+                    record,
+                    MetadataRecord::Error(error)
+                        if error.kind() == ErrorMetadataKind::NodeFailed
+                )
+            })
+            .count();
+        let workflow_error = records
+            .iter()
+            .find_map(|record| match record {
+                MetadataRecord::Error(error)
+                    if error.kind() == ErrorMetadataKind::WorkflowFailed =>
+                {
+                    Some(error)
+                }
+                _ => None,
+            })
+            .expect("workflow error metadata should be recorded");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Failed);
+        assert_eq!(summary.completed_node_count(), 1);
+        assert_eq!(summary.failed_node_count(), 1);
+        assert_eq!(summary.cancelled_node_count(), 1);
+        assert_eq!(summary.pending_node_count(), 0);
+        assert_eq!(summary.error_count(), 2);
+        assert!(
+            workflow_error
+                .error()
+                .to_string()
+                .contains("matrix transform failed")
+        );
+        assert!(workflow_error.node_id().is_none());
+        assert_eq!(node_error_count, 2);
+    }
+
+    #[test]
+    fn supervisor_summary_covers_disconnected_downstream_send_failure() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .node(NodeBuilder::new("sink").input("in").build())
+            .edge("source", "out", "sink", "in")
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let (source, sink) = DisconnectedDownstreamExecutor::pair();
+        let registry: StaticNodeExecutorRegistry<DisconnectedDownstreamExecutor> =
+            StaticNodeExecutorRegistry::new(BTreeMap::from([
+                (node_id("source"), source),
+                (node_id("sink"), sink),
+            ]));
+
+        let summary: WorkflowRunSummary = block_on(run_workflow_with_registry_summary(
+            &workflow, &execution, &registry,
+        ))
+        .expect("summary should preserve disconnected send failure as data");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Failed);
+        assert_eq!(summary.completed_node_count(), 1);
+        assert_eq!(summary.failed_node_count(), 1);
+        assert_eq!(summary.cancelled_node_count(), 0);
+        assert_eq!(summary.pending_node_count(), 0);
+        assert_eq!(summary.error_count(), 1);
+        assert!(
+            summary
+                .first_error()
+                .expect("summary should retain disconnected send error")
+                .to_string()
+                .contains("disconnected")
+        );
+    }
+
+    #[test]
+    fn supervisor_rejects_fan_out_partial_send_after_one_downstream_disconnects() {
+        let workflow: WorkflowDefinition = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .node(NodeBuilder::new("good").input("in").build())
+            .node(NodeBuilder::new("drop").input("in").build())
+            .edge("source", "out", "good", "in")
+            .edge("source", "out", "drop", "in")
+            .build();
+        let execution: ExecutionMetadata = execution_metadata("run-1");
+        let registry = FanOutPartialFailureExecutor::registry();
+
+        let summary: WorkflowRunSummary = block_on(run_workflow_with_registry_summary(
+            &workflow, &execution, &registry,
+        ))
+        .expect("summary should preserve fan-out send failure as data");
+        let good_sink_observation = registry
+            .executors()
+            .get(&node_id("good"))
+            .expect("good sink executor should be registered")
+            .good_sink_observation()
+            .expect("good sink should record cancellation or closure");
+
+        assert_eq!(summary.terminal_state(), WorkflowTerminalState::Failed);
+        assert_eq!(summary.completed_node_count(), 2);
+        assert_eq!(summary.failed_node_count(), 1);
+        assert_eq!(summary.cancelled_node_count(), 0);
+        assert_eq!(summary.pending_node_count(), 0);
+        assert_eq!(summary.error_count(), 1);
+        assert!(
+            summary
+                .first_error()
+                .expect("summary should retain fan-out send error")
+                .to_string()
+                .contains("disconnected")
+        );
+        assert!(
+            good_sink_observation == "cancelled_without_packet"
+                || good_sink_observation == "disconnected_without_packet"
+                || good_sink_observation == "closed_without_packet",
+            "good sink must not receive a partial fan-out packet: {good_sink_observation}"
+        );
     }
 
     #[test]
