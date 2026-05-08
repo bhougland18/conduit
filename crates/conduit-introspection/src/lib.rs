@@ -683,6 +683,66 @@ mod tests {
             .expect("matching introspection inputs must validate")
     }
 
+    #[cfg(feature = "serde")]
+    fn sample_mixed_native_wasm_introspection() -> WorkflowIntrospection {
+        let capacity = NonZeroUsize::new(4).expect("non-zero capacity");
+        let workflow = WorkflowBuilder::new("mixed")
+            .node(NodeBuilder::new("source").output("out").build())
+            .node(NodeBuilder::new("guest").input("in").output("out").build())
+            .edge_with_capacity("source", "out", "guest", "in", capacity)
+            .build();
+        let contracts = vec![
+            contract(
+                "source",
+                vec![PortContract::new(
+                    port_id("out"),
+                    PortDirection::Output,
+                    Some(schema("schema://packet")),
+                )],
+                ExecutionMode::Native,
+                Determinism::Deterministic,
+            ),
+            contract(
+                "guest",
+                vec![
+                    PortContract::new(
+                        port_id("in"),
+                        PortDirection::Input,
+                        Some(schema("schema://packet")),
+                    ),
+                    PortContract::new(
+                        port_id("out"),
+                        PortDirection::Output,
+                        Some(schema("schema://uppercase-packet")),
+                    ),
+                ],
+                ExecutionMode::Wasm,
+                Determinism::Unknown,
+            ),
+        ];
+        let capabilities = vec![
+            capabilities(
+                "source",
+                vec![PortCapability::new(
+                    port_id("out"),
+                    PortCapabilityDirection::Emit,
+                )],
+                vec![EffectCapability::Clock],
+            ),
+            capabilities(
+                "guest",
+                vec![
+                    PortCapability::new(port_id("in"), PortCapabilityDirection::Receive),
+                    PortCapability::new(port_id("out"), PortCapabilityDirection::Emit),
+                ],
+                Vec::new(),
+            ),
+        ];
+
+        introspect_workflow(&workflow, &contracts, &capabilities)
+            .expect("mixed native and wasm introspection inputs must validate")
+    }
+
     #[test]
     fn introspection_projects_workflow_contracts_and_capabilities() {
         let capacity = NonZeroUsize::new(8).expect("non-zero capacity");
@@ -838,6 +898,79 @@ mod tests {
     }
 
     #[test]
+    fn introspection_rejects_missing_workflow_node_contract() {
+        let workflow = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .build();
+        let contracts = vec![contract(
+            "other",
+            vec![PortContract::new(
+                port_id("out"),
+                PortDirection::Output,
+                None,
+            )],
+            ExecutionMode::Native,
+            Determinism::Deterministic,
+        )];
+        let capabilities = vec![capabilities(
+            "source",
+            vec![PortCapability::new(
+                port_id("out"),
+                PortCapabilityDirection::Emit,
+            )],
+            Vec::new(),
+        )];
+
+        let err = introspect_workflow(&workflow, &contracts, &capabilities)
+            .expect_err("missing workflow node contract must fail");
+
+        assert_eq!(
+            err,
+            ContractValidationError::UnknownWorkflowNode {
+                node_id: node_id("source")
+            }
+        );
+    }
+
+    #[test]
+    fn introspection_rejects_port_direction_mismatch() {
+        let workflow = WorkflowBuilder::new("flow")
+            .node(NodeBuilder::new("source").output("out").build())
+            .build();
+        let contracts = vec![contract(
+            "source",
+            vec![PortContract::new(
+                port_id("out"),
+                PortDirection::Input,
+                None,
+            )],
+            ExecutionMode::Native,
+            Determinism::Deterministic,
+        )];
+        let capabilities = vec![capabilities(
+            "source",
+            vec![PortCapability::new(
+                port_id("out"),
+                PortCapabilityDirection::Emit,
+            )],
+            Vec::new(),
+        )];
+
+        let err = introspect_workflow(&workflow, &contracts, &capabilities)
+            .expect_err("port direction mismatch must fail");
+
+        assert_eq!(
+            err,
+            ContractValidationError::PortDirectionMismatch {
+                node_id: node_id("source"),
+                port_id: port_id("out"),
+                workflow: PortDirection::Output,
+                contract: PortDirection::Input,
+            }
+        );
+    }
+
+    #[test]
     fn wasm_contracts_report_strict_enforcement() {
         let workflow = WorkflowBuilder::new("flow")
             .node(NodeBuilder::new("guest").input("in").output("out").build())
@@ -932,6 +1065,80 @@ mod tests {
             }
           ],
           "workflow_id": "flow"
+        }
+        "###);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn mixed_native_wasm_introspection_json_has_stable_shape() {
+        let view = sample_mixed_native_wasm_introspection();
+        let json =
+            workflow_introspection_to_json_string(&view).expect("introspection JSON should encode");
+
+        insta::assert_snapshot!(json, @r###"
+        {
+          "edges": [
+            {
+              "capacity": {
+                "kind": "explicit",
+                "value": 4
+              },
+              "source": {
+                "node_id": "source",
+                "port_id": "out"
+              },
+              "source_schema": "schema://packet",
+              "target": {
+                "node_id": "guest",
+                "port_id": "in"
+              },
+              "target_schema": "schema://packet"
+            }
+          ],
+          "nodes": [
+            {
+              "determinism": "deterministic",
+              "effects": [
+                "clock"
+              ],
+              "enforcement": "advisory",
+              "execution_mode": "native",
+              "node_id": "source",
+              "ports": [
+                {
+                  "capability": "emit",
+                  "direction": "output",
+                  "port_id": "out",
+                  "schema": "schema://packet"
+                }
+              ],
+              "retry": "safe"
+            },
+            {
+              "determinism": "unknown",
+              "effects": [],
+              "enforcement": "strict",
+              "execution_mode": "wasm",
+              "node_id": "guest",
+              "ports": [
+                {
+                  "capability": "receive",
+                  "direction": "input",
+                  "port_id": "in",
+                  "schema": "schema://packet"
+                },
+                {
+                  "capability": "emit",
+                  "direction": "output",
+                  "port_id": "out",
+                  "schema": "schema://uppercase-packet"
+                }
+              ],
+              "retry": "safe"
+            }
+          ],
+          "workflow_id": "mixed"
         }
         "###);
     }
