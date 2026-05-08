@@ -525,11 +525,15 @@ const fn port_direction_label(direction: PortDirection) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
+
     use conduit_core::{
         RetryDisposition,
         capability::{EffectCapability, NodeCapabilities, PortCapability, PortCapabilityDirection},
     };
-    use conduit_test_kit::{NodeBuilder, WorkflowBuilder, node_id, port_id};
+    use conduit_test_kit::{NodeBuilder, WorkflowBuilder, node_id, port_id, workflow_id};
+    use conduit_workflow::{EdgeDefinition, EdgeEndpoint, NodeDefinition};
+    use quickcheck::{Arbitrary, Gen, QuickCheck};
 
     fn schema(value: &str) -> SchemaRef {
         SchemaRef::new(value).expect("valid schema ref")
@@ -557,6 +561,155 @@ mod tests {
 
     fn passive_capabilities(node: &str, ports: Vec<PortCapability>) -> NodeCapabilities {
         NodeCapabilities::native_passive(node_id(node), ports).expect("valid capability")
+    }
+
+    #[derive(Debug, Clone)]
+    struct NonEmptySchemaString(String);
+
+    impl Arbitrary for NonEmptySchemaString {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let value = String::arbitrary(g);
+            if value.trim().is_empty() {
+                Self("schema://generated".to_string())
+            } else {
+                Self(value)
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct MatchingWorkflowContractCase {
+        workflow: WorkflowDefinition,
+        contracts: Vec<NodeContract>,
+        capabilities: Vec<NodeCapabilities>,
+    }
+
+    impl Arbitrary for MatchingWorkflowContractCase {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let node_count = usize::arbitrary(g) % 5 + 1;
+            let mut inputs_by_node: Vec<BTreeSet<PortId>> = vec![BTreeSet::new(); node_count];
+            let mut outputs_by_node: Vec<BTreeSet<PortId>> = vec![BTreeSet::new(); node_count];
+            let mut edges = Vec::new();
+
+            for source in 0..node_count {
+                for target in (source + 1)..node_count {
+                    if bool::arbitrary(g) {
+                        let source_node = generated_node_id(source);
+                        let target_node = generated_node_id(target);
+                        let source_port = generated_output_port(target);
+                        let target_port = generated_input_port(source);
+
+                        outputs_by_node[source].insert(source_port.clone());
+                        inputs_by_node[target].insert(target_port.clone());
+                        edges.push(EdgeDefinition::new(
+                            EdgeEndpoint::new(source_node, source_port),
+                            EdgeEndpoint::new(target_node, target_port),
+                        ));
+                    }
+                }
+            }
+
+            let nodes: Vec<NodeDefinition> = (0..node_count)
+                .map(|index| {
+                    NodeDefinition::new(
+                        generated_node_id(index),
+                        inputs_by_node[index].iter().cloned().collect::<Vec<_>>(),
+                        outputs_by_node[index].iter().cloned().collect::<Vec<_>>(),
+                    )
+                    .expect("generated node topology is valid")
+                })
+                .collect();
+            let workflow =
+                WorkflowDefinition::from_parts(workflow_id("generated_flow"), nodes, edges)
+                    .expect("generated workflow is acyclic and valid");
+            let mut contracts = Vec::new();
+            let mut capabilities = Vec::new();
+
+            for node in workflow.nodes() {
+                let mut contract_ports = Vec::new();
+                let mut capability_ports = Vec::new();
+
+                for input in node.input_ports() {
+                    contract_ports.push(PortContract::new(
+                        input.clone(),
+                        PortDirection::Input,
+                        Some(schema("schema://generated-packet")),
+                    ));
+                    capability_ports.push(PortCapability::new(
+                        input.clone(),
+                        PortCapabilityDirection::Receive,
+                    ));
+                }
+
+                for output in node.output_ports() {
+                    contract_ports.push(PortContract::new(
+                        output.clone(),
+                        PortDirection::Output,
+                        Some(schema("schema://generated-packet")),
+                    ));
+                    capability_ports.push(PortCapability::new(
+                        output.clone(),
+                        PortCapabilityDirection::Emit,
+                    ));
+                }
+
+                contracts.push(
+                    NodeContract::new(
+                        node.id().clone(),
+                        contract_ports,
+                        ExecutionMode::Native,
+                        Determinism::Deterministic,
+                        RetryDisposition::Safe,
+                    )
+                    .expect("generated contract matches workflow ports"),
+                );
+                capabilities.push(
+                    NodeCapabilities::native_passive(node.id().clone(), capability_ports)
+                        .expect("generated capabilities match workflow ports"),
+                );
+            }
+
+            Self {
+                workflow,
+                contracts,
+                capabilities,
+            }
+        }
+    }
+
+    fn generated_node_id(index: usize) -> NodeId {
+        node_id(&format!("node_{index}"))
+    }
+
+    fn generated_input_port(source_index: usize) -> PortId {
+        port_id(&format!("in_from_{source_index}"))
+    }
+
+    fn generated_output_port(target_index: usize) -> PortId {
+        port_id(&format!("out_to_{target_index}"))
+    }
+
+    #[test]
+    fn generated_non_empty_schema_refs_round_trip() {
+        fn property(input: NonEmptySchemaString) -> bool {
+            let schema = SchemaRef::new(input.0.clone()).expect("generated schema ref is valid");
+            schema.as_str() == input.0
+        }
+
+        QuickCheck::new()
+            .tests(128)
+            .quickcheck(property as fn(NonEmptySchemaString) -> bool);
+    }
+
+    #[test]
+    fn generated_matching_workflow_contracts_validate() {
+        fn property(case: MatchingWorkflowContractCase) -> bool {
+            validate_workflow_contracts(&case.workflow, &case.contracts, &case.capabilities).is_ok()
+        }
+
+        QuickCheck::new()
+            .tests(128)
+            .quickcheck(property as fn(MatchingWorkflowContractCase) -> bool);
     }
 
     #[test]

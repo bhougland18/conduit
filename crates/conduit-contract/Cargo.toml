@@ -12,6 +12,7 @@ conduit-workflow.workspace = true
 
 [dev-dependencies]
 conduit-test-kit.workspace = true
+quickcheck.workspace = true
 
 [lints]
 workspace = true

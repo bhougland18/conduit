@@ -409,6 +409,7 @@ dependencies = [
  "conduit-test-kit",
  "conduit-types",
  "conduit-workflow",
+ "quickcheck",
 ]
 
 [[package]]
