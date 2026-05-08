@@ -1,7 +1,7 @@
 # Validation Matrix
 
-This project currently uses a documented validation matrix rather than a
-checked-in CI workflow. Run commands from the repository root.
+This project has both a documented validation matrix and a checked-in CI
+workflow at `.github/workflows/ci.yml`. Run commands from the repository root.
 
 Use the Nix devshell for the full gate so the expected Rust toolchain, Dylint
 driver, WASM target, and project wrappers are available:
@@ -24,6 +24,13 @@ cargo bench -p conduit-engine --bench backpressure_capacity --no-run
 cargo-dylint-nightly --all
 git diff --check
 ```
+
+The CI workflow runs the same required format, compile, test, Clippy, benchmark
+compile, and diff-whitespace checks through the Nix devshell.
+
+Dylint remains part of the full local gate. The CI workflow includes the Dylint
+step, but skips it with a notice when the local lint packages referenced by
+`workspace.metadata.dylint` are not present on the runner.
 
 Equivalent Dylint invocation from outside an entered shell:
 
@@ -92,6 +99,18 @@ git diff --check
 If the documentation change updates commands or expected output, run the
 documented command being changed.
 
+## CI Workflow
+
+The checked-in GitHub Actions workflow is:
+
+- `.github/workflows/ci.yml`
+
+It runs on every push and pull request. The workflow installs Nix, enters the
+project devshell for each Rust validation command, and keeps the same strict
+Clippy profile documented above.
+
+Benchmark jobs are compile checks only. They do not commit Criterion output.
+
 ## Justfile Shortcuts
 
 The `justfile` provides convenience wrappers:
@@ -103,9 +122,9 @@ just test
 just dylint-all
 ```
 
-These shortcuts are useful while iterating, but the full gate above is the
-source of truth for release hygiene. In particular, `just check` currently runs
-`cargo check --workspace`, while the full gate uses
+These shortcuts are useful while iterating, but the full gate and CI workflow
+above are the source of truth for release hygiene. In particular, `just check`
+currently runs `cargo check --workspace`, while the full gate uses
 `cargo check --workspace --all-targets`.
 
 ## Benchmark Compile Checks
