@@ -921,6 +921,58 @@ port = "in"
 
     #[cfg(feature = "toml")]
     #[test]
+    fn toml_workflow_matches_json_domain_shape() {
+        let json: &str = r#"{
+  "conduit_version": "1",
+  "id": "flow",
+  "nodes": [
+    { "id": "source", "inputs": [], "outputs": ["out"] },
+    { "id": "sink", "inputs": ["in"], "outputs": [] }
+  ],
+  "edges": [
+    {
+      "source": { "node": "source", "port": "out" },
+      "target": { "node": "sink", "port": "in" },
+      "capacity": 4
+    }
+  ]
+}"#;
+        let toml: &str = r#"
+conduit_version = "1"
+id = "flow"
+
+[[nodes]]
+id = "source"
+inputs = []
+outputs = ["out"]
+
+[[nodes]]
+id = "sink"
+inputs = ["in"]
+outputs = []
+
+[[edges]]
+capacity = 4
+
+[edges.source]
+node = "source"
+port = "out"
+
+[edges.target]
+node = "sink"
+port = "in"
+"#;
+
+        let json_workflow: WorkflowDefinition =
+            workflow_from_json_str(json).expect("JSON workflow should validate");
+        let toml_workflow: WorkflowDefinition =
+            workflow_from_toml_str(toml).expect("TOML workflow should validate");
+
+        assert_eq!(toml_workflow, json_workflow);
+    }
+
+    #[cfg(feature = "toml")]
+    #[test]
     fn toml_missing_version_keeps_typed_format_diagnostic() {
         let input: &str = r#"
 id = "flow"
@@ -999,6 +1051,54 @@ edges:
             workflow.edges()[0].capacity(),
             EdgeCapacity::Explicit(NonZeroUsize::new(4).expect("nonzero"))
         );
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn yaml_workflow_matches_json_domain_shape() {
+        let json: &str = r#"{
+  "conduit_version": "1",
+  "id": "flow",
+  "nodes": [
+    { "id": "source", "inputs": [], "outputs": ["out"] },
+    { "id": "sink", "inputs": ["in"], "outputs": [] }
+  ],
+  "edges": [
+    {
+      "source": { "node": "source", "port": "out" },
+      "target": { "node": "sink", "port": "in" },
+      "capacity": 4
+    }
+  ]
+}"#;
+        let yaml: &str = r#"
+conduit_version: "1"
+id: flow
+nodes:
+  - id: source
+    inputs: []
+    outputs:
+      - out
+  - id: sink
+    inputs:
+      - in
+    outputs: []
+edges:
+  - source:
+      node: source
+      port: out
+    target:
+      node: sink
+      port: in
+    capacity: 4
+"#;
+
+        let json_workflow: WorkflowDefinition =
+            workflow_from_json_str(json).expect("JSON workflow should validate");
+        let yaml_workflow: WorkflowDefinition =
+            workflow_from_yaml_str(yaml).expect("YAML workflow should validate");
+
+        assert_eq!(yaml_workflow, json_workflow);
     }
 
     #[cfg(feature = "yaml")]
