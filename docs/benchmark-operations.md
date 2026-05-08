@@ -23,6 +23,10 @@ cargo bench -p conduit-engine --bench backpressure_capacity --no-run
 Criterion writes reports and historical samples under `target/criterion/`.
 Those files are generated output and should not be committed.
 
+The first recorded local measurement baseline is
+[benchmark-baseline-2026-05-08.md](benchmark-baseline-2026-05-08.md). Treat it
+as a same-machine comparison anchor, not a portable performance guarantee.
+
 ## Metadata Overhead
 
 Source:
@@ -155,6 +159,9 @@ Keep comparisons narrow:
 - Compare the same benchmark group and benchmark id.
 - Use the same machine, power profile, and shell environment.
 - Avoid comparing a full measurement run against a `--no-run` compile check.
+- Compare against [benchmark-baseline-2026-05-08.md](benchmark-baseline-2026-05-08.md)
+  only when the machine and toolchain are comparable; otherwise capture a fresh
+  local baseline first.
 - Treat small changes near Criterion noise as directional until repeated.
 
 For metadata changes, compare:
