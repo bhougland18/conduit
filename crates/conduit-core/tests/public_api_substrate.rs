@@ -3,15 +3,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const LEAK_PATTERNS: &[&str] = &[
-    "asupersync::",
-    " mpsc::",
-    " Cx",
-    " Runtime",
-    " RuntimeBuilder",
-    " SendPermit",
-    " RecvError",
-    " SendError",
+const LEAK_PATTERNS: &[&str] = &["asupersync::", " mpsc::"];
+
+const LEAK_IDENTIFIERS: &[&str] = &[
+    "Cx",
+    "Runtime",
+    "RuntimeBuilder",
+    "SendPermit",
+    "RecvError",
+    "SendError",
 ];
 
 #[test]
@@ -36,7 +36,7 @@ fn public_api_does_not_expose_asupersync_types() {
                 public_item.push_str(trimmed);
             }
 
-            if !public_item.is_empty() && public_item.contains('{') || public_item.contains(';') {
+            if !public_item.is_empty() && (public_item.contains('{') || public_item.contains(';')) {
                 if contains_substrate_type(&public_item) {
                     leaks.push(format!("{}: {public_item}", source_file.display()));
                 }
@@ -92,4 +92,33 @@ fn contains_substrate_type(item: &str) -> bool {
     LEAK_PATTERNS
         .iter()
         .any(|pattern: &&str| item.contains(pattern))
+        || LEAK_IDENTIFIERS
+            .iter()
+            .any(|identifier: &&str| contains_identifier(item, identifier))
+}
+
+fn contains_identifier(item: &str, identifier: &str) -> bool {
+    item.split(|character: char| !(character == '_' || character.is_ascii_alphanumeric()))
+        .any(|token: &str| token == identifier)
+}
+
+#[test]
+fn substrate_detection_catches_qualified_asupersync_type() {
+    let item = "pub struct Foo { inner: asupersync::Runtime }";
+
+    assert!(contains_substrate_type(item));
+}
+
+#[test]
+fn substrate_detection_catches_bare_imported_substrate_type() {
+    let item = "pub struct Foo { inner: Runtime }";
+
+    assert!(contains_substrate_type(item));
+}
+
+#[test]
+fn substrate_detection_does_not_match_unrelated_identifier_substrings() {
+    let item = "pub struct WorkflowRuntime { name: String }";
+
+    assert!(!contains_substrate_type(item));
 }
