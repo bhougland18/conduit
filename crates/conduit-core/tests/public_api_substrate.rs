@@ -3,19 +3,31 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const LEAK_PATTERNS: &[&str] = &["asupersync::", " mpsc::"];
+const LEAK_PATTERNS: &[&str] = &["asupersync::", "wasmtime::", " mpsc::"];
 
 const LEAK_IDENTIFIERS: &[&str] = &[
+    "AsupersyncRuntime",
+    "Config",
+    "Component",
+    "ComponentExportIndex",
     "Cx",
+    "Engine",
+    "Func",
+    "Instance",
+    "Linker",
+    "RecvError",
     "Runtime",
     "RuntimeBuilder",
     "SendPermit",
-    "RecvError",
     "SendError",
+    "Store",
+    "Val",
+    "WasmtimeBatchComponent",
+    "WasmtimeExecutionLimits",
 ];
 
 #[test]
-fn public_api_does_not_expose_asupersync_types() {
+fn public_api_does_not_expose_runtime_substrate_types() {
     let workspace_root: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
@@ -37,7 +49,7 @@ fn public_api_does_not_expose_asupersync_types() {
             }
 
             if !public_item.is_empty() && (public_item.contains('{') || public_item.contains(';')) {
-                if contains_substrate_type(&public_item) {
+                if contains_forbidden_substrate_type(&source_file, &public_item) {
                     leaks.push(format!("{}: {public_item}", source_file.display()));
                 }
                 public_item.clear();
@@ -47,7 +59,7 @@ fn public_api_does_not_expose_asupersync_types() {
 
     assert!(
         leaks.is_empty(),
-        "public API exposes asupersync substrate types:\n{}",
+        "public API exposes runtime substrate types:\n{}",
         leaks.join("\n")
     );
 }
@@ -88,6 +100,10 @@ fn starts_public_item(line: &str) -> bool {
         || line.starts_with("pub use ")
 }
 
+fn contains_forbidden_substrate_type(source_file: &Path, item: &str) -> bool {
+    contains_substrate_type(item) && !is_intentional_adapter_public_item(source_file, item)
+}
+
 fn contains_substrate_type(item: &str) -> bool {
     LEAK_PATTERNS
         .iter()
@@ -95,6 +111,33 @@ fn contains_substrate_type(item: &str) -> bool {
         || LEAK_IDENTIFIERS
             .iter()
             .any(|identifier: &&str| contains_identifier(item, identifier))
+}
+
+fn is_intentional_adapter_public_item(source_file: &Path, item: &str) -> bool {
+    let Some(crate_name) = crate_name(source_file) else {
+        return false;
+    };
+
+    match crate_name.as_str() {
+        "conduit-runtime" => item.contains("AsupersyncRuntime"),
+        "conduit-wasm" => {
+            item.contains("WasmtimeBatchComponent") || item.contains("WasmtimeExecutionLimits")
+        }
+        _ => false,
+    }
+}
+
+fn crate_name(source_file: &Path) -> Option<String> {
+    let mut components = source_file.components();
+    while let Some(component) = components.next() {
+        if component.as_os_str() == "crates" {
+            return components
+                .next()
+                .map(|crate_component| crate_component.as_os_str().to_string_lossy().into_owned());
+        }
+    }
+
+    None
 }
 
 fn contains_identifier(item: &str, identifier: &str) -> bool {
@@ -105,6 +148,13 @@ fn contains_identifier(item: &str, identifier: &str) -> bool {
 #[test]
 fn substrate_detection_catches_qualified_asupersync_type() {
     let item = "pub struct Foo { inner: asupersync::Runtime }";
+
+    assert!(contains_substrate_type(item));
+}
+
+#[test]
+fn substrate_detection_catches_qualified_wasmtime_type() {
+    let item = "pub fn build_store() -> wasmtime::Store<()>;";
 
     assert!(contains_substrate_type(item));
 }
@@ -121,4 +171,24 @@ fn substrate_detection_does_not_match_unrelated_identifier_substrings() {
     let item = "pub struct WorkflowRuntime { name: String }";
 
     assert!(!contains_substrate_type(item));
+}
+
+#[test]
+fn adapter_public_wrapper_names_are_allowed_only_in_adapter_crates() {
+    let runtime_file = PathBuf::from("crates/conduit-runtime/src/lib.rs");
+    let wasm_file = PathBuf::from("crates/conduit-wasm/src/lib.rs");
+    let core_file = PathBuf::from("crates/conduit-core/src/lib.rs");
+
+    assert!(!contains_forbidden_substrate_type(
+        &runtime_file,
+        "pub struct AsupersyncRuntime {"
+    ));
+    assert!(!contains_forbidden_substrate_type(
+        &wasm_file,
+        "pub struct WasmtimeBatchComponent {"
+    ));
+    assert!(contains_forbidden_substrate_type(
+        &core_file,
+        "pub struct AsupersyncRuntime {"
+    ));
 }
