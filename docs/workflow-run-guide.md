@@ -187,10 +187,17 @@ For the complete record schema and run summary JSON shape, see
 
 ## Choosing The Command
 
-- Use `validate` while authoring workflow JSON.
+- Use `validate` while authoring workflow JSON (supports `.json`, `.toml`, `.yaml`, `.yml`).
+- Use `validate-manifest` to check a component manifest before execution; add `--workflow` to verify node membership.
 - Use `inspect` when another tool needs topology and contract JSON.
 - Use `explain` when a human needs to review topology and metadata behavior.
 - Use `run` for text output plus metadata JSONL.
 - Use `run --json` for automation that needs a machine-facing run result.
 - Add `--wasm-components` when workflow nodes should load Wasmtime components
   instead of the generic native CLI executor.
+
+## WASM Smoke Path
+
+For a repeatable end-to-end walkthrough covering build, manifest validation, run,
+metadata inspection, and cleanup, see
+[`examples/wasm-uppercase.md`](../examples/wasm-uppercase.md).

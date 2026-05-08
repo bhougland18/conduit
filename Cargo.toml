@@ -38,6 +38,8 @@ conduit-types = { path = "crates/conduit-types" }
 conduit-wasm = { path = "crates/conduit-wasm" }
 conduit-workflow = { path = "crates/conduit-workflow" }
 conduit-workflow-format = { path = "crates/conduit-workflow-format" }
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 criterion = "0.8.2"
 futures = "0.3.31"
 insta = "1.47.2"

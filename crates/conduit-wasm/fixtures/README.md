@@ -36,3 +36,7 @@ The `testdata` directory contains stable WIT-shaped JSON vectors:
 The host crate parses these vectors in its normal unit tests so the checked
 fixture inputs stay aligned with the WIT ABI even when the guest component is not
 built by default.
+
+See [`uppercase-guest/README.md`](uppercase-guest/README.md) for the full
+authoring template: WIT contract, batch input/output shape, build instructions,
+target requirements, and a step-by-step guide for creating a new guest.

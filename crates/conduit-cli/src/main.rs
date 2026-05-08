@@ -1,7 +1,7 @@
 //! CLI entrypoint for Conduit workflow validation, inspection, and scaffold runs.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     env,
     error::Error,
     fmt::{self, Write as FmtWrite},
@@ -13,6 +13,8 @@ use std::{
     sync::Arc,
 };
 
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{Shell, generate};
 use conduit_contract::{
     ContractValidationError, Determinism, ExecutionMode, NodeContract, PortContract,
 };
@@ -39,7 +41,10 @@ use conduit_runtime::AsupersyncRuntime;
 use conduit_types::{ExecutionId, MessageId, NodeId, PortId};
 use conduit_wasm::{WasmtimeBatchComponent, WasmtimeExecutionLimits};
 use conduit_workflow::{EdgeCapacity, NodeDefinition, PortDirection, WorkflowDefinition};
-use conduit_workflow_format::{WorkflowJsonError, workflow_from_json_str};
+use conduit_workflow_format::{
+    WorkflowJsonError, WorkflowTomlError, WorkflowYamlError, workflow_from_json_str,
+    workflow_from_toml_str, workflow_from_yaml_str,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing_subscriber::{
@@ -53,6 +58,58 @@ type CliResult<T> = Result<T, CliError>;
 const CONDUIT_TRACE_ENV: &str = "CONDUIT_TRACE";
 const RUST_LOG_ENV: &str = "RUST_LOG";
 
+#[derive(Debug, Parser)]
+#[command(name = "conduit", about = "Conduit workflow engine CLI")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Debug, Subcommand)]
+enum Commands {
+    /// Validate a workflow JSON document.
+    Validate {
+        /// Path to the workflow JSON file.
+        workflow: PathBuf,
+    },
+    /// Inspect workflow topology, contracts, and capabilities as JSON.
+    Inspect {
+        /// Path to the workflow JSON file.
+        workflow: PathBuf,
+    },
+    /// Explain workflow topology and metadata policy.
+    Explain {
+        /// Path to the workflow JSON file.
+        workflow: PathBuf,
+    },
+    /// Run a workflow and write metadata JSONL.
+    Run {
+        /// Emit a machine-facing JSON summary to stdout.
+        #[arg(long)]
+        json: bool,
+        /// Path to a WASM component manifest JSON file.
+        #[arg(long, value_name = "COMPONENTS")]
+        wasm_components: Option<PathBuf>,
+        /// Path to the workflow JSON file.
+        workflow: PathBuf,
+        /// Path to write metadata JSONL output.
+        metadata: PathBuf,
+    },
+    /// Validate a WASM component manifest JSON file.
+    ValidateManifest {
+        /// Path to the workflow JSON file; checks that all manifest nodes exist in the workflow.
+        #[arg(long, value_name = "WORKFLOW")]
+        workflow: Option<PathBuf>,
+        /// Path to the WASM component manifest JSON file.
+        manifest: PathBuf,
+    },
+    /// Generate shell completion scripts.
+    Completions {
+        /// Shell to generate completions for.
+        shell: Shell,
+    },
+}
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("error: {error}");
@@ -62,15 +119,8 @@ fn main() {
 
 fn run() -> CliResult<()> {
     initialize_tracing_from_env()?;
-
-    let args: Vec<String> = env::args().skip(1).collect();
-    let Some(output): Option<String> =
-        command_output(&args, read_file, read_bytes_file, write_file)?
-    else {
-        println!("{}", usage());
-        return Ok(());
-    };
-
+    let cli = Cli::try_parse().unwrap_or_else(|err| err.exit());
+    let output = dispatch_command(&cli.command, read_file, read_bytes_file, write_file)?;
     print!("{output}");
     Ok(())
 }
@@ -139,55 +189,70 @@ fn tracing_value_uses_default_filter(value: &str) -> bool {
     matches!(lowercase.as_str(), "1" | "true" | "yes")
 }
 
-fn command_output(
-    args: &[String],
+fn dispatch_command(
+    cmd: &Commands,
     read: impl Fn(&Path) -> CliResult<String>,
     read_bytes: impl Fn(&Path) -> CliResult<Vec<u8>>,
     write: impl Fn(&Path, &str) -> CliResult<()>,
-) -> CliResult<Option<String>> {
-    match args {
-        [] => Ok(None),
-        [flag] if flag == "-h" || flag == "--help" => Ok(None),
-        [command, path] if command == "validate" => {
-            let input: String = read(Path::new(path))?;
-            validate_workflow_json(&input).map(Some)
+) -> CliResult<String> {
+    match cmd {
+        Commands::Validate { workflow } => {
+            let input: String = read(workflow)?;
+            validate_workflow_json(&input, workflow)
         }
-        [command, path] if command == "inspect" => {
-            let input: String = read(Path::new(path))?;
-            inspect_workflow_json(&input).map(Some)
+        Commands::Inspect { workflow } => {
+            let input: String = read(workflow)?;
+            inspect_workflow_json(&input, workflow)
         }
-        [command, path] if command == "explain" => {
-            let input: String = read(Path::new(path))?;
-            explain_workflow_json(&input).map(Some)
+        Commands::Explain { workflow } => {
+            let input: String = read(workflow)?;
+            explain_workflow_json(&input, workflow)
         }
-        [command, run_args @ ..] if command == "run" => {
-            let command: RunCommand<'_> = parse_run_command(run_args)?;
-            let input: String = read(Path::new(command.workflow_path))?;
-            let run: CliRunOutput = if let Some(wasm_components_path) = command.wasm_components_path
-            {
-                let manifest_path: &Path = Path::new(wasm_components_path);
-                let manifest_input: String = read(manifest_path)?;
-                let components: Vec<CliWasmComponentSpec> =
-                    wasm_component_specs_from_manifest(&manifest_input, manifest_path)?;
-                run_workflow_json_with_wasm_components(&input, components, &read_bytes)?
-            } else {
-                run_workflow_json(&input)?
-            };
-            write(Path::new(command.metadata_path), &run.metadata_jsonl)?;
-            if command.json {
-                cli_run_output_to_json_string(&run, command.metadata_path).map(Some)
-            } else {
-                Ok(Some(format!(
-                    "ran workflow `{}`\nnodes: {}\nedges: {}\nmetadata: {}\nrecords: {}\n",
-                    run.workflow_id,
-                    run.node_count,
-                    run.edge_count,
-                    command.metadata_path,
-                    run.record_count
+        Commands::ValidateManifest { workflow, manifest } => {
+            let manifest_input: String = read(manifest)?;
+            let workflow_input: Option<String> = workflow.as_deref().map(read).transpose()?;
+            validate_wasm_component_manifest(
+                &manifest_input,
+                manifest,
+                workflow_input.as_deref(),
+                Path::exists,
+            )
+        }
+        Commands::Completions { shell } => {
+            let mut buf: Vec<u8> = Vec::new();
+            generate(*shell, &mut Cli::command(), "conduit", &mut buf);
+            String::from_utf8(buf).map_err(|source: std::string::FromUtf8Error| {
+                CliError::Runtime(ConduitError::execution(format!(
+                    "completion script was not valid UTF-8: {source}"
                 )))
+            })
+        }
+        Commands::Run {
+            json,
+            wasm_components,
+            workflow,
+            metadata,
+        } => {
+            let input: String = read(workflow)?;
+            let run: CliRunOutput = if let Some(wasm_path) = wasm_components {
+                let manifest_input: String = read(wasm_path)?;
+                let components: Vec<CliWasmComponentSpec> =
+                    wasm_component_specs_from_manifest(&manifest_input, wasm_path)?;
+                run_workflow_json_with_wasm_components(&input, workflow, components, &read_bytes)?
+            } else {
+                run_workflow_json(&input, workflow)?
+            };
+            let metadata_str: String = metadata.display().to_string();
+            write(metadata, &run.metadata_jsonl)?;
+            if *json {
+                cli_run_output_to_json_string(&run, &metadata_str)
+            } else {
+                Ok(format!(
+                    "ran workflow `{}`\nnodes: {}\nedges: {}\nmetadata: {}\nrecords: {}\n",
+                    run.workflow_id, run.node_count, run.edge_count, metadata_str, run.record_count
+                ))
             }
         }
-        _ => Err(CliError::Usage),
     }
 }
 
@@ -215,8 +280,19 @@ fn write_file(path: &Path, contents: &str) -> CliResult<()> {
     })
 }
 
-fn validate_workflow_json(input: &str) -> CliResult<String> {
-    let workflow: WorkflowDefinition = workflow_from_json_str(input)?;
+fn load_workflow(input: &str, path: &Path) -> CliResult<WorkflowDefinition> {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("toml") => workflow_from_toml_str(input).map_err(CliError::WorkflowToml),
+        Some("yaml") | Some("yml") => workflow_from_yaml_str(input).map_err(CliError::WorkflowYaml),
+        Some("json") | None => workflow_from_json_str(input).map_err(CliError::WorkflowJson),
+        Some(ext) => Err(CliError::WorkflowFormat(format!(
+            "unsupported workflow file extension `.{ext}`; supported: .json, .toml, .yaml, .yml"
+        ))),
+    }
+}
+
+fn validate_workflow_json(input: &str, path: &Path) -> CliResult<String> {
+    let workflow: WorkflowDefinition = load_workflow(input, path)?;
 
     Ok(format!(
         "valid workflow `{}`\nnodes: {}\nedges: {}\n",
@@ -226,8 +302,66 @@ fn validate_workflow_json(input: &str) -> CliResult<String> {
     ))
 }
 
-fn inspect_workflow_json(input: &str) -> CliResult<String> {
-    let workflow: WorkflowDefinition = workflow_from_json_str(input)?;
+fn validate_wasm_component_manifest(
+    manifest_input: &str,
+    manifest_path: &Path,
+    workflow_input: Option<&str>,
+    path_exists: impl Fn(&Path) -> bool,
+) -> CliResult<String> {
+    let specs: Vec<CliWasmComponentSpec> =
+        wasm_component_specs_from_manifest(manifest_input, manifest_path)?;
+
+    let mut seen_nodes: BTreeSet<NodeId> = BTreeSet::new();
+    for spec in &specs {
+        if !seen_nodes.insert(spec.node_id.clone()) {
+            return Err(CliError::WasmManifest(format!(
+                "duplicate component entry for node `{}`",
+                spec.node_id
+            )));
+        }
+    }
+
+    for spec in &specs {
+        if !path_exists(&spec.component_path) {
+            return Err(CliError::WasmManifest(format!(
+                "component path `{}` for node `{}` is not readable",
+                spec.component_path.display(),
+                spec.node_id
+            )));
+        }
+    }
+
+    if let Some(input) = workflow_input {
+        let workflow: WorkflowDefinition =
+            workflow_from_json_str(input).map_err(CliError::WorkflowJson)?;
+        let workflow_nodes: BTreeSet<&NodeId> =
+            workflow.nodes().iter().map(NodeDefinition::id).collect();
+        for spec in &specs {
+            if !workflow_nodes.contains(&spec.node_id) {
+                return Err(CliError::WasmManifest(format!(
+                    "manifest node `{}` does not exist in workflow `{}`",
+                    spec.node_id,
+                    workflow.id()
+                )));
+            }
+        }
+        Ok(format!(
+            "valid manifest `{}`\ncomponents: {}\nworkflow: `{}`\n",
+            manifest_path.display(),
+            specs.len(),
+            workflow.id()
+        ))
+    } else {
+        Ok(format!(
+            "valid manifest `{}`\ncomponents: {}\n",
+            manifest_path.display(),
+            specs.len()
+        ))
+    }
+}
+
+fn inspect_workflow_json(input: &str, path: &Path) -> CliResult<String> {
+    let workflow: WorkflowDefinition = load_workflow(input, path)?;
     let (contracts, capabilities): (Vec<NodeContract>, Vec<NodeCapabilities>) =
         passive_native_contracts_for_workflow(&workflow)?;
     let introspection: WorkflowIntrospection =
@@ -237,8 +371,8 @@ fn inspect_workflow_json(input: &str) -> CliResult<String> {
     Ok(output)
 }
 
-fn explain_workflow_json(input: &str) -> CliResult<String> {
-    let workflow: WorkflowDefinition = workflow_from_json_str(input)?;
+fn explain_workflow_json(input: &str, path: &Path) -> CliResult<String> {
+    let workflow: WorkflowDefinition = load_workflow(input, path)?;
     let mut output: String = format!(
         "workflow `{}`\nstatus: valid\nnodes: {}\nedges: {}\nexecution: native-registry\nmetadata: jsonl lifecycle, message, and queue-pressure records with tiered control-only policy\n",
         workflow.id(),
@@ -279,53 +413,6 @@ fn explain_workflow_json(input: &str) -> CliResult<String> {
     Ok(output)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RunCommand<'a> {
-    workflow_path: &'a str,
-    metadata_path: &'a str,
-    json: bool,
-    wasm_components_path: Option<&'a str>,
-}
-
-fn parse_run_command(args: &[String]) -> CliResult<RunCommand<'_>> {
-    let mut json: bool = false;
-    let mut wasm_components_path: Option<&str> = None;
-    let mut positional: Vec<&str> = Vec::with_capacity(2);
-    let mut index: usize = 0;
-
-    while let Some(arg) = args.get(index) {
-        match arg.as_str() {
-            "--json" => {
-                json = true;
-                index = index.saturating_add(1);
-            }
-            "--wasm-components" => {
-                let path: &String = args.get(index.saturating_add(1)).ok_or(CliError::Usage)?;
-                if wasm_components_path.replace(path.as_str()).is_some() {
-                    return Err(CliError::Usage);
-                }
-                index = index.saturating_add(2);
-            }
-            value if value.starts_with('-') => return Err(CliError::Usage),
-            value => {
-                positional.push(value);
-                index = index.saturating_add(1);
-            }
-        }
-    }
-
-    let [workflow_path, metadata_path]: [&str; 2] = positional
-        .try_into()
-        .map_err(|_values: Vec<&str>| CliError::Usage)?;
-
-    Ok(RunCommand {
-        workflow_path,
-        metadata_path,
-        json,
-        wasm_components_path,
-    })
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CliRunOutput {
     workflow_id: String,
@@ -336,8 +423,8 @@ struct CliRunOutput {
     summary: WorkflowRunSummary,
 }
 
-fn run_workflow_json(input: &str) -> CliResult<CliRunOutput> {
-    let workflow: WorkflowDefinition = workflow_from_json_str(input)?;
+fn run_workflow_json(input: &str, path: &Path) -> CliResult<CliRunOutput> {
+    let workflow: WorkflowDefinition = load_workflow(input, path)?;
     let registry: StaticNodeExecutorRegistry<CliNativeExecutor> =
         native_registry_for_workflow(&workflow);
 
@@ -346,10 +433,11 @@ fn run_workflow_json(input: &str) -> CliResult<CliRunOutput> {
 
 fn run_workflow_json_with_wasm_components(
     input: &str,
+    path: &Path,
     components: Vec<CliWasmComponentSpec>,
     read_bytes: impl Fn(&Path) -> CliResult<Vec<u8>>,
 ) -> CliResult<CliRunOutput> {
-    let workflow: WorkflowDefinition = workflow_from_json_str(input)?;
+    let workflow: WorkflowDefinition = load_workflow(input, path)?;
     let registry: StaticNodeExecutorRegistry<CliNodeExecutor> =
         mixed_registry_for_workflow(&workflow, components, read_bytes)?;
 
@@ -883,19 +971,17 @@ fn passive_native_capabilities_for_node(node: &NodeDefinition) -> CliResult<Node
     NodeCapabilities::native_passive(node.id().clone(), ports).map_err(CliError::Capability)
 }
 
-const fn usage() -> &'static str {
-    "Usage:\n  conduit validate <workflow.json>\n  conduit inspect <workflow.json>\n  conduit explain <workflow.json>\n  conduit run [--json] [--wasm-components <components.json>] <workflow.json> <metadata.jsonl>"
-}
-
 #[derive(Debug)]
 enum CliError {
-    Usage,
     Io {
         action: &'static str,
         path: String,
         source: std::io::Error,
     },
     WorkflowJson(WorkflowJsonError),
+    WorkflowToml(WorkflowTomlError),
+    WorkflowYaml(WorkflowYamlError),
+    WorkflowFormat(String),
     Contract(ContractValidationError),
     Capability(CapabilityValidationError),
     IntrospectionJson(IntrospectionJsonError),
@@ -911,9 +997,11 @@ enum CliError {
 impl CliError {
     const fn exit_code(&self) -> i32 {
         match self {
-            Self::Usage => 2,
             Self::Io { .. }
             | Self::WorkflowJson(_)
+            | Self::WorkflowToml(_)
+            | Self::WorkflowYaml(_)
+            | Self::WorkflowFormat(_)
             | Self::Contract(_)
             | Self::Capability(_)
             | Self::IntrospectionJson(_)
@@ -928,13 +1016,15 @@ impl CliError {
 impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Usage => write!(f, "invalid arguments\n{}", usage()),
             Self::Io {
                 action,
                 path,
                 source,
             } => write!(f, "failed to {action} `{path}`: {source}"),
             Self::WorkflowJson(source) => write!(f, "{source}"),
+            Self::WorkflowToml(source) => write!(f, "{source}"),
+            Self::WorkflowYaml(source) => write!(f, "{source}"),
+            Self::WorkflowFormat(message) => write!(f, "{message}"),
             Self::Contract(source) => write!(f, "workflow contract validation failed: {source}"),
             Self::Capability(source) => {
                 write!(f, "workflow capability validation failed: {source}")
@@ -956,9 +1046,11 @@ impl fmt::Display for CliError {
 impl Error for CliError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Usage | Self::Tracing(_) | Self::WasmManifest(_) => None,
+            Self::Tracing(_) | Self::WasmManifest(_) | Self::WorkflowFormat(_) => None,
             Self::Io { source, .. } => Some(source),
             Self::WorkflowJson(source) => Some(source),
+            Self::WorkflowToml(source) => Some(source),
+            Self::WorkflowYaml(source) => Some(source),
             Self::Contract(source) => Some(source),
             Self::Capability(source) => Some(source),
             Self::IntrospectionJson(source) => Some(source),
@@ -1062,14 +1154,16 @@ mod tests {
 
     #[test]
     fn validate_reports_valid_workflow_summary() {
-        let output = validate_workflow_json(WORKFLOW_JSON).expect("workflow should validate");
+        let output = validate_workflow_json(WORKFLOW_JSON, Path::new("workflow.json"))
+            .expect("workflow should validate");
 
         assert_eq!(output, "valid workflow `flow`\nnodes: 2\nedges: 1\n");
     }
 
     #[test]
     fn inspect_renders_introspection_json() {
-        let output = inspect_workflow_json(WORKFLOW_JSON).expect("workflow should inspect");
+        let output = inspect_workflow_json(WORKFLOW_JSON, Path::new("workflow.json"))
+            .expect("workflow should inspect");
 
         assert!(output.contains("\"workflow_id\": \"flow\""));
         assert!(output.contains("\"execution_mode\": \"native\""));
@@ -1078,7 +1172,8 @@ mod tests {
 
     #[test]
     fn explain_reports_valid_topology_and_metadata_policy() {
-        let output = explain_workflow_json(WORKFLOW_JSON).expect("workflow should explain");
+        let output = explain_workflow_json(WORKFLOW_JSON, Path::new("workflow.json"))
+            .expect("workflow should explain");
 
         assert!(output.contains("workflow `flow`"));
         assert!(output.contains("execution: native-registry"));
@@ -1088,7 +1183,8 @@ mod tests {
 
     #[test]
     fn run_writes_reproducible_metadata_jsonl() {
-        let output = run_workflow_json(WORKFLOW_JSON).expect("workflow should run");
+        let output = run_workflow_json(WORKFLOW_JSON, Path::new("workflow.json"))
+            .expect("workflow should run");
 
         assert_eq!(output.workflow_id, "flow");
         assert_eq!(output.node_count, 2);
@@ -1141,7 +1237,8 @@ mod tests {
 
     #[test]
     fn run_json_output_reports_machine_facing_summary_fields() {
-        let output = run_workflow_json(WORKFLOW_JSON).expect("workflow should run");
+        let output = run_workflow_json(WORKFLOW_JSON, Path::new("workflow.json"))
+            .expect("workflow should run");
         let json_output = cli_run_output_to_json_string(&output, "metadata.jsonl")
             .expect("run JSON should encode");
         let value: Value = serde_json::from_str(&json_output).expect("run output should be JSON");
@@ -1194,17 +1291,19 @@ mod tests {
 
     #[test]
     fn run_json_command_writes_metadata_and_returns_json() {
+        let cli = Cli::try_parse_from([
+            "conduit",
+            "run",
+            "--json",
+            "workflow.json",
+            "metadata.jsonl",
+        ])
+        .expect("args should parse");
         let written_metadata: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let written_metadata_for_closure: Arc<Mutex<Option<String>>> = written_metadata.clone();
-        let args: Vec<String> = vec![
-            String::from("run"),
-            String::from("--json"),
-            String::from("workflow.json"),
-            String::from("metadata.jsonl"),
-        ];
 
-        let output = command_output(
-            &args,
+        let output = dispatch_command(
+            &cli.command,
             |path: &Path| {
                 assert_eq!(path, Path::new("workflow.json"));
                 Ok(String::from(WORKFLOW_JSON))
@@ -1219,8 +1318,7 @@ mod tests {
                 Ok(())
             },
         )
-        .expect("run command should succeed")
-        .expect("run command should produce output");
+        .expect("run command should succeed");
         let value: Value = serde_json::from_str(&output).expect("run output should be JSON");
         let metadata = written_metadata
             .lock()
@@ -1235,18 +1333,20 @@ mod tests {
 
     #[test]
     fn run_command_accepts_wasm_components_manifest() {
+        let cli = Cli::try_parse_from([
+            "conduit",
+            "run",
+            "--wasm-components",
+            "components.json",
+            "workflow.json",
+            "metadata.jsonl",
+        ])
+        .expect("args should parse");
         let written_metadata: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let written_metadata_for_closure: Arc<Mutex<Option<String>>> = written_metadata.clone();
-        let args: Vec<String> = vec![
-            String::from("run"),
-            String::from("--wasm-components"),
-            String::from("components.json"),
-            String::from("workflow.json"),
-            String::from("metadata.jsonl"),
-        ];
 
-        let output = command_output(
-            &args,
+        let output = dispatch_command(
+            &cli.command,
             |path: &Path| match path.to_str().expect("test path should be UTF-8") {
                 "workflow.json" => Ok(String::from(WORKFLOW_JSON)),
                 "components.json" => Ok(String::from(r#"{"components":[]}"#)),
@@ -1262,8 +1362,7 @@ mod tests {
                 Ok(())
             },
         )
-        .expect("run command should succeed")
-        .expect("run command should produce output");
+        .expect("run command should succeed");
         let metadata = written_metadata
             .lock()
             .expect("metadata write lock should not be poisoned")
@@ -1313,39 +1412,242 @@ mod tests {
     }
 
     #[test]
-    fn cli_error_json_uses_stable_machine_fields() {
-        let value: Value = conduit_error_to_json_value(&ConduitError::execution("boom"));
+    fn help_output_names_binary_and_lists_all_subcommands() {
+        let help = Cli::command().render_help().to_string();
 
-        assert_eq!(value["code"], "CDT-EXEC-001");
-        assert_eq!(
-            value["message"],
-            "CDT-EXEC-001: node execution failed: boom"
+        assert!(
+            help.contains("conduit"),
+            "help should name the binary conduit"
         );
-        assert_eq!(value["visibility"], "internal");
-        assert_eq!(value["retry_disposition"], "unknown");
+        assert!(
+            !help.contains("conduit-cli"),
+            "help should not expose the package name"
+        );
+        assert!(help.contains("validate"));
+        assert!(help.contains("inspect"));
+        assert!(help.contains("explain"));
+        assert!(help.contains("run"));
+        assert!(help.contains("completions"));
     }
 
     #[test]
-    fn native_linear_etl_example_runs_through_native_registry() {
-        let output =
-            run_workflow_json(NATIVE_LINEAR_ETL_WORKFLOW_JSON).expect("example should run");
+    fn completions_subcommand_generates_nonempty_bash_script() {
+        let cli =
+            Cli::try_parse_from(["conduit", "completions", "bash"]).expect("args should parse");
 
-        assert_eq!(output.workflow_id, "native-linear-etl");
-        assert_eq!(output.node_count, 3);
-        assert_eq!(output.edge_count, 2);
-        assert_eq!(output.record_count, 24);
-        assert!(output.metadata_jsonl.contains("\"node_id\":\"transform\""));
-        assert!(output.metadata_jsonl.contains("\"port_id\":\"cleaned\""));
+        let output = dispatch_command(
+            &cli.command,
+            |_path: &Path| unreachable!("completions should not read files"),
+            |_path: &Path| unreachable!("completions should not read bytes"),
+            |_path: &Path, _contents: &str| unreachable!("completions should not write files"),
+        )
+        .expect("completions should succeed");
+
+        assert!(!output.is_empty());
+        assert!(output.contains("conduit"));
+    }
+
+    const MANIFEST_JSON_EMPTY: &str = r#"{"components":[]}"#;
+    const MANIFEST_JSON_ONE: &str = r#"{"components":[{"node":"transform","component":"components/uppercase.wasm","fuel":100000}]}"#;
+
+    #[test]
+    fn validate_manifest_accepts_empty_manifest() {
+        let output = validate_wasm_component_manifest(
+            MANIFEST_JSON_EMPTY,
+            Path::new("components.json"),
+            None,
+            |_path: &Path| unreachable!("empty manifest should not check paths"),
+        )
+        .expect("empty manifest should be valid");
+
+        assert!(output.contains("valid manifest"));
+        assert!(output.contains("components: 0"));
     }
 
     #[test]
-    fn validate_rejects_invalid_workflow_json() {
-        let err = validate_workflow_json("{").expect_err("malformed JSON should fail");
+    fn validate_manifest_accepts_valid_single_component() {
+        let output = validate_wasm_component_manifest(
+            MANIFEST_JSON_ONE,
+            Path::new("components.json"),
+            None,
+            |_path: &Path| true,
+        )
+        .expect("valid manifest should pass");
 
-        assert!(matches!(err, CliError::WorkflowJson(_)));
+        assert!(output.contains("components: 1"));
+    }
+
+    #[test]
+    fn validate_manifest_rejects_unknown_fields() {
+        let err = validate_wasm_component_manifest(
+            r#"{"components":[],"extra":true}"#,
+            Path::new("components.json"),
+            None,
+            |_path: &Path| unreachable!(),
+        )
+        .expect_err("unknown field should fail");
+
+        assert!(err.to_string().contains("failed to decode"));
+    }
+
+    #[test]
+    fn validate_manifest_rejects_invalid_node_id() {
+        let err = validate_wasm_component_manifest(
+            r#"{"components":[{"node":"bad node id","component":"x.wasm"}]}"#,
+            Path::new("components.json"),
+            None,
+            |_path: &Path| unreachable!(),
+        )
+        .expect_err("invalid node id should fail");
+
+        assert!(!err.to_string().is_empty());
+    }
+
+    #[test]
+    fn validate_manifest_rejects_duplicate_node_entries() {
+        let err = validate_wasm_component_manifest(
+            r#"{"components":[{"node":"a","component":"a.wasm"},{"node":"a","component":"b.wasm"}]}"#,
+            Path::new("components.json"),
+            None,
+            |_path: &Path| true,
+        )
+        .expect_err("duplicate node should fail");
+
+        assert!(
+            err.to_string()
+                .contains("duplicate component entry for node `a`")
+        );
+    }
+
+    #[test]
+    fn validate_manifest_rejects_unreadable_component_paths() {
+        let err = validate_wasm_component_manifest(
+            MANIFEST_JSON_ONE,
+            Path::new("components.json"),
+            None,
+            |_path: &Path| false,
+        )
+        .expect_err("unreadable path should fail");
+
+        assert!(err.to_string().contains("not readable"));
+        assert!(err.to_string().contains("transform"));
+    }
+
+    #[test]
+    fn validate_manifest_with_workflow_rejects_missing_nodes() {
+        let err = validate_wasm_component_manifest(
+            MANIFEST_JSON_ONE,
+            Path::new("components.json"),
+            Some(WORKFLOW_JSON),
+            |_path: &Path| true,
+        )
+        .expect_err("node not in workflow should fail");
+
+        assert!(err.to_string().contains("`transform`"));
+        assert!(err.to_string().contains("workflow `flow`"));
+    }
+
+    #[test]
+    fn validate_manifest_with_workflow_accepts_known_node() {
+        let manifest = r#"{"components":[{"node":"source","component":"source.wasm"}]}"#;
+        let output = validate_wasm_component_manifest(
+            manifest,
+            Path::new("components.json"),
+            Some(WORKFLOW_JSON),
+            |_path: &Path| true,
+        )
+        .expect("known node should pass");
+
+        assert!(output.contains("workflow: `flow`"));
+        assert!(output.contains("components: 1"));
+    }
+
+    const WORKFLOW_TOML: &str = r#"
+conduit_version = "1"
+id = "flow"
+
+[[nodes]]
+id = "source"
+inputs = []
+outputs = ["out"]
+
+[[nodes]]
+id = "sink"
+inputs = ["in"]
+outputs = []
+
+[[edges]]
+capacity = 8
+
+[edges.source]
+node = "source"
+port = "out"
+
+[edges.target]
+node = "sink"
+port = "in"
+"#;
+
+    const WORKFLOW_YAML: &str = r#"
+conduit_version: "1"
+id: flow
+nodes:
+  - id: source
+    inputs: []
+    outputs: [out]
+  - id: sink
+    inputs: [in]
+    outputs: []
+edges:
+  - source: { node: source, port: out }
+    target: { node: sink, port: in }
+    capacity: 8
+"#;
+
+    #[test]
+    fn validate_dispatches_toml_by_extension() {
+        let output = validate_workflow_json(WORKFLOW_TOML, Path::new("workflow.toml"))
+            .expect("TOML workflow should validate");
+
+        assert_eq!(output, "valid workflow `flow`\nnodes: 2\nedges: 1\n");
+    }
+
+    #[test]
+    fn validate_dispatches_yaml_by_extension() {
+        let output = validate_workflow_json(WORKFLOW_YAML, Path::new("workflow.yaml"))
+            .expect("YAML workflow should validate");
+
+        assert_eq!(output, "valid workflow `flow`\nnodes: 2\nedges: 1\n");
+    }
+
+    #[test]
+    fn validate_dispatches_yml_extension() {
+        let output = validate_workflow_json(WORKFLOW_YAML, Path::new("flow.yml"))
+            .expect(".yml extension should validate");
+
+        assert_eq!(output, "valid workflow `flow`\nnodes: 2\nedges: 1\n");
+    }
+
+    #[test]
+    fn validate_rejects_unsupported_extension() {
+        let err = validate_workflow_json(WORKFLOW_JSON, Path::new("workflow.xml"))
+            .expect_err("unknown extension should fail");
+
+        assert!(
+            err.to_string()
+                .contains("unsupported workflow file extension `.xml`")
+        );
+    }
+
+    #[test]
+    fn validate_falls_back_to_json_with_no_extension() {
+        let output = validate_workflow_json(WORKFLOW_JSON, Path::new("workflow"))
+            .expect("no extension should fall back to JSON");
+
+        assert_eq!(output, "valid workflow `flow`\nnodes: 2\nedges: 1\n");
     }
 
     fn node_id(value: &str) -> NodeId {
-        NodeId::new(value).expect("valid node id")
+        NodeId::new(value).expect("test node id should be valid")
     }
 }
