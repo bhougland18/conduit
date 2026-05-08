@@ -542,6 +542,8 @@ mod tests {
     use super::*;
     use conduit_types::IdentifierKind;
     use conduit_workflow::{EdgeCapacity, EdgeEndpointRole, PortDirection};
+    use quickcheck::{Arbitrary, Gen, QuickCheck};
+    use std::collections::BTreeSet;
 
     fn valid_raw_workflow() -> RawWorkflowDefinition {
         RawWorkflowDefinition {
@@ -571,6 +573,154 @@ mod tests {
                 capacity: Some(4),
             }],
         }
+    }
+
+    #[derive(Debug, Clone)]
+    struct ArbitraryWorkflow(WorkflowDefinition);
+
+    impl Arbitrary for ArbitraryWorkflow {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let node_count: usize = usize::from(u8::arbitrary(g) % 5) + 1;
+            let candidate_edge_count: usize =
+                node_count.saturating_mul(node_count.saturating_sub(1)) / 2;
+            let mut selected_edges: Vec<(usize, usize, EdgeCapacity)> = Vec::new();
+
+            for source in 0..node_count {
+                for target in source.saturating_add(1)..node_count {
+                    if bool::arbitrary(g) {
+                        selected_edges.push((source, target, arbitrary_capacity(g)));
+                    }
+                }
+            }
+
+            if selected_edges.is_empty() && candidate_edge_count > 0 {
+                selected_edges.push((0, 1, arbitrary_capacity(g)));
+            }
+
+            let mut input_ports: Vec<BTreeSet<String>> = vec![BTreeSet::new(); node_count];
+            let mut output_ports: Vec<BTreeSet<String>> = vec![BTreeSet::new(); node_count];
+            for (source, target, _capacity) in &selected_edges {
+                output_ports[*source].insert(format!("out_{target}"));
+                input_ports[*target].insert(format!("in_{source}"));
+            }
+
+            let nodes: Vec<NodeDefinition> = (0..node_count)
+                .map(|index: usize| {
+                    let inputs: Vec<PortId> = input_ports[index]
+                        .iter()
+                        .map(|port: &String| PortId::new(port.clone()).expect("generated input id"))
+                        .collect();
+                    let outputs: Vec<PortId> = output_ports[index]
+                        .iter()
+                        .map(|port: &String| {
+                            PortId::new(port.clone()).expect("generated output id")
+                        })
+                        .collect();
+                    NodeDefinition::new(
+                        NodeId::new(format!("node_{index}")).expect("generated node id"),
+                        inputs,
+                        outputs,
+                    )
+                    .expect("generated node should validate")
+                })
+                .collect();
+            let edges: Vec<EdgeDefinition> = selected_edges
+                .into_iter()
+                .map(|(source, target, capacity): (usize, usize, EdgeCapacity)| {
+                    let edge = EdgeDefinition::new(
+                        EdgeEndpoint::new(
+                            NodeId::new(format!("node_{source}")).expect("generated source id"),
+                            PortId::new(format!("out_{target}")).expect("generated source port id"),
+                        ),
+                        EdgeEndpoint::new(
+                            NodeId::new(format!("node_{target}")).expect("generated target id"),
+                            PortId::new(format!("in_{source}")).expect("generated target port id"),
+                        ),
+                    );
+                    match capacity {
+                        EdgeCapacity::Default => edge,
+                        EdgeCapacity::Explicit(capacity) => EdgeDefinition::with_capacity(
+                            edge.source().clone(),
+                            edge.target().clone(),
+                            capacity,
+                        ),
+                    }
+                })
+                .collect();
+            let workflow = WorkflowDefinition::from_parts(
+                WorkflowId::new("generated_flow").expect("generated workflow id"),
+                nodes,
+                edges,
+            )
+            .expect("generated workflow should validate");
+
+            Self(workflow)
+        }
+    }
+
+    fn arbitrary_capacity(g: &mut Gen) -> EdgeCapacity {
+        if bool::arbitrary(g) {
+            EdgeCapacity::Default
+        } else {
+            let value: usize = usize::from(u8::arbitrary(g) % 16) + 1;
+            EdgeCapacity::Explicit(NonZeroUsize::new(value).expect("generated nonzero capacity"))
+        }
+    }
+
+    fn raw_from_workflow(workflow: &WorkflowDefinition) -> RawWorkflowDefinition {
+        RawWorkflowDefinition {
+            conduit_version: Some(CURRENT_CONDUIT_VERSION.to_owned()),
+            id: workflow.id().to_string(),
+            nodes: workflow
+                .nodes()
+                .iter()
+                .map(|node: &NodeDefinition| RawNodeDefinition {
+                    id: node.id().to_string(),
+                    inputs: node.input_ports().iter().map(ToString::to_string).collect(),
+                    outputs: node
+                        .output_ports()
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect(),
+                })
+                .collect(),
+            edges: workflow
+                .edges()
+                .iter()
+                .map(|edge: &EdgeDefinition| RawEdgeDefinition {
+                    source: RawEdgeEndpoint {
+                        node: edge.source().node_id().to_string(),
+                        port: edge.source().port_id().to_string(),
+                    },
+                    target: RawEdgeEndpoint {
+                        node: edge.target().node_id().to_string(),
+                        port: edge.target().port_id().to_string(),
+                    },
+                    capacity: match edge.capacity() {
+                        EdgeCapacity::Default => None,
+                        EdgeCapacity::Explicit(capacity) => Some(capacity.get()),
+                    },
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn generated_workflows_round_trip_through_json() {
+        fn property(generated: ArbitraryWorkflow) -> bool {
+            let workflow: WorkflowDefinition = generated.0;
+            let raw: RawWorkflowDefinition = raw_from_workflow(&workflow);
+            let encoded: String =
+                raw_workflow_to_json_string(&raw).expect("generated workflow should serialize");
+            let decoded: WorkflowDefinition =
+                workflow_from_json_str(&encoded).expect("encoded workflow should parse");
+
+            decoded == workflow
+        }
+
+        QuickCheck::new()
+            .tests(128)
+            .quickcheck(property as fn(ArbitraryWorkflow) -> bool);
     }
 
     #[test]

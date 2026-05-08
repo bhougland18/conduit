@@ -510,6 +510,7 @@ version = "0.1.0"
 dependencies = [
  "conduit-types",
  "conduit-workflow",
+ "quickcheck",
  "serde",
  "serde_json",
  "serde_yml",

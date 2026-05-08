@@ -18,5 +18,8 @@ default = []
 toml = ["dep:toml"]
 yaml = ["dep:serde_yml"]
 
+[dev-dependencies]
+quickcheck.workspace = true
+
 [lints]
 workspace = true
