@@ -10,6 +10,7 @@ conduit-types.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+quickcheck.workspace = true
 
 [lints]
 workspace = true

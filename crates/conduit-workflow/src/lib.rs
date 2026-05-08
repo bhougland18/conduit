@@ -725,7 +725,9 @@ mod tests {
     use super::*;
     use conduit_types::IdentifierKind;
     use proptest::{collection::hash_set, prelude::*};
+    use quickcheck::{Arbitrary as QuickArbitrary, Gen, QuickCheck};
     use std::num::NonZeroUsize;
+    use std::panic::{self, AssertUnwindSafe};
 
     fn valid_identifier_strategy() -> impl Strategy<Value = String> {
         prop::collection::vec(
@@ -752,6 +754,277 @@ mod tests {
 
     fn endpoint(node: &str, port: &str) -> EdgeEndpoint {
         EdgeEndpoint::new(node_id(node), port_id(port))
+    }
+
+    #[derive(Debug, Clone)]
+    struct GeneratedValidGraph {
+        nodes: Vec<NodeDefinition>,
+        edges: Vec<EdgeDefinition>,
+    }
+
+    impl QuickArbitrary for GeneratedValidGraph {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let node_count = generated_count(g, 1, 6);
+            let nodes: Vec<NodeDefinition> = (0..node_count)
+                .map(|index| generated_routable_node(index))
+                .collect();
+            let mut edges = Vec::new();
+
+            for source in 0..node_count {
+                for target in (source + 1)..node_count {
+                    if generated_bool(g) {
+                        edges.push(generated_edge(source, target));
+                    }
+                }
+            }
+
+            Self { nodes, edges }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct SmallNodeCount(usize);
+
+    impl QuickArbitrary for SmallNodeCount {
+        fn arbitrary(g: &mut Gen) -> Self {
+            Self(generated_count(g, 1, 6))
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct GeneratedValidationCase {
+        scenario: ValidationScenario,
+    }
+
+    #[derive(Debug, Clone)]
+    enum ValidationScenario {
+        DuplicatePort {
+            node_id: NodeId,
+            port_id: PortId,
+        },
+        Graph {
+            nodes: Vec<NodeDefinition>,
+            edges: Vec<EdgeDefinition>,
+            expected: ExpectedGraphResult,
+        },
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum ExpectedGraphResult {
+        Ok,
+        DuplicateNode,
+        UnknownNode(EdgeEndpointRole),
+        UnknownPort(EdgeEndpointRole, PortDirection),
+        CycleDetected,
+    }
+
+    impl QuickArbitrary for GeneratedValidationCase {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let scenario = match generated_u8(g) % 8 {
+                0 => {
+                    let graph = GeneratedValidGraph::arbitrary(g);
+                    ValidationScenario::Graph {
+                        nodes: graph.nodes,
+                        edges: graph.edges,
+                        expected: ExpectedGraphResult::Ok,
+                    }
+                }
+                1 => ValidationScenario::Graph {
+                    nodes: vec![generated_empty_node(0), generated_empty_node(0)],
+                    edges: Vec::new(),
+                    expected: ExpectedGraphResult::DuplicateNode,
+                },
+                2 => ValidationScenario::DuplicatePort {
+                    node_id: generated_node_id(0),
+                    port_id: port_id("dup"),
+                },
+                3 => ValidationScenario::Graph {
+                    nodes: vec![generated_sink_node(0)],
+                    edges: vec![EdgeDefinition::new(
+                        EdgeEndpoint::new(node_id("missing_source"), port_id("out")),
+                        EdgeEndpoint::new(generated_node_id(0), port_id("in")),
+                    )],
+                    expected: ExpectedGraphResult::UnknownNode(EdgeEndpointRole::Source),
+                },
+                4 => ValidationScenario::Graph {
+                    nodes: vec![generated_source_node(0)],
+                    edges: vec![EdgeDefinition::new(
+                        EdgeEndpoint::new(generated_node_id(0), port_id("out")),
+                        EdgeEndpoint::new(node_id("missing_target"), port_id("in")),
+                    )],
+                    expected: ExpectedGraphResult::UnknownNode(EdgeEndpointRole::Target),
+                },
+                5 => ValidationScenario::Graph {
+                    nodes: vec![generated_sink_node(0), generated_sink_node(1)],
+                    edges: vec![EdgeDefinition::new(
+                        EdgeEndpoint::new(generated_node_id(0), port_id("in")),
+                        EdgeEndpoint::new(generated_node_id(1), port_id("in")),
+                    )],
+                    expected: ExpectedGraphResult::UnknownPort(
+                        EdgeEndpointRole::Source,
+                        PortDirection::Output,
+                    ),
+                },
+                6 => ValidationScenario::Graph {
+                    nodes: vec![generated_source_node(0), generated_source_node(1)],
+                    edges: vec![EdgeDefinition::new(
+                        EdgeEndpoint::new(generated_node_id(0), port_id("out")),
+                        EdgeEndpoint::new(generated_node_id(1), port_id("out")),
+                    )],
+                    expected: ExpectedGraphResult::UnknownPort(
+                        EdgeEndpointRole::Target,
+                        PortDirection::Input,
+                    ),
+                },
+                _ => {
+                    let (nodes, edges) = generated_cycle_graph(g);
+                    ValidationScenario::Graph {
+                        nodes,
+                        edges,
+                        expected: ExpectedGraphResult::CycleDetected,
+                    }
+                }
+            };
+
+            Self { scenario }
+        }
+    }
+
+    fn generated_count(g: &mut Gen, min: usize, max_exclusive: usize) -> usize {
+        min + (generated_usize(g) % (max_exclusive - min))
+    }
+
+    fn generated_bool(g: &mut Gen) -> bool {
+        <bool as QuickArbitrary>::arbitrary(g)
+    }
+
+    fn generated_u8(g: &mut Gen) -> u8 {
+        <u8 as QuickArbitrary>::arbitrary(g)
+    }
+
+    fn generated_usize(g: &mut Gen) -> usize {
+        <usize as QuickArbitrary>::arbitrary(g)
+    }
+
+    fn generated_node_id(index: usize) -> NodeId {
+        node_id(&format!("node_{index}"))
+    }
+
+    fn generated_routable_node(index: usize) -> NodeDefinition {
+        NodeDefinition::new(generated_node_id(index), [port_id("in")], [port_id("out")])
+            .expect("generated routable node is valid")
+    }
+
+    fn generated_source_node(index: usize) -> NodeDefinition {
+        NodeDefinition::new(
+            generated_node_id(index),
+            Vec::<PortId>::new(),
+            [port_id("out")],
+        )
+        .expect("generated source node is valid")
+    }
+
+    fn generated_sink_node(index: usize) -> NodeDefinition {
+        NodeDefinition::new(
+            generated_node_id(index),
+            [port_id("in")],
+            Vec::<PortId>::new(),
+        )
+        .expect("generated sink node is valid")
+    }
+
+    fn generated_empty_node(index: usize) -> NodeDefinition {
+        NodeDefinition::new(
+            generated_node_id(index),
+            Vec::<PortId>::new(),
+            Vec::<PortId>::new(),
+        )
+        .expect("generated empty node is valid")
+    }
+
+    fn generated_edge(source: usize, target: usize) -> EdgeDefinition {
+        EdgeDefinition::new(
+            EdgeEndpoint::new(generated_node_id(source), port_id("out")),
+            EdgeEndpoint::new(generated_node_id(target), port_id("in")),
+        )
+    }
+
+    fn generated_cycle_graph(g: &mut Gen) -> (Vec<NodeDefinition>, Vec<EdgeDefinition>) {
+        let node_count = generated_count(g, 2, 7);
+        let nodes = (0..node_count).map(generated_routable_node).collect();
+        let edges = (0..node_count)
+            .map(|source| generated_edge(source, (source + 1) % node_count))
+            .collect();
+
+        (nodes, edges)
+    }
+
+    fn generated_fan_out_graph(target_count: usize) -> (Vec<NodeDefinition>, Vec<EdgeDefinition>) {
+        let mut nodes = vec![generated_source_node(0)];
+        let mut edges = Vec::new();
+
+        for target in 1..=target_count {
+            nodes.push(generated_sink_node(target));
+            edges.push(generated_edge(0, target));
+        }
+
+        (nodes, edges)
+    }
+
+    fn generated_fan_in_graph(source_count: usize) -> (Vec<NodeDefinition>, Vec<EdgeDefinition>) {
+        let sink_index = source_count;
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        for source in 0..source_count {
+            nodes.push(generated_source_node(source));
+            edges.push(generated_edge(source, sink_index));
+        }
+
+        nodes.push(generated_sink_node(sink_index));
+        (nodes, edges)
+    }
+
+    fn validate_generated_case(case: &GeneratedValidationCase) -> bool {
+        match &case.scenario {
+            ValidationScenario::DuplicatePort { node_id, port_id } => matches!(
+                NodeDefinition::new(node_id.clone(), [port_id.clone()], [port_id.clone()]),
+                Err(WorkflowValidationError::DuplicatePort { .. })
+            ),
+            ValidationScenario::Graph {
+                nodes,
+                edges,
+                expected,
+            } => graph_result_matches(WorkflowGraph::new(nodes.clone(), edges.clone()), *expected),
+        }
+    }
+
+    fn graph_result_matches(
+        result: Result<WorkflowGraph, WorkflowValidationError>,
+        expected: ExpectedGraphResult,
+    ) -> bool {
+        match (result, expected) {
+            (Ok(_), ExpectedGraphResult::Ok) => true,
+            (
+                Err(WorkflowValidationError::DuplicateNode { .. }),
+                ExpectedGraphResult::DuplicateNode,
+            ) => true,
+            (
+                Err(WorkflowValidationError::UnknownNode { endpoint, .. }),
+                ExpectedGraphResult::UnknownNode(expected_endpoint),
+            ) => endpoint == expected_endpoint,
+            (
+                Err(WorkflowValidationError::UnknownPort {
+                    endpoint, expected, ..
+                }),
+                ExpectedGraphResult::UnknownPort(expected_endpoint, expected_direction),
+            ) => endpoint == expected_endpoint && expected == expected_direction,
+            (
+                Err(WorkflowValidationError::CycleDetected { cycle }),
+                ExpectedGraphResult::CycleDetected,
+            ) => !cycle.is_empty(),
+            _ => false,
+        }
     }
 
     #[test]
@@ -1013,6 +1286,55 @@ mod tests {
                 expected: PortDirection::Input
             }
         );
+    }
+
+    #[test]
+    fn generated_acyclic_graphs_with_disconnected_nodes_validate() {
+        fn property(graph: GeneratedValidGraph) -> bool {
+            WorkflowGraph::new(graph.nodes, graph.edges).is_ok()
+        }
+
+        QuickCheck::new()
+            .tests(128)
+            .quickcheck(property as fn(GeneratedValidGraph) -> bool);
+    }
+
+    #[test]
+    fn generated_validation_cases_return_consistent_error_variants_without_panicking() {
+        fn property(case: GeneratedValidationCase) -> bool {
+            panic::catch_unwind(AssertUnwindSafe(|| validate_generated_case(&case)))
+                .unwrap_or(false)
+        }
+
+        QuickCheck::new()
+            .tests(128)
+            .quickcheck(property as fn(GeneratedValidationCase) -> bool);
+    }
+
+    #[test]
+    fn generated_fan_out_topologies_validate() {
+        fn property(count: SmallNodeCount) -> bool {
+            let (nodes, edges) = generated_fan_out_graph(count.0);
+
+            WorkflowGraph::new(nodes, edges).is_ok()
+        }
+
+        QuickCheck::new()
+            .tests(128)
+            .quickcheck(property as fn(SmallNodeCount) -> bool);
+    }
+
+    #[test]
+    fn generated_fan_in_topologies_validate() {
+        fn property(count: SmallNodeCount) -> bool {
+            let (nodes, edges) = generated_fan_in_graph(count.0);
+
+            WorkflowGraph::new(nodes, edges).is_ok()
+        }
+
+        QuickCheck::new()
+            .tests(128)
+            .quickcheck(property as fn(SmallNodeCount) -> bool);
     }
 
     fn build_linear_workflow(node_names: &[String]) -> WorkflowDefinition {
