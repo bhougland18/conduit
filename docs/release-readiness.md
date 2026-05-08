@@ -75,6 +75,9 @@ cargo run -p conduit-cli -- run --json examples/native-linear-etl.workflow.json 
 
 - [ ] `run --wasm-components` is smoke-tested with a manifest-backed component
   workflow when releasing WASM-facing behavior.
+- [ ] No-progress watchdog policy remains library-only for this release. The
+  CLI rejects cycles under the default acyclic run policy and does not expose a
+  watchdog flag until feedback-loop execution policy is also exposed.
 - [ ] `CONDUIT_TRACE` or `RUST_LOG` tracing remains opt-in and writes to stderr,
   not stable metadata JSONL.
 

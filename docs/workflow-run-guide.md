@@ -123,6 +123,19 @@ object with `code`, `message`, `visibility`, and `retry_disposition`.
 `summary.observed_message_count` is reserved and currently remains `0` until
 runner-level message accounting is attached.
 
+## No-Progress Watchdog Policy
+
+The no-progress watchdog is currently a library API, not a CLI `run` option.
+The CLI uses the default acyclic workflow policy: cyclic graphs are rejected
+before execution, and the deadlock watchdog is disabled. This keeps the command
+surface honest until the CLI also exposes feedback-loop execution policy.
+
+Library callers that intentionally run feedback-loop workflows can configure
+`WorkflowRunPolicy::feedback_loops(...).with_watchdog(...)` through
+`conduit-engine`. When the watchdog fires, the run summary reports
+`terminal_state: "failed"`, captures `summary.deadlock_diagnostic`, and writes a
+workflow-level error metadata record with the same diagnostic payload.
+
 ## WASM Components
 
 To run one or more workflow nodes as WASM components, pass a component manifest
