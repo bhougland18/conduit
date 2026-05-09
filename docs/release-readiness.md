@@ -17,8 +17,13 @@ repository state rather than a crates.io publication.
 - [ ] Confirm `LICENSE` exists and matches the workspace license field.
 - [ ] Decide whether the release is a source-only checkpoint, binary artifact,
   or internal demo handoff.
+  - Current artifact intent: source-only repository checkpoint for internal
+    demo handoff. No crates.io publication or official binary artifacts are
+    produced by default.
 - [ ] If producing binaries, document the target platform and exact build
   command used.
+- [ ] Review the latest package metadata audit:
+  [package-metadata-audit-2026-05-09.md](package-metadata-audit-2026-05-09.md).
 
 ## Validation Gate
 
