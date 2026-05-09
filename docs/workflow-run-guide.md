@@ -185,6 +185,9 @@ random addresses, and raw payload bytes so repeated runs remain reproducible.
 For the complete record schema and run summary JSON shape, see
 [metadata-json.md](metadata-json.md).
 
+For authoring node contracts and capability descriptors that match workflow
+topology, see [contract-capability-authoring.md](contract-capability-authoring.md).
+
 ## Choosing The Command
 
 - Use `validate` while authoring workflow JSON (supports `.json`, `.toml`, `.yaml`, `.yml`).

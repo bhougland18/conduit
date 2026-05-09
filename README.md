@@ -159,6 +159,7 @@ Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 - `docs/release-readiness.md` - release candidate checklist and deferred work notes
 - `docs/metadata-json.md` - metadata JSONL and CLI run summary JSON reference
 - `examples/wasm-uppercase.md` - WASM node smoke path: build fixture, validate manifest, run, inspect metadata, clean
+- `docs/contract-capability-authoring.md` - contract and capability mapping guidance for native and WASM nodes
 - `crates/conduit-wasm/fixtures/uppercase-guest/README.md` - WASM guest authoring template: WIT contract, JSON shape, build, and step-by-step guide
 - `docs/handoff_2026-05-07.md` - latest handoff snapshot
 - `docs/AGENTS.md` - repo-local working conventions for coding agents
