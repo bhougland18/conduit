@@ -111,6 +111,96 @@ Surfaces exercised:
 - deterministic windowed join output and unmatched window remainders
 - metadata useful for diagnosing receive ordering and closure behavior
 
+## Replay/Branch Evaluation Workload
+
+Files:
+
+- `examples/workloads/replay-branch-eval.workflow.json`
+- `examples/workloads/replay-branch-eval.md`
+- `crates/conduit-engine/examples/replay_branch_eval.rs`
+
+Commands:
+
+```bash
+cargo run -p conduit-cli -- validate examples/workloads/replay-branch-eval.workflow.json
+cargo run -p conduit-cli -- inspect examples/workloads/replay-branch-eval.workflow.json
+cargo run -p conduit-cli -- explain examples/workloads/replay-branch-eval.workflow.json
+cargo run -p conduit-engine --example replay_branch_eval
+```
+
+Expected workload output:
+
+```text
+replay/branch eval workflow `replay-branch-eval-workload` completed
+source inputs: 3
+branch-a outputs: 3
+branch-b outputs: 3
+  row[0]: tag:alpha | rev:ahpla
+  row[1]: tag:beta | rev:ateb
+  row[2]: tag:gamma | rev:ammag
+scheduled nodes: 4
+completed nodes: 4
+metadata records: 88
+metadata lifecycle records: 8
+metadata message records: 21
+metadata queue_pressure records: 59
+```
+
+Surfaces exercised:
+
+- fan-out from one source output port to two independent downstream edges
+- two distinct evaluator input ports drained sequentially (not fan-in)
+- deterministic per-branch output comparison
+- branch count verification as a regression gate
+- metadata attributable to each branch independently
+
+## Watcher Cancellation Workload
+
+Files:
+
+- `examples/workloads/watcher-cancellation.workflow.json`
+- `examples/workloads/watcher-cancellation.md`
+- `crates/conduit-engine/examples/watcher_cancellation.rs`
+
+Commands:
+
+```bash
+cargo run -p conduit-cli -- validate examples/workloads/watcher-cancellation.workflow.json
+cargo run -p conduit-cli -- inspect examples/workloads/watcher-cancellation.workflow.json
+cargo run -p conduit-cli -- explain examples/workloads/watcher-cancellation.workflow.json
+cargo run -p conduit-engine --example watcher_cancellation
+```
+
+Expected workload output:
+
+```text
+watcher cancellation workflow `watcher-cancellation-workload` cancelled as expected
+source changes: 4
+controller drained changes: 4
+watcher observed changes: 4
+watcher control messages: shutdown:source-closed:changes=4
+watcher recv_any order: changes:change:config.toml, changes:change:routes.yaml, changes:change:secrets.env, changes:change:templates/email.txt, control:shutdown:source-closed:changes=4
+terminal state: cancelled
+scheduled nodes: 3
+completed nodes: 2
+cancelled nodes: 1
+failed nodes: 0
+metadata records: 70
+metadata lifecycle records: 6
+metadata node_cancelled records: 1
+metadata error records: 2
+metadata message records: 14
+metadata queue_pressure records: 48
+```
+
+Surfaces exercised:
+
+- watcher-style native node with a data input and a control input
+- cancellation as expected terminal state, not demo failure
+- `node_cancelled` lifecycle metadata
+- `CDT-CANCEL-001` error metadata
+- bounded fan-out from source to watcher and shutdown controller
+
 ## Native Linear ETL Workflow
 
 Files:
@@ -317,5 +407,7 @@ Surfaces exercised:
 - [../examples/authoring/README.md](../examples/authoring/README.md)
 - [../examples/workloads/fanout-fanin.md](../examples/workloads/fanout-fanin.md)
 - [../examples/workloads/stream-join-window.md](../examples/workloads/stream-join-window.md)
+- [../examples/workloads/replay-branch-eval.md](../examples/workloads/replay-branch-eval.md)
+- [../examples/workloads/watcher-cancellation.md](../examples/workloads/watcher-cancellation.md)
 - [../examples/native-linear-etl.md](../examples/native-linear-etl.md)
 - [../crates/conduit-wasm/examples/README.md](../crates/conduit-wasm/examples/README.md)
