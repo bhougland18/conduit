@@ -397,6 +397,7 @@ impl SinkExecutor {
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
+    #[must_use]
     pub fn drain_received(&self) -> Vec<PortPacket> {
         self.received
             .lock()

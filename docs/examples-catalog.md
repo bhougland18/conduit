@@ -26,6 +26,47 @@ See [../examples/authoring/README.md](../examples/authoring/README.md) for
 validate, inspect, explain, native run, and WASM run snippets with expected
 output notes.
 
+## Fan-Out/Fan-In Workload
+
+Files:
+
+- `examples/workloads/fanout-fanin.workflow.json`
+- `examples/workloads/fanout-fanin.md`
+- `crates/conduit-engine/examples/fanout_fanin.rs`
+
+Commands:
+
+```bash
+cargo run -p conduit-cli -- validate examples/workloads/fanout-fanin.workflow.json
+cargo run -p conduit-cli -- inspect examples/workloads/fanout-fanin.workflow.json
+cargo run -p conduit-cli -- explain examples/workloads/fanout-fanin.workflow.json
+cargo run -p conduit-engine --example fanout_fanin
+```
+
+Expected workload output:
+
+```text
+fanout/fanin workflow `fanout-fanin-workload` completed
+source rows: 3
+collector rows: 6
+collector payloads: left:alpha, left:beta, left:gamma, right:alpha, right:beta, right:gamma
+scheduled nodes: 5
+completed nodes: 5
+metadata records: 127
+metadata lifecycle records: 10
+metadata message records: 27
+metadata queue_pressure records: 90
+```
+
+Surfaces exercised:
+
+- one output port fan-out to two bounded downstream queues
+- one collector input port fan-in from two upstream senders
+- capacity-one edge pressure
+- native `NodeExecutor` implementations using `PortsIn`/`PortsOut`
+- in-memory JSONL metadata shape for lifecycle, message, and queue-pressure
+  records
+
 ## Native Linear ETL Workflow
 
 Files:
@@ -230,5 +271,6 @@ Surfaces exercised:
 - [workflow-run-guide.md](workflow-run-guide.md)
 - [metadata-json.md](metadata-json.md)
 - [../examples/authoring/README.md](../examples/authoring/README.md)
+- [../examples/workloads/fanout-fanin.md](../examples/workloads/fanout-fanin.md)
 - [../examples/native-linear-etl.md](../examples/native-linear-etl.md)
 - [../crates/conduit-wasm/examples/README.md](../crates/conduit-wasm/examples/README.md)

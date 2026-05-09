@@ -118,6 +118,7 @@ cargo run -p conduit-cli -- run --wasm-components wasm-components.json workflow.
 See `docs/workflow-run-guide.md` for command-by-command workflow execution
 guidance, `docs/examples-catalog.md` for runnable examples and expected output,
 `examples/authoring/README.md` for compact authoring-oriented workflow shapes,
+`examples/workloads/fanout-fanin.md` for the bounded fan-out/fan-in workload,
 `examples/native-linear-etl.md` for the native workflow walkthrough, and
 `docs/metadata-json.md` for the stable metadata JSONL and `conduit run --json`
 summary shapes.
@@ -163,6 +164,7 @@ Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 - `docs/package-metadata-audit-2026-05-09.md` - package metadata inheritance, license, publish policy, and artifact intent audit
 - `docs/metadata-json.md` - metadata JSONL and CLI run summary JSON reference
 - `examples/authoring/README.md` - authoring examples pack for native fanout, native join, and WASM component workflows
+- `examples/workloads/fanout-fanin.md` - bounded fan-out/fan-in workload with native executors and metadata shape
 - `examples/wasm-uppercase.md` - WASM node smoke path: build fixture, validate manifest, run, inspect metadata, clean
 - `docs/contract-capability-authoring.md` - contract and capability mapping guidance for native and WASM nodes
 - `docs/node-authoring-error-patterns.md` - native and WASM node error, cancellation, retry, and metadata patterns
