@@ -67,6 +67,50 @@ Surfaces exercised:
 - in-memory JSONL metadata shape for lifecycle, message, and queue-pressure
   records
 
+## Stream Join/Window Workload
+
+Files:
+
+- `examples/workloads/stream-join-window.workflow.json`
+- `examples/workloads/stream-join-window.md`
+- `crates/conduit-engine/examples/stream_join_window.rs`
+
+Commands:
+
+```bash
+cargo run -p conduit-cli -- validate examples/workloads/stream-join-window.workflow.json
+cargo run -p conduit-cli -- inspect examples/workloads/stream-join-window.workflow.json
+cargo run -p conduit-cli -- explain examples/workloads/stream-join-window.workflow.json
+cargo run -p conduit-engine --example stream_join_window
+```
+
+Expected workload output:
+
+```text
+stream join/window workflow `stream-join-window-workload` completed
+event packets: 5
+profile packets: 4
+joined rows: 3
+joined payloads: joined:w1:alpha:click:gold, joined:w1:beta:open:silver, joined:w2:alpha:checkout:platinum
+recv_any order: events:event:w1:alpha:click, profiles:profile:w1:alpha:gold, events:event:w1:beta:open, profiles:profile:w1:beta:silver, events:event:w2:alpha:checkout, profiles:profile:w2:alpha:platinum, events:event:w1:gamma:orphan-event, profiles:profile:w3:delta:orphan-profile, events:event:w4:epsilon:late-orphan, closed
+unmatched events: event:w1:gamma:orphan-event, event:w4:epsilon:late-orphan
+unmatched profiles: profile:w3:delta:orphan-profile
+scheduled nodes: 4
+completed nodes: 4
+metadata records: 122
+metadata lifecycle records: 8
+metadata message records: 24
+metadata queue_pressure records: 90
+```
+
+Surfaces exercised:
+
+- `PortsIn::recv_any` on a two-input stateful native node
+- uneven event/profile input rates
+- bounded capacity-one queues
+- deterministic windowed join output and unmatched window remainders
+- metadata useful for diagnosing receive ordering and closure behavior
+
 ## Native Linear ETL Workflow
 
 Files:
@@ -272,5 +316,6 @@ Surfaces exercised:
 - [metadata-json.md](metadata-json.md)
 - [../examples/authoring/README.md](../examples/authoring/README.md)
 - [../examples/workloads/fanout-fanin.md](../examples/workloads/fanout-fanin.md)
+- [../examples/workloads/stream-join-window.md](../examples/workloads/stream-join-window.md)
 - [../examples/native-linear-etl.md](../examples/native-linear-etl.md)
 - [../crates/conduit-wasm/examples/README.md](../crates/conduit-wasm/examples/README.md)
