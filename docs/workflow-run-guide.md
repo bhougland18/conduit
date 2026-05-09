@@ -187,6 +187,8 @@ For the complete record schema and run summary JSON shape, see
 
 For authoring node contracts and capability descriptors that match workflow
 topology, see [contract-capability-authoring.md](contract-capability-authoring.md).
+For node failure, cancellation, retry, and metadata patterns, see
+[node-authoring-error-patterns.md](node-authoring-error-patterns.md).
 
 ## Choosing The Command
 

@@ -231,6 +231,8 @@ effect declarations conservative and specific.
 
 - Use [`workflow-run-guide.md`](workflow-run-guide.md) for CLI execution and
   metadata interpretation.
+- Use [`node-authoring-error-patterns.md`](node-authoring-error-patterns.md)
+  for native and WASM error, cancellation, and retry guidance.
 - Use [`../examples/wasm-uppercase.md`](../examples/wasm-uppercase.md) for the
   full template-to-run WASM smoke path.
 - Use
