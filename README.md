@@ -157,6 +157,7 @@ Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 - `docs/benchmark-operations.md` - Criterion benchmark commands and comparison guide
 - `docs/validation-matrix.md` - format, check, test, Clippy, Dylint, and bench gates
 - `docs/release-readiness.md` - release candidate checklist and deferred work notes
+- `docs/release-notes-source-checkpoint-template.md` - source-checkpoint release notes template for validation, artifact policy, and Beads state
 - `docs/package-metadata-audit-2026-05-09.md` - package metadata inheritance, license, publish policy, and artifact intent audit
 - `docs/metadata-json.md` - metadata JSONL and CLI run summary JSON reference
 - `examples/wasm-uppercase.md` - WASM node smoke path: build fixture, validate manifest, run, inspect metadata, clean

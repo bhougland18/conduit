@@ -41,6 +41,8 @@ git diff --check
 ```
 
 - [ ] Record any warnings or skipped checks in the release notes.
+- [ ] Capture validation results in
+  [release-notes-source-checkpoint-template.md](release-notes-source-checkpoint-template.md).
 - [ ] If Dylint prints local-lint package discovery warnings, confirm the actual
   Rust lint pass still completes.
 - [ ] Confirm generated outputs under `target/` and `target/criterion/` are not
@@ -172,6 +174,9 @@ Deferred scope:
 - [ ] No Beads are unexpectedly `in_progress`.
 - [ ] Release-blocking open Beads are either closed or explicitly documented as
   non-blocking.
+- [ ] Create release notes from
+  [release-notes-source-checkpoint-template.md](release-notes-source-checkpoint-template.md)
+  before tagging, archiving, or sending a release handoff.
 - [ ] Run `br ready --json` and record remaining ready work.
 - [ ] Run `br stats --json` and record open, closed, blocked, and deferred
   counts.
