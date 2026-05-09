@@ -154,6 +154,48 @@ Surfaces exercised:
 - branch count verification as a regression gate
 - metadata attributable to each branch independently
 
+## AI-Call Orchestration Mock Workload
+
+Files:
+
+- `examples/workloads/ai-call-orchestration.workflow.json`
+- `examples/workloads/ai-call-orchestration.md`
+- `crates/conduit-engine/examples/ai_call_orchestration.rs`
+
+Commands:
+
+```bash
+cargo run -p conduit-cli -- validate examples/workloads/ai-call-orchestration.workflow.json
+cargo run -p conduit-cli -- inspect examples/workloads/ai-call-orchestration.workflow.json
+cargo run -p conduit-cli -- explain examples/workloads/ai-call-orchestration.workflow.json
+cargo run -p conduit-engine --example ai_call_orchestration
+```
+
+Expected workload output:
+
+```text
+ai orchestration workflow `ai-call-orchestration-workload` completed
+prompt: prompt:what is the weather in sf?
+tool call: tool_call:get_weather:SF
+tool result: tool_result:get_weather:72F:sunny
+final response: response:The weather in SF is 72F and sunny.
+scheduled nodes: 5
+completed nodes: 5
+metadata records: 46
+metadata lifecycle records: 10
+metadata message records: 8
+metadata queue_pressure records: 28
+```
+
+Surfaces exercised:
+
+- prompt → LLM → tool-call → tool-result → response single-turn pipeline
+- deterministic native mocks for LLM and tool decisions (no network calls)
+- colon-delimited typed packet protocol
+- five-node linear topology
+- capability gap analysis: multi-turn feedback loops and external-effect
+  enforcement documented in `ai-call-orchestration.md`
+
 ## Watcher Cancellation Workload
 
 Files:
@@ -408,6 +450,7 @@ Surfaces exercised:
 - [../examples/workloads/fanout-fanin.md](../examples/workloads/fanout-fanin.md)
 - [../examples/workloads/stream-join-window.md](../examples/workloads/stream-join-window.md)
 - [../examples/workloads/replay-branch-eval.md](../examples/workloads/replay-branch-eval.md)
+- [../examples/workloads/ai-call-orchestration.md](../examples/workloads/ai-call-orchestration.md)
 - [../examples/workloads/watcher-cancellation.md](../examples/workloads/watcher-cancellation.md)
 - [../examples/native-linear-etl.md](../examples/native-linear-etl.md)
 - [../crates/conduit-wasm/examples/README.md](../crates/conduit-wasm/examples/README.md)

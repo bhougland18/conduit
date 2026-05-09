@@ -121,6 +121,7 @@ guidance, `docs/examples-catalog.md` for runnable examples and expected output,
 `examples/workloads/fanout-fanin.md` for the bounded fan-out/fan-in workload,
 `examples/workloads/stream-join-window.md` for the `recv_any` stream join/window workload,
 `examples/workloads/replay-branch-eval.md` for the replay/branch evaluation workload,
+`examples/workloads/ai-call-orchestration.md` for the AI-call orchestration mock workload,
 `examples/workloads/watcher-cancellation.md` for cancellation-as-shutdown watcher behavior,
 `examples/native-linear-etl.md` for the native workflow walkthrough, and
 `docs/metadata-json.md` for the stable metadata JSONL and `conduit run --json`
@@ -170,6 +171,7 @@ Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 - `examples/workloads/fanout-fanin.md` - bounded fan-out/fan-in workload with native executors and metadata shape
 - `examples/workloads/stream-join-window.md` - stream join/window workload that exercises `recv_any`, uneven inputs, and closure diagnostics
 - `examples/workloads/replay-branch-eval.md` - replay/branch evaluation workload with parallel branches and side-by-side comparison
+- `examples/workloads/ai-call-orchestration.md` - AI-call orchestration mock workload: prompt/tool/result pipeline and capability gap analysis
 - `examples/workloads/watcher-cancellation.md` - watcher workload where cancellation is the expected terminal path
 - `examples/wasm-uppercase.md` - WASM node smoke path: build fixture, validate manifest, run, inspect metadata, clean
 - `docs/contract-capability-authoring.md` - contract and capability mapping guidance for native and WASM nodes
