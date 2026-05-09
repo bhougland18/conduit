@@ -5,6 +5,27 @@ observable output, and the product surface the example exercises.
 
 Run commands from the repository root.
 
+## Authoring Examples Pack
+
+Files:
+
+- `examples/authoring/README.md`
+- `examples/authoring/native-fanout.workflow.json`
+- `examples/authoring/native-join.workflow.yaml`
+- `examples/authoring/wasm-uppercase.workflow.json`
+- `examples/authoring/wasm-uppercase.components.json`
+
+The authoring pack provides compact workflow shapes for generated or
+hand-written workflow documents:
+
+- native fanout: one source branches to a primary sink and audit sink
+- native join: two sources feed a join-style node before a sink
+- WASM uppercase: native source and sink with one manifest-loaded WASM node
+
+See [../examples/authoring/README.md](../examples/authoring/README.md) for
+validate, inspect, explain, native run, and WASM run snippets with expected
+output notes.
+
 ## Native Linear ETL Workflow
 
 Files:
@@ -208,5 +229,6 @@ Surfaces exercised:
 
 - [workflow-run-guide.md](workflow-run-guide.md)
 - [metadata-json.md](metadata-json.md)
+- [../examples/authoring/README.md](../examples/authoring/README.md)
 - [../examples/native-linear-etl.md](../examples/native-linear-etl.md)
 - [../crates/conduit-wasm/examples/README.md](../crates/conduit-wasm/examples/README.md)
