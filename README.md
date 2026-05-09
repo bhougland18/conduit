@@ -153,6 +153,7 @@ Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 - `docs/epics/epic-1-foundation.md` - completed foundation bead plan
 - `docs/audits/Audit_2026_05_07.md` - latest audit findings and follow-on ideas
 - `docs/workflow-run-guide.md` - validate, inspect, explain, run, and summary guide
+- `docs/schema-generation.md` - JSON Schema generation for workflow documents and WASM component manifests
 - `docs/examples-catalog.md` - runnable examples, expected outputs, and exercised surfaces
 - `docs/benchmark-operations.md` - Criterion benchmark commands and comparison guide
 - `docs/validation-matrix.md` - format, check, test, Clippy, Dylint, and bench gates

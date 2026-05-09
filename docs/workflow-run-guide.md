@@ -189,11 +189,15 @@ For authoring node contracts and capability descriptors that match workflow
 topology, see [contract-capability-authoring.md](contract-capability-authoring.md).
 For node failure, cancellation, retry, and metadata patterns, see
 [node-authoring-error-patterns.md](node-authoring-error-patterns.md).
+For machine-readable workflow and WASM manifest schemas, see
+[schema-generation.md](schema-generation.md).
 
 ## Choosing The Command
 
 - Use `validate` while authoring workflow JSON (supports `.json`, `.toml`, `.yaml`, `.yml`).
 - Use `validate-manifest` to check a component manifest before execution; add `--workflow` to verify node membership.
+- Use `schema workflow` and `schema wasm-manifest` when an editor, AI tool, or
+  generator needs JSON Schema.
 - Use `inspect` when another tool needs topology and contract JSON.
 - Use `explain` when a human needs to review topology and metadata behavior.
 - Use `run` for text output plus metadata JSONL.

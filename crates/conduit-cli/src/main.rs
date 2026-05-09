@@ -13,7 +13,7 @@ use std::{
     sync::Arc,
 };
 
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{Shell, generate};
 use conduit_contract::{
     ContractValidationError, Determinism, ExecutionMode, NodeContract, PortContract,
@@ -42,8 +42,8 @@ use conduit_types::{ExecutionId, MessageId, NodeId, PortId};
 use conduit_wasm::{WasmtimeBatchComponent, WasmtimeExecutionLimits};
 use conduit_workflow::{EdgeCapacity, NodeDefinition, PortDirection, WorkflowDefinition};
 use conduit_workflow_format::{
-    WorkflowJsonError, WorkflowTomlError, WorkflowYamlError, workflow_from_json_str,
-    workflow_from_toml_str, workflow_from_yaml_str,
+    CURRENT_CONDUIT_VERSION, WorkflowJsonError, WorkflowTomlError, WorkflowYamlError,
+    workflow_from_json_str, workflow_from_toml_str, workflow_from_yaml_str,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -103,11 +103,24 @@ enum Commands {
         /// Path to the WASM component manifest JSON file.
         manifest: PathBuf,
     },
+    /// Emit JSON Schema for workflow and WASM manifest authoring.
+    Schema {
+        /// Schema document to emit.
+        schema: SchemaKind,
+    },
     /// Generate shell completion scripts.
     Completions {
         /// Shell to generate completions for.
         shell: Shell,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum SchemaKind {
+    /// Workflow document schema.
+    Workflow,
+    /// WASM component manifest schema.
+    WasmManifest,
 }
 
 fn main() {
@@ -218,6 +231,7 @@ fn dispatch_command(
                 Path::exists,
             )
         }
+        Commands::Schema { schema } => schema_json_string(*schema),
         Commands::Completions { shell } => {
             let mut buf: Vec<u8> = Vec::new();
             generate(*shell, &mut Cli::command(), "conduit", &mut buf);
@@ -256,6 +270,141 @@ fn dispatch_command(
     }
 }
 
+fn schema_json_string(kind: SchemaKind) -> CliResult<String> {
+    let schema: Value = match kind {
+        SchemaKind::Workflow => workflow_schema_json(),
+        SchemaKind::WasmManifest => wasm_component_manifest_schema_json(),
+    };
+    let mut output: String =
+        serde_json::to_string_pretty(&schema).map_err(|source: serde_json::Error| {
+            CliError::Runtime(ConduitError::execution(format!(
+                "failed to encode JSON Schema: {source}"
+            )))
+        })?;
+    output.push('\n');
+    Ok(output)
+}
+
+fn workflow_schema_json() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": format!(
+            "https://conduit.dev/schemas/workflow-v{}.schema.json",
+            CURRENT_CONDUIT_VERSION
+        ),
+        "title": "Conduit workflow document",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["conduit_version", "id", "nodes", "edges"],
+        "properties": {
+            "conduit_version": {
+                "type": "string",
+                "const": CURRENT_CONDUIT_VERSION,
+                "description": "Required Conduit workflow format version."
+            },
+            "id": identifier_schema_json("Workflow identifier."),
+            "nodes": {
+                "type": "array",
+                "description": "Declared node topology.",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["id", "inputs", "outputs"],
+                    "properties": {
+                        "id": identifier_schema_json("Node identifier."),
+                        "inputs": identifier_array_schema_json("Declared input port identifiers."),
+                        "outputs": identifier_array_schema_json("Declared output port identifiers.")
+                    }
+                }
+            },
+            "edges": {
+                "type": "array",
+                "description": "Declared directed edges.",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["source", "target"],
+                    "properties": {
+                        "source": edge_endpoint_schema_json("Upstream output endpoint."),
+                        "target": edge_endpoint_schema_json("Downstream input endpoint."),
+                        "capacity": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Optional explicit bounded capacity. Omit to use the engine default."
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
+fn wasm_component_manifest_schema_json() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://conduit.dev/schemas/wasm-component-manifest.schema.json",
+        "title": "Conduit WASM component manifest",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["components"],
+        "properties": {
+            "components": {
+                "type": "array",
+                "description": "WASM component entries keyed by workflow node.",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["node", "component"],
+                    "properties": {
+                        "node": identifier_schema_json("Workflow node served by this component."),
+                        "component": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Path to the component file. Relative paths resolve from the manifest directory."
+                        },
+                        "fuel": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Optional Wasmtime fuel limit. Omit to use the runtime default."
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
+fn identifier_schema_json(description: &str) -> Value {
+    json!({
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^\\S+$",
+        "description": description
+    })
+}
+
+fn identifier_array_schema_json(description: &str) -> Value {
+    json!({
+        "type": "array",
+        "description": description,
+        "items": identifier_schema_json("Identifier value.")
+    })
+}
+
+fn edge_endpoint_schema_json(description: &str) -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["node", "port"],
+        "description": description,
+        "properties": {
+            "node": identifier_schema_json("Referenced node identifier."),
+            "port": identifier_schema_json("Referenced port identifier.")
+        }
+    })
+}
+
 fn read_file(path: &Path) -> CliResult<String> {
     fs::read_to_string(path).map_err(|source: std::io::Error| CliError::Io {
         action: "read",
@@ -283,7 +432,7 @@ fn write_file(path: &Path, contents: &str) -> CliResult<()> {
 fn load_workflow(input: &str, path: &Path) -> CliResult<WorkflowDefinition> {
     match path.extension().and_then(|ext| ext.to_str()) {
         Some("toml") => workflow_from_toml_str(input).map_err(CliError::WorkflowToml),
-        Some("yaml") | Some("yml") => workflow_from_yaml_str(input).map_err(CliError::WorkflowYaml),
+        Some("yaml" | "yml") => workflow_from_yaml_str(input).map_err(CliError::WorkflowYaml),
         Some("json") | None => workflow_from_json_str(input).map_err(CliError::WorkflowJson),
         Some(ext) => Err(CliError::WorkflowFormat(format!(
             "unsupported workflow file extension `.{ext}`; supported: .json, .toml, .yaml, .yml"
@@ -1024,14 +1173,13 @@ impl fmt::Display for CliError {
             Self::WorkflowJson(source) => write!(f, "{source}"),
             Self::WorkflowToml(source) => write!(f, "{source}"),
             Self::WorkflowYaml(source) => write!(f, "{source}"),
-            Self::WorkflowFormat(message) => write!(f, "{message}"),
+            Self::WorkflowFormat(message) | Self::Tracing(message) => write!(f, "{message}"),
             Self::Contract(source) => write!(f, "workflow contract validation failed: {source}"),
             Self::Capability(source) => {
                 write!(f, "workflow capability validation failed: {source}")
             }
             Self::IntrospectionJson(source) => write!(f, "{source}"),
             Self::Runtime(source) => write!(f, "{source}"),
-            Self::Tracing(message) => write!(f, "{message}"),
             Self::WasmManifest(message) => write!(f, "invalid WASM component manifest: {message}"),
             Self::WasmManifestJson { path, source } => {
                 write!(
@@ -1110,9 +1258,6 @@ mod tests {
     }
   ]
 }"#;
-    const NATIVE_LINEAR_ETL_WORKFLOW_JSON: &str =
-        include_str!("../../../examples/native-linear-etl.workflow.json");
-
     #[test]
     fn tracing_targets_are_opt_in() {
         let disabled: Option<Targets> =
@@ -1427,7 +1572,64 @@ mod tests {
         assert!(help.contains("inspect"));
         assert!(help.contains("explain"));
         assert!(help.contains("run"));
+        assert!(help.contains("schema"));
         assert!(help.contains("completions"));
+    }
+
+    #[test]
+    fn schema_command_emits_workflow_schema() {
+        let cli = Cli::try_parse_from(["conduit", "schema", "workflow"])
+            .expect("schema args should parse");
+
+        let output = dispatch_command(
+            &cli.command,
+            |_path: &Path| unreachable!("schema should not read text files"),
+            |_path: &Path| unreachable!("schema should not read bytes"),
+            |_path: &Path, _contents: &str| unreachable!("schema should not write files"),
+        )
+        .expect("schema command should succeed");
+        let value: Value = serde_json::from_str(&output).expect("schema output should be JSON");
+
+        assert_eq!(value["title"], "Conduit workflow document");
+        assert_eq!(
+            value["properties"]["conduit_version"]["const"],
+            CURRENT_CONDUIT_VERSION
+        );
+        assert_eq!(value["additionalProperties"], false);
+        assert_eq!(
+            value["properties"]["nodes"]["items"]["additionalProperties"],
+            false
+        );
+        assert_eq!(
+            value["properties"]["edges"]["items"]["properties"]["capacity"]["minimum"],
+            1
+        );
+    }
+
+    #[test]
+    fn schema_command_emits_wasm_manifest_schema() {
+        let cli = Cli::try_parse_from(["conduit", "schema", "wasm-manifest"])
+            .expect("schema args should parse");
+
+        let output = dispatch_command(
+            &cli.command,
+            |_path: &Path| unreachable!("schema should not read text files"),
+            |_path: &Path| unreachable!("schema should not read bytes"),
+            |_path: &Path, _contents: &str| unreachable!("schema should not write files"),
+        )
+        .expect("schema command should succeed");
+        let value: Value = serde_json::from_str(&output).expect("schema output should be JSON");
+
+        assert_eq!(value["title"], "Conduit WASM component manifest");
+        assert_eq!(value["additionalProperties"], false);
+        assert_eq!(
+            value["properties"]["components"]["items"]["additionalProperties"],
+            false
+        );
+        assert_eq!(
+            value["properties"]["components"]["items"]["properties"]["fuel"]["minimum"],
+            0
+        );
     }
 
     #[test]
