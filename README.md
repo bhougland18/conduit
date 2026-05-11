@@ -167,6 +167,7 @@ Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 - `docs/release-notes-source-checkpoint-template.md` - source-checkpoint release notes template for validation, artifact policy, and Beads state
 - `docs/package-metadata-audit-2026-05-09.md` - package metadata inheritance, license, publish policy, and artifact intent audit
 - `docs/metadata-json.md` - metadata JSONL and CLI run summary JSON reference
+- `docs/arrow-schema-compatibility-plan-2026-05-11.md` - Arrow schema compatibility policy for deferred data-tier work
 - `examples/authoring/README.md` - authoring examples pack for native fanout, native join, and WASM component workflows
 - `examples/workloads/fanout-fanin.md` - bounded fan-out/fan-in workload with native executors and metadata shape
 - `examples/workloads/stream-join-window.md` - stream join/window workload that exercises `recv_any`, uneven inputs, and closure diagnostics

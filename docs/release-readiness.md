@@ -158,13 +158,13 @@ These Beads are intentionally deferred and should not block release readiness
 unless the release goal explicitly includes analytics/data-tier work:
 
 - `cdt-pyg`: Epic 13: Deferred Data Tier and Analytics
-- `cdt-pyg.1`: arrow-schema-compatibility-plan
 - `cdt-pyg.2`: datafusion-node-crate-spike
 - `cdt-pyg.3`: arrow-copy-latency-benchmarks
 
 Deferred scope:
 
-- Arrow schema compatibility expectations wait for concrete data-tier workloads.
+- Arrow schema compatibility expectations are documented in
+  [arrow-schema-compatibility-plan-2026-05-11.md](arrow-schema-compatibility-plan-2026-05-11.md).
 - Optional DataFusion node crate exploration should not introduce DataFusion
   into core runtime dependencies.
 - Arrow copy and latency benchmarks wait until real Arrow workloads exist.
