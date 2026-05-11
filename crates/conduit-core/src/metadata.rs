@@ -23,6 +23,7 @@ use conduit_types::{NodeId, PortId, WorkflowId};
 
 use crate::{
     ConduitError, Result,
+    capability::EffectCapability,
     context::{CancellationState, ExecutionMetadata, NodeContext},
     lifecycle::{LifecycleEvent, LifecycleEventKind},
     message::{MessageEndpoint, MessageMetadata, MessageRoute},
@@ -297,6 +298,142 @@ impl ErrorDiagnosticMetadata {
     }
 }
 
+/// External effect observation kind at a node boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalEffectMetadataKind {
+    /// A node requested an external effect.
+    Requested,
+    /// A node completed an external effect.
+    Completed,
+    /// A node observed an external effect failure.
+    Failed,
+}
+
+/// One structured external effect observation at a node boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalEffectMetadataRecord {
+    kind: ExternalEffectMetadataKind,
+    context: NodeContext,
+    effect: EffectCapability,
+    operation: String,
+    target: String,
+    response_status: Option<String>,
+}
+
+impl ExternalEffectMetadataRecord {
+    /// Create an external effect observation.
+    #[must_use]
+    pub fn new(
+        kind: ExternalEffectMetadataKind,
+        context: NodeContext,
+        effect: EffectCapability,
+        operation: impl Into<String>,
+        target: impl Into<String>,
+        response_status: Option<String>,
+    ) -> Self {
+        Self {
+            kind,
+            context,
+            effect,
+            operation: operation.into(),
+            target: target.into(),
+            response_status,
+        }
+    }
+
+    /// Create an external effect request observation.
+    #[must_use]
+    pub fn requested(
+        context: NodeContext,
+        effect: EffectCapability,
+        operation: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Self {
+        Self::new(
+            ExternalEffectMetadataKind::Requested,
+            context,
+            effect,
+            operation,
+            target,
+            None,
+        )
+    }
+
+    /// Create a completed external effect observation.
+    #[must_use]
+    pub fn completed(
+        context: NodeContext,
+        effect: EffectCapability,
+        operation: impl Into<String>,
+        target: impl Into<String>,
+        response_status: impl Into<String>,
+    ) -> Self {
+        Self::new(
+            ExternalEffectMetadataKind::Completed,
+            context,
+            effect,
+            operation,
+            target,
+            Some(response_status.into()),
+        )
+    }
+
+    /// Create a failed external effect observation.
+    #[must_use]
+    pub fn failed(
+        context: NodeContext,
+        effect: EffectCapability,
+        operation: impl Into<String>,
+        target: impl Into<String>,
+        response_status: Option<String>,
+    ) -> Self {
+        Self::new(
+            ExternalEffectMetadataKind::Failed,
+            context,
+            effect,
+            operation,
+            target,
+            response_status,
+        )
+    }
+
+    /// External effect observation kind.
+    #[must_use]
+    pub const fn kind(&self) -> ExternalEffectMetadataKind {
+        self.kind
+    }
+
+    /// Runtime context for the node that observed the external effect.
+    #[must_use]
+    pub const fn context(&self) -> &NodeContext {
+        &self.context
+    }
+
+    /// Declared effect capability associated with this observation.
+    #[must_use]
+    pub const fn effect(&self) -> EffectCapability {
+        self.effect
+    }
+
+    /// Operation or tool name associated with this observation.
+    #[must_use]
+    pub fn operation(&self) -> &str {
+        &self.operation
+    }
+
+    /// External target associated with this observation.
+    #[must_use]
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    /// Stable response status associated with this observation, when known.
+    #[must_use]
+    pub fn response_status(&self) -> Option<&str> {
+        self.response_status.as_deref()
+    }
+}
+
 /// Machine-facing workflow deadlock diagnostic metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeadlockDiagnosticMetadata {
@@ -436,6 +573,8 @@ pub enum MetadataRecord {
     QueuePressure(QueuePressureRecord),
     /// Error observed at a node or workflow boundary.
     Error(ErrorMetadataRecord),
+    /// External tool, service, database, or API effect observed by a node.
+    ExternalEffect(ExternalEffectMetadataRecord),
 }
 
 /// Cost tier for one metadata record.
@@ -554,6 +693,15 @@ pub fn metadata_record_to_json_value(record: &MetadataRecord) -> Value {
             "diagnostic": error
                 .diagnostic()
                 .map_or(Value::Null, error_diagnostic_metadata_to_json_value),
+        }),
+        MetadataRecord::ExternalEffect(effect) => json!({
+            "record_type": "external_effect",
+            "kind": external_effect_metadata_kind_label(effect.kind()),
+            "context": node_context_to_json_value(effect.context()),
+            "effect": effect.effect().as_str(),
+            "operation": effect.operation(),
+            "target": effect.target(),
+            "response_status": effect.response_status(),
         }),
     }
 }
@@ -830,6 +978,14 @@ const fn error_metadata_kind_label(kind: ErrorMetadataKind) -> &'static str {
     }
 }
 
+const fn external_effect_metadata_kind_label(kind: ExternalEffectMetadataKind) -> &'static str {
+    match kind {
+        ExternalEffectMetadataKind::Requested => "external_effect_requested",
+        ExternalEffectMetadataKind::Completed => "external_effect_completed",
+        ExternalEffectMetadataKind::Failed => "external_effect_failed",
+    }
+}
+
 fn conduit_error_to_json_value(error: &ConduitError) -> Value {
     json!({
         "code": error.code().as_str(),
@@ -961,7 +1117,7 @@ mod tests {
 
     impl Arbitrary for ArbitraryMetadataRecord {
         fn arbitrary(g: &mut Gen) -> Self {
-            let record = match u8::arbitrary(g) % 5 {
+            let record = match u8::arbitrary(g) % 6 {
                 0 => MetadataRecord::ExecutionContext(generated_context(g)),
                 1 => MetadataRecord::Lifecycle(LifecycleEvent::new(
                     generated_lifecycle_kind(g),
@@ -980,7 +1136,8 @@ mod tests {
                     bool::arbitrary(g).then(|| bounded_usize(g, 256)),
                     bool::arbitrary(g).then(|| bounded_usize(g, 256)),
                 )),
-                _ => MetadataRecord::Error(generated_error_metadata(g)),
+                4 => MetadataRecord::Error(generated_error_metadata(g)),
+                _ => MetadataRecord::ExternalEffect(generated_external_effect_metadata(g)),
             };
 
             Self(record)
@@ -1060,6 +1217,43 @@ mod tests {
                     .with_feedback_loop("start_all_nodes", "all_nodes_complete"),
                 ),
             ),
+        }
+    }
+
+    fn generated_external_effect_metadata(g: &mut Gen) -> ExternalEffectMetadataRecord {
+        let context = generated_context(g);
+        let effect = generated_effect(g);
+        let operation = format!("operation_{}", bounded_usize(g, 32));
+        let target = format!("target_{}", bounded_usize(g, 32));
+        match u8::arbitrary(g) % 3 {
+            0 => ExternalEffectMetadataRecord::requested(context, effect, operation, target),
+            1 => ExternalEffectMetadataRecord::completed(
+                context,
+                effect,
+                operation,
+                target,
+                format!("status_{}", bounded_usize(g, 16)),
+            ),
+            _ => ExternalEffectMetadataRecord::failed(
+                context,
+                effect,
+                operation,
+                target,
+                bool::arbitrary(g).then(|| format!("status_{}", bounded_usize(g, 16))),
+            ),
+        }
+    }
+
+    fn generated_effect(g: &mut Gen) -> EffectCapability {
+        match u8::arbitrary(g) % 8 {
+            0 => EffectCapability::FileSystemRead,
+            1 => EffectCapability::FileSystemWrite,
+            2 => EffectCapability::NetworkOutbound,
+            3 => EffectCapability::ExternalEffect,
+            4 => EffectCapability::ProcessSpawn,
+            5 => EffectCapability::EnvironmentRead,
+            6 => EffectCapability::EnvironmentWrite,
+            _ => EffectCapability::Clock,
         }
     }
 
@@ -1167,6 +1361,9 @@ mod tests {
                 | "send_committed"
                 | "send_dropped"
                 | "workflow_failed"
+                | "external_effect_requested"
+                | "external_effect_completed"
+                | "external_effect_failed"
         )
     }
 
@@ -1234,6 +1431,7 @@ mod tests {
 
     #[test]
     fn generated_metadata_json_preserves_stable_machine_contract() {
+        #[allow(clippy::needless_pass_by_value)]
         fn property(record: ArbitraryMetadataRecord) -> bool {
             let value = metadata_record_to_json_value(&record.0);
 
@@ -1429,6 +1627,41 @@ mod tests {
                         },
                     },
                 },
+            })
+        );
+    }
+
+    #[test]
+    fn metadata_record_json_uses_stable_external_effect_shape() {
+        let record: MetadataRecord =
+            MetadataRecord::ExternalEffect(ExternalEffectMetadataRecord::completed(
+                context(),
+                EffectCapability::ExternalEffect,
+                "tool_call",
+                "get_weather",
+                "ok",
+            ));
+
+        assert_eq!(
+            metadata_record_to_json_value(&record),
+            json!({
+                "record_type": "external_effect",
+                "kind": "external_effect_completed",
+                "context": {
+                    "workflow_id": "flow",
+                    "node_id": "node",
+                    "execution": {
+                        "execution_id": "run-1",
+                        "attempt": 1,
+                    },
+                    "cancellation": {
+                        "state": "active",
+                    },
+                },
+                "effect": "external_effect",
+                "operation": "tool_call",
+                "target": "get_weather",
+                "response_status": "ok",
             })
         );
     }

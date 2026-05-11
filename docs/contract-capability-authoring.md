@@ -52,6 +52,14 @@ Use this rule of thumb:
 | `ExecutionMode::Wasm` | rejected | strict boundary has no host-effect imports |
 | `ExecutionMode::Process` | rejected | reserved for a future process adapter |
 
+Common effect capabilities include filesystem read/write, outbound network,
+process spawn, environment read/write, clock access, and the generic
+`ExternalEffect` marker for tool, service, database, or API effects that are not
+captured precisely by a lower-level capability. Use the most specific
+capability that communicates the node's behavior; for AI tool orchestration,
+`ExternalEffect` is the stable declaration for "this node may perform an
+external tool call."
+
 ## Field Guidance
 
 `PortContract`:
@@ -214,6 +222,28 @@ let source_capabilities = NodeCapabilities::new(
 This descriptor says reviewers and inspection tools should expect filesystem
 reads from the native source. It does not sandbox that source. Keep native
 effect declarations conservative and specific.
+
+A native AI tool executor that calls a tool service can declare:
+
+```rust
+use conduit_core::capability::{
+    EffectCapability, NodeCapabilities, PortCapability, PortCapabilityDirection,
+};
+use conduit_test_kit::{node_id, port_id};
+
+let tool_capabilities = NodeCapabilities::new(
+    node_id("tool-executor"),
+    [
+        PortCapability::new(port_id("call"), PortCapabilityDirection::Receive),
+        PortCapability::new(port_id("result"), PortCapabilityDirection::Emit),
+    ],
+    [EffectCapability::ExternalEffect],
+)?;
+```
+
+When the node performs a tool call, node or host integration code can emit
+`ExternalEffectMetadataRecord` values so metadata consumers can distinguish
+effect observations from message movement and queue pressure.
 
 ## Common Validation Failures
 

@@ -70,6 +70,8 @@ pub enum EffectCapability {
     FileSystemWrite,
     /// Open outbound network connections.
     NetworkOutbound,
+    /// Perform an external tool, service, database, or API effect.
+    ExternalEffect,
     /// Spawn child processes.
     ProcessSpawn,
     /// Read process environment.
@@ -78,6 +80,23 @@ pub enum EffectCapability {
     EnvironmentWrite,
     /// Use wall-clock time or timers.
     Clock,
+}
+
+impl EffectCapability {
+    /// Stable machine-facing label for this effect capability.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::FileSystemRead => "filesystem_read",
+            Self::FileSystemWrite => "filesystem_write",
+            Self::NetworkOutbound => "network_outbound",
+            Self::ExternalEffect => "external_effect",
+            Self::ProcessSpawn => "process_spawn",
+            Self::EnvironmentRead => "environment_read",
+            Self::EnvironmentWrite => "environment_write",
+            Self::Clock => "clock",
+        }
+    }
 }
 
 /// A named claim that a node may use a port in one direction.
@@ -447,6 +466,15 @@ mod tests {
         assert!(capabilities.allows_effect(EffectCapability::FileSystemRead));
         assert!(capabilities.allows_port(&port_id("input"), PortCapabilityDirection::Receive));
         assert!(!capabilities.allows_effect(EffectCapability::ProcessSpawn));
+    }
+
+    #[test]
+    fn effect_capability_labels_are_stable() {
+        assert_eq!(EffectCapability::ExternalEffect.as_str(), "external_effect");
+        assert_eq!(
+            EffectCapability::NetworkOutbound.as_str(),
+            "network_outbound"
+        );
     }
 
     #[test]

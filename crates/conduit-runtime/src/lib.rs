@@ -388,6 +388,7 @@ const fn metadata_record_kind_label(record: &MetadataRecord) -> &'static str {
         MetadataRecord::Message(_) => "message",
         MetadataRecord::QueuePressure(_) => "queue_pressure",
         MetadataRecord::Error(_) => "error",
+        MetadataRecord::ExternalEffect(_) => "external_effect",
     }
 }
 

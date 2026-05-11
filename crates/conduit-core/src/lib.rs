@@ -21,9 +21,9 @@ pub use error::{
 pub use message::PacketPayload;
 pub use metadata::{
     DeadlockDiagnosticMetadata, ErrorDiagnosticMetadata, ErrorMetadataKind, ErrorMetadataRecord,
-    JsonlMetadataSink, MessageBoundaryKind, MessageBoundaryRecord, MetadataRecord, MetadataSink,
-    MetadataTier, NoopMetadataSink, TieredMetadataPolicy, TieredMetadataSink,
-    metadata_record_to_json_value,
+    ExternalEffectMetadataKind, ExternalEffectMetadataRecord, JsonlMetadataSink,
+    MessageBoundaryKind, MessageBoundaryRecord, MetadataRecord, MetadataSink, MetadataTier,
+    NoopMetadataSink, TieredMetadataPolicy, TieredMetadataSink, metadata_record_to_json_value,
 };
 pub use ports::{
     InputPortHandle, OutputPacketValidator, OutputPortHandle, PortPacket, PortRecvError,

@@ -144,24 +144,22 @@ validation time. The feedback-loop policy is available via the library API
 ### 2. External-effect capability enforcement
 
 `tool-executor` in this workload is a native mock. A real implementation would
-make outbound HTTP calls, query a database, or call an external API. The
-current capability model has no way to:
+make outbound HTTP calls, query a database, or call an external API. Conduit now
+has the first vocabulary pieces for this path:
 
-- Declare that a node intends to make external calls
-- Enforce that only nodes with a declared `external-effect` capability do so
-- Capture effect metadata (which tool was called, latency, response status)
-  as a structured metadata record family distinct from `message` or
-  `queue_pressure`
+- `EffectCapability::ExternalEffect` declares that a node may perform a tool,
+  service, database, or API effect.
+- `ExternalEffectMetadataRecord` captures requested, completed, and failed
+  effect observations as a metadata family distinct from `message` and
+  `queue_pressure`.
 
-What an external-effect capability would need:
+What still remains future work:
 
-- A new capability tag (e.g., `external-http` or `external-effect`) in the
-  workflow node contract
-- An enforcement check in `conduit-contract` that rejects graphs where
-  nodes make external calls without the capability declared
-- A new metadata record family for effect observations, analogous to
-  `queue_pressure` for port boundary events
+- runtime or host adapters that automatically emit external-effect metadata
+- strict enforcement for non-native execution boundaries that can mediate
+  external effects
+- latency/timing capture outside the stable metadata JSONL surface
 
-Neither gap blocks the current workload — the mock is deterministic and
-acyclic. Both gaps are relevant inputs to `cdt-jrf.6` (data-tier-pressure-review)
-and any future AI-orchestration product epic.
+Neither gap blocks the current workload - the mock is deterministic and
+acyclic. The remaining enforcement work belongs in a future AI-orchestration or
+capability-enforcement product epic.

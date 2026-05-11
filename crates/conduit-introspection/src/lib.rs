@@ -578,15 +578,7 @@ const fn port_capability_label(capability: PortCapabilityDirection) -> &'static 
 
 #[cfg(feature = "serde")]
 const fn effect_label(effect: EffectCapability) -> &'static str {
-    match effect {
-        EffectCapability::FileSystemRead => "filesystem_read",
-        EffectCapability::FileSystemWrite => "filesystem_write",
-        EffectCapability::NetworkOutbound => "network_outbound",
-        EffectCapability::ProcessSpawn => "process_spawn",
-        EffectCapability::EnvironmentRead => "environment_read",
-        EffectCapability::EnvironmentWrite => "environment_write",
-        EffectCapability::Clock => "clock",
-    }
+    effect.as_str()
 }
 
 #[cfg(test)]

@@ -217,6 +217,47 @@ Deadlock watchdog failures attach a structured diagnostic:
 }
 ```
 
+### External Effect
+
+External effect records describe node-observed tool, service, database, or API
+effects. They are explicit metadata facts emitted by node/runtime integration
+code; Conduit does not infer them from ordinary message traffic.
+
+```json
+{
+  "record_type": "external_effect",
+  "kind": "external_effect_completed",
+  "context": {
+    "workflow_id": "flow",
+    "node_id": "tool-executor",
+    "execution": {
+      "execution_id": "cli-run-1",
+      "attempt": 1
+    },
+    "cancellation": {
+      "state": "active"
+    }
+  },
+  "effect": "external_effect",
+  "operation": "tool_call",
+  "target": "get_weather",
+  "response_status": "ok"
+}
+```
+
+Current external effect `kind` values are:
+
+- `external_effect_requested`
+- `external_effect_completed`
+- `external_effect_failed`
+
+The `effect` field is the declared `EffectCapability` label, such as
+`external_effect` or `network_outbound`. `operation` should name the operation
+family, and `target` should identify the external target at a stable,
+non-secret level. `response_status` is `null` when no stable status is known.
+Do not record credentials, request bodies, response bodies, wall-clock
+timestamps, or durations in this metadata family.
+
 ## CLI Run Summary JSON
 
 The CLI emits run summary JSON with:
