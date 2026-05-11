@@ -269,12 +269,14 @@ where
         Err(err) => {
             let error_observation: Result<()> =
                 observe_node_error(metadata_sink.as_ref(), &ctx, err.clone());
-            let lifecycle_observation: Result<()> = observe_lifecycle(
-                hook,
-                metadata_sink.as_ref(),
-                LifecycleEventKind::NodeFailed,
-                ctx,
-            );
+            let lifecycle_kind: LifecycleEventKind = if matches!(err, ConduitError::Cancellation(_))
+            {
+                LifecycleEventKind::NodeCancelled
+            } else {
+                LifecycleEventKind::NodeFailed
+            };
+            let lifecycle_observation: Result<()> =
+                observe_lifecycle(hook, metadata_sink.as_ref(), lifecycle_kind, ctx);
             error_observation.and(lifecycle_observation)
         }
     };
@@ -392,7 +394,7 @@ const fn metadata_record_kind_label(record: &MetadataRecord) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::future::Future;
+    use std::future::{Future, Ready, ready};
     use std::pin::Pin;
     use std::sync::Mutex;
 
@@ -435,6 +437,22 @@ mod tests {
     impl LifecycleHook for FailingHook {
         fn observe(&self, _event: &LifecycleEvent) -> Result<()> {
             Err(ConduitError::from(LifecycleError::new("hook failed")))
+        }
+    }
+
+    #[derive(Debug)]
+    struct CancelledExecutor;
+
+    impl NodeExecutor for CancelledExecutor {
+        type RunFuture<'a> = Ready<Result<()>>;
+
+        fn run(
+            &self,
+            _ctx: NodeContext,
+            _inputs: PortsIn,
+            _outputs: PortsOut,
+        ) -> Self::RunFuture<'_> {
+            ready(Err(ConduitError::cancelled("planned shutdown")))
         }
     }
 
@@ -796,6 +814,30 @@ mod tests {
             vec![
                 LifecycleEventKind::NodeStarted,
                 LifecycleEventKind::NodeCompleted,
+            ]
+        );
+    }
+
+    #[test]
+    fn run_node_with_metadata_sink_records_cancelled_lifecycle_for_cancellation_errors() {
+        let executor: CancelledExecutor = CancelledExecutor;
+        let sink: Arc<RecordingMetadataSink> = Arc::new(RecordingMetadataSink::default());
+
+        let err: ConduitError = block_on(run_node_with_metadata_sink(
+            &executor,
+            context(),
+            PortsIn::default(),
+            PortsOut::default(),
+            sink.clone(),
+        ))
+        .expect_err("cancelled execution should fail at the node boundary");
+
+        assert_eq!(err, ConduitError::cancelled("planned shutdown"));
+        assert_eq!(
+            sink.recorded(),
+            vec![
+                LifecycleEventKind::NodeStarted,
+                LifecycleEventKind::NodeCancelled,
             ]
         );
     }
