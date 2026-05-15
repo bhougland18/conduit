@@ -1,9 +1,47 @@
 # Conduit
 
+<p align="center">
+  <img src="assets/conduit-banner.svg" alt="Conduit banner" width="960" />
+</p>
+
 Conduit is an experimental Flow-Based Programming workflow engine written in Rust.
+It validates workflow documents, executes node graphs through bounded channels,
+and emits machine-facing metadata and run summaries.
+
 The current repository state has a working vertical slice for validated workflow
 documents, bounded graph execution, metadata JSONL, native executor registries,
 and Wasmtime Component Model batch nodes.
+
+## Why It Is Interesting
+
+- Bounded channels make backpressure visible instead of hiding it.
+- Metadata is treated as a first-class artifact, so runs are easier to inspect and explain.
+- Native executors and WASM batch nodes share the same graph model.
+- The runtime boundary stays narrow: Conduit owns workflow shape, contracts, ports, metadata, and capabilities.
+
+## Start Here
+
+- Read the human architecture guide in `docs/architecture-guide/` for the why.
+- Read `docs/llm/` if you want compact retrieval notes instead of the narrative guide.
+- Validate and inspect the sample workflow:
+
+  ```bash
+  cargo run -p conduit-cli -- validate examples/native-linear-etl.workflow.json
+  cargo run -p conduit-cli -- inspect examples/native-linear-etl.workflow.json
+  ```
+
+- Run the native linear ETL workflow:
+
+  ```bash
+  cargo run -p conduit-cli -- run examples/native-linear-etl.workflow.json /tmp/conduit-native-linear-etl.metadata.jsonl
+  ```
+
+- Use the Nix devshell for build and test commands:
+
+  ```bash
+  nix develop . --command cargo check --workspace --all-targets
+  nix develop . --command cargo test --workspace
+  ```
 
 ## Current Capabilities
 
@@ -22,6 +60,13 @@ and Wasmtime Component Model batch nodes.
   downstream edges.
 - Apply Wasmtime fuel limits and cancellation-aware interruption to guest
   invocation.
+
+## Docs
+
+- Human architecture guide: `docs/architecture-guide/`
+- LLM retrieval notes: `docs/llm/`
+- Workflow run guide: `docs/workflow-run-guide.md`
+- Examples catalog: `docs/examples-catalog.md`
 
 The remaining open work is primarily product documentation and release hygiene,
 plus deferred data-tier experiments that are intentionally parked until concrete
@@ -93,8 +138,7 @@ Pass `--workflow` to also verify that every manifest node exists in the workflow
 cargo run -p conduit-cli -- validate-manifest --workflow workflow.json wasm-components.json
 ```
 
-For the complete WASM smoke path (build → validate-manifest → run → inspect →
-clean), see `examples/wasm-uppercase.md`.
+For the complete WASM smoke path, see `examples/wasm-uppercase.md`.
 
 To load WASM component nodes through the CLI, pass a component manifest to
 `run`. Component paths are resolved relative to the manifest file:
@@ -115,17 +159,13 @@ To load WASM component nodes through the CLI, pass a component manifest to
 cargo run -p conduit-cli -- run --wasm-components wasm-components.json workflow.json /tmp/conduit.metadata.jsonl
 ```
 
-See `docs/workflow-run-guide.md` for command-by-command workflow execution
-guidance, `docs/examples-catalog.md` for runnable examples and expected output,
-`examples/authoring/README.md` for compact authoring-oriented workflow shapes,
-`examples/workloads/fanout-fanin.md` for the bounded fan-out/fan-in workload,
-`examples/workloads/stream-join-window.md` for the `recv_any` stream join/window workload,
-`examples/workloads/replay-branch-eval.md` for the replay/branch evaluation workload,
-`examples/workloads/ai-call-orchestration.md` for the AI-call orchestration mock workload,
-`examples/workloads/watcher-cancellation.md` for cancellation-as-shutdown watcher behavior,
-`examples/native-linear-etl.md` for the native workflow walkthrough, and
-`docs/metadata-json.md` for the stable metadata JSONL and `conduit run --json`
-summary shapes.
+More examples and command-by-command walkthroughs live in:
+
+- `docs/workflow-run-guide.md`
+- `docs/examples-catalog.md`
+- `examples/authoring/README.md`
+- `examples/workloads/`
+- `docs/metadata-json.md`
 
 ## Help
 
@@ -156,28 +196,11 @@ Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 ## Key Docs
 
 - `docs/archetecture/proposal_final.md` - current architecture proposal and roadmap
-- `docs/epics/epic-1-foundation.md` - completed foundation bead plan
-- `docs/audits/Audit_2026_05_07.md` - latest audit findings and follow-on ideas
 - `docs/workflow-run-guide.md` - validate, inspect, explain, run, and summary guide
+- `docs/examples-catalog.md` - runnable examples and expected outputs
 - `docs/schema-generation.md` - JSON Schema generation for workflow documents and WASM component manifests
-- `docs/examples-catalog.md` - runnable examples, expected outputs, and exercised surfaces
-- `docs/benchmark-operations.md` - Criterion benchmark commands and comparison guide
 - `docs/validation-matrix.md` - format, check, test, Clippy, Dylint, and bench gates
 - `docs/release-readiness.md` - release candidate checklist and deferred work notes
-- `docs/release-notes-source-checkpoint-template.md` - source-checkpoint release notes template for validation, artifact policy, and Beads state
-- `docs/package-metadata-audit-2026-05-09.md` - package metadata inheritance, license, publish policy, and artifact intent audit
-- `docs/metadata-json.md` - metadata JSONL and CLI run summary JSON reference
-- `docs/arrow-schema-compatibility-plan-2026-05-11.md` - Arrow schema compatibility policy for deferred data-tier work
-- `examples/authoring/README.md` - authoring examples pack for native fanout, native join, and WASM component workflows
-- `examples/workloads/fanout-fanin.md` - bounded fan-out/fan-in workload with native executors and metadata shape
-- `examples/workloads/stream-join-window.md` - stream join/window workload that exercises `recv_any`, uneven inputs, and closure diagnostics
-- `examples/workloads/replay-branch-eval.md` - replay/branch evaluation workload with parallel branches and side-by-side comparison
-- `examples/workloads/ai-call-orchestration.md` - AI-call orchestration mock workload: prompt/tool/result pipeline and capability gap analysis
-- `examples/workloads/watcher-cancellation.md` - watcher workload where cancellation is the expected terminal path
-- `examples/wasm-uppercase.md` - WASM node smoke path: build fixture, validate manifest, run, inspect metadata, clean
-- `docs/contract-capability-authoring.md` - contract and capability mapping guidance for native and WASM nodes
-- `docs/node-authoring-error-patterns.md` - native and WASM node error, cancellation, retry, and metadata patterns
-- `crates/conduit-wasm/fixtures/uppercase-guest/README.md` - WASM guest authoring template: WIT contract, JSON shape, build, and step-by-step guide
-- `docs/data-tier-pressure-review-2026-05-08.md` - workload pressure review and Arrow/DataFusion deferral decision
-- `docs/handoff_2026-05-07.md` - latest handoff snapshot
-- `docs/AGENTS.md` - repo-local working conventions for coding agents
+
+For the rest, browse `docs/` and `examples/` directly. The repository is the
+source of truth.

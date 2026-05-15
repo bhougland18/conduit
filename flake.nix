@@ -90,7 +90,7 @@
               acfs.enable = true;
               direnv.enable = true;
               jujutsu.enable = true;
-              quarto.enable = true;
+              documentation.enable = true;
               rust.enable = true;
               rust_wasm.enable = true;
               rust_devtools.enable = true;

@@ -48,7 +48,7 @@
           jujutsu.enable = lib.mkEnableOption "Jujutsu and agentjj tooling";
           native_cc.enable = lib.mkEnableOption "Native C/C++ interop toolchain support";
           ntm.enable = lib.mkEnableOption "Named Tmux Manager orchestration tooling";
-          quarto.enable = lib.mkEnableOption "Quarto documentation tooling";
+          documentation.enable = lib.mkEnableOption "Documentation, PDF, and diagram tooling";
           rinf.enable = lib.mkEnableOption "rinf bridge tooling";
           rust_devtools.enable = lib.mkEnableOption "Optional Rust workflow and profiling CLI tooling";
           rust_lint_dylint.enable = lib.mkEnableOption "Dylint runtime and lint authoring support";
@@ -75,7 +75,7 @@
             jujutsu.enable = lib.mkDefault true;
             native_cc.enable = lib.mkDefault true;
             ntm.enable = lib.mkDefault false;
-            quarto.enable = lib.mkDefault false;
+            documentation.enable = lib.mkDefault false;
             rinf.enable = lib.mkDefault true;
             rust_devtools.enable = lib.mkDefault true;
             rust_lint_dylint.enable = lib.mkDefault false;
