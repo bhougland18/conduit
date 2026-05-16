@@ -1,6 +1,6 @@
 # Contract And Capability Authoring
 
-This guide explains how to map a workflow node to Conduit contracts and
+This guide explains how to map a workflow node to Pureflow contracts and
 capability descriptors. Use it when adding native node helpers, WASM component
 nodes, or inspection metadata that should line up with the workflow topology.
 
@@ -26,7 +26,7 @@ The validator intentionally checks these together:
   receive/emit direction
 - schemas on connected edge endpoints must match when both sides declare schema
   refs
-- strict execution boundaries reject host effects that Conduit cannot enforce
+- strict execution boundaries reject host effects that Pureflow cannot enforce
 
 `SchemaRef` is opaque. Today, compatibility is exact equality. Prefer stable,
 versioned names such as `schema://text-bytes/v1` or

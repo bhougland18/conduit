@@ -1,6 +1,6 @@
-# Epic 1: Conduit Foundation
+# Epic 1: Pureflow Foundation
 
-Goal: establish the smallest honest base for Conduit so later work has stable types, validation rules, runtime boundaries, and documentation for the decisions that matter.
+Goal: establish the smallest honest base for Pureflow so later work has stable types, validation rules, runtime boundaries, and documentation for the decisions that matter.
 
 This epic is intentionally split on design boundaries, not on file count. A bead should map to a reviewable JJ change and a coherent decision surface.
 

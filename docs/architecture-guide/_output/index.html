@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
-<title>Conduit Architecture Guide</title>
+<title>Pureflow Architecture Guide</title>
 <style>
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
@@ -17,7 +17,7 @@ div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
   width: 0.8em;
-  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */
   vertical-align: middle;
 }
 </style>
@@ -82,8 +82,8 @@ ul.task-list li input[type="checkbox"] {
       <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
-        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./index.html"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Conduit Architecture Guide</span></a></li></ol></nav>
-        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./index.html"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Pureflow Architecture Guide</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         </a>
       <button type="button" class="btn quarto-search-button" aria-label="Search" onclick="window.quartoOpenSearch();">
         <i class="bi bi-search"></i>
@@ -97,7 +97,7 @@ ul.task-list li input[type="checkbox"] {
   <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
     <div class="pt-lg-2 mt-2 text-left sidebar-header">
     <div class="sidebar-title mb-0 py-0">
-      <a href="./">Conduit Architecture Guide</a> 
+      <a href="./">Pureflow Architecture Guide</a>
     </div>
       </div>
         <div class="mt-2 flex-shrink-0 align-items-center">
@@ -105,34 +105,34 @@ ul.task-list li input[type="checkbox"] {
         <div id="quarto-search" class="" title="Search"></div>
         </div>
         </div>
-    <div class="sidebar-menu-container"> 
+    <div class="sidebar-menu-container">
     <ul class="list-unstyled mt-1">
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./index.html" class="sidebar-item-text sidebar-link active">
- <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Conduit Architecture Guide</span></span></a>
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Pureflow Architecture Guide</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./system-overview.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">System Overview</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./runtime-model.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Runtime Model</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./package-contracts.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Package and Contract Boundaries</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./diagrams-and-flows.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Diagrams and Flows</span></span></a>
   </div>
@@ -145,9 +145,9 @@ ul.task-list li input[type="checkbox"] {
     <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
         <nav id="TOC" role="doc-toc" class="toc-active">
     <h2 id="toc-title">Table of contents</h2>
-   
+
   <ul>
-  <li><a href="#conduit-architecture-guide" id="toc-conduit-architecture-guide" class="nav-link active" data-scroll-target="#conduit-architecture-guide"><span class="header-section-number">1</span> Conduit Architecture Guide</a>
+  <li><a href="#pureflow-architecture-guide" id="toc-pureflow-architecture-guide" class="nav-link active" data-scroll-target="#pureflow-architecture-guide"><span class="header-section-number">1</span> Pureflow Architecture Guide</a>
   <ul class="collapse">
   <li><a href="#audience" id="toc-audience" class="nav-link" data-scroll-target="#audience"><span class="header-section-number">1.1</span> Audience</a></li>
   <li><a href="#scope" id="toc-scope" class="nav-link" data-scroll-target="#scope"><span class="header-section-number">1.2</span> Scope</a></li>
@@ -163,28 +163,28 @@ ul.task-list li input[type="checkbox"] {
 
 <header id="title-block-header" class="quarto-title-block default">
 <div class="quarto-title">
-<h1 class="title">Conduit Architecture Guide</h1>
+<h1 class="title">Pureflow Architecture Guide</h1>
 </div>
 
 
 
 <div class="quarto-title-meta">
 
-    
-  
-    
+
+
+
   </div>
-  
+
 
 
 </header>
 
 
-<section id="conduit-architecture-guide" class="level1" data-number="1">
-<h1 data-number="1"><span class="header-section-number">1</span> Conduit Architecture Guide</h1>
+<section id="pureflow-architecture-guide" class="level1" data-number="1">
+<h1 data-number="1"><span class="header-section-number">1</span> Pureflow Architecture Guide</h1>
 <section id="audience" class="level2" data-number="1.1">
 <h2 data-number="1.1" class="anchored" data-anchor-id="audience"><span class="header-section-number">1.1</span> Audience</h2>
-<p>This guide is for engineers who need a system-level understanding of Conduit.</p>
+<p>This guide is for engineers who need a system-level understanding of Pureflow.</p>
 <p>It is written for humans first. The point is not to compress the design into a set of symbols for tooling; the point is to explain why the system is shaped the way it is, what each layer is protecting, and what tradeoffs are worth remembering when the code changes.</p>
 </section>
 <section id="scope" class="level2" data-number="1.2">
@@ -208,7 +208,7 @@ ul.task-list li input[type="checkbox"] {
 </section>
 <section id="why-this-guide-exists" class="level2" data-number="1.4">
 <h2 data-number="1.4" class="anchored" data-anchor-id="why-this-guide-exists"><span class="header-section-number">1.4</span> Why This Guide Exists</h2>
-<p>Conduit has enough moving parts that “what the code does” is not the same as “why the code is arranged this way.” This guide is here to bridge that gap for the next person who opens the repo with coffee in hand and wants the short version before they start reading Rust.</p>
+<p>Pureflow has enough moving parts that “what the code does” is not the same as “why the code is arranged this way.” This guide is here to bridge that gap for the next person who opens the repo with coffee in hand and wants the short version before they start reading Rust.</p>
 </section>
 <section id="relationship-to-other-docs" class="level2" data-number="1.5">
 <h2 data-number="1.5" class="anchored" data-anchor-id="relationship-to-other-docs"><span class="header-section-number">1.5</span> Relationship to Other Docs</h2>
@@ -233,7 +233,7 @@ ul.task-list li input[type="checkbox"] {
     anchorJS.add('.anchored');
     const isCodeAnnotation = (el) => {
       for (const clz of el.classList) {
-        if (clz.startsWith('code-annotation-')) {                     
+        if (clz.startsWith('code-annotation-')) {
           return true;
         }
       }
@@ -253,11 +253,11 @@ ul.task-list li input[type="checkbox"] {
         button.setAttribute("data-bs-toggle", "tooltip");
         button.setAttribute("data-bs-placement", "left");
         button.setAttribute("data-bs-title", "Copied!");
-        tooltip = new bootstrap.Tooltip(button, 
-          { trigger: "manual", 
+        tooltip = new bootstrap.Tooltip(button,
+          { trigger: "manual",
             customClass: "code-copy-button-tooltip",
             offset: [0, -8]});
-        tooltip.show();    
+        tooltip.show();
       }
       setTimeout(function() {
         if (tooltip) {
@@ -334,7 +334,7 @@ ul.task-list li input[type="checkbox"] {
       if (onUntriggerFn) {
         config.onUntrigger = onUntriggerFn;
       }
-      window.tippy(el, config); 
+      window.tippy(el, config);
     }
     const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
     for (var i=0; i<noterefs.length; i++) {
@@ -409,7 +409,7 @@ ul.task-list li input[type="checkbox"] {
       tippyHover(xref, undefined, function(instance) {
         instance.disable();
         let url = xref.getAttribute('href');
-        let hash = undefined; 
+        let hash = undefined;
         if (url.startsWith('#')) {
           hash = url;
         } else {
@@ -437,7 +437,7 @@ ul.task-list li input[type="checkbox"] {
               if (note !== null) {
                 const html = processXRef(id, note);
                 instance.setContent(html);
-              } 
+              }
             }).finally(() => {
               instance.enable();
               instance.show();
@@ -461,7 +461,7 @@ ul.task-list li input[type="checkbox"] {
               }
               const html = processXRef(null, note);
               instance.setContent(html);
-            } 
+            }
           }).finally(() => {
             instance.enable();
             instance.show();
@@ -501,7 +501,7 @@ ul.task-list li input[type="checkbox"] {
               height = bottom - top;
             }
             if (top !== null && height !== null && parent !== null) {
-              // cook up a div (if necessary) and position it 
+              // cook up a div (if necessary) and position it
               let div = window.document.getElementById("code-annotation-line-highlight");
               if (div === null) {
                 div = window.document.createElement("div");

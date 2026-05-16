@@ -40,4 +40,4 @@ Compatibility expectations are additive whenever possible:
 - Contract and capability fields should evolve with defaults or additive variants.
 - Metadata record families and discriminators should remain stable.
 - Run summary fields should remain predictable for CI and scripting.
-- New execution backends should fit behind existing Conduit-owned contracts instead of broadening the public runtime model.
+- New execution backends should fit behind existing Pureflow-owned contracts instead of broadening the public runtime model.

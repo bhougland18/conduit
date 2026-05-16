@@ -1,13 +1,13 @@
 # WASM Guest Fixtures
 
-This directory contains source fixtures for Conduit Component Model batch
+This directory contains source fixtures for Pureflow Component Model batch
 guests. Fixtures are intentionally kept outside the workspace membership so the
 default workspace checks do not require a `wasm32-wasip2` standard library.
 
 ## Uppercase Guest
 
 `uppercase-guest` implements the `conduit:batch@0.1.0` `conduit-node` world from
-`../wit/conduit-batch.wit`. It accepts byte payload packets, uppercases ASCII
+`../wit/pureflow-batch.wit`. It accepts byte payload packets, uppercases ASCII
 letters, and emits every transformed packet on the `out` port. Control payloads
 return `batch-error::unsupported-payload`.
 

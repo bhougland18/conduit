@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
-  <title id="title">Conduit banner</title>
-  <desc id="desc">A decorative banner showing a flow graph, bounded channels, and the Conduit project title.</desc>
+  <title id="title">Pureflow banner</title>
+  <desc id="desc">A decorative banner showing a flow graph, bounded channels, and the Pureflow project title.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#020617"/>
@@ -32,7 +32,7 @@
       FLOW-BASED WORKFLOW ENGINE
     </text>
     <text x="0" y="78" fill="#ffffff" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="72" font-weight="800">
-      Conduit
+      Pureflow
     </text>
     <text x="0" y="126" fill="#d1d5db" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="26" font-weight="500">
       Bounded channels, explicit contracts, observable runs.

@@ -1,6 +1,6 @@
 # Benchmark Operations
 
-Conduit currently has two Criterion benchmark suites:
+Pureflow currently has two Criterion benchmark suites:
 
 - `conduit-core` metadata sink overhead
 - `conduit-engine` workflow backpressure capacity

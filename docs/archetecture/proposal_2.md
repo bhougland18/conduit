@@ -1,6 +1,6 @@
-# Conduit Architecture Proposal v2
+# Pureflow Architecture Proposal v2
 
-Companion to `conduit_proposal.md` (v4) and the strategy brief in
+Companion to `pureflow_proposal.md` (v4) and the strategy brief in
 `strategy/proposal_request.md`. The original proposal sets the vision; this
 document grades it against what actually exists in `crates/` today and proposes
 the next wave of work.
@@ -119,7 +119,7 @@ impl PortsOut {
 ```
 
 Implementation backs onto `asupersync::channel::mpsc::Receiver::recv` and
-`Sender::reserve` (both `async`). The Conduit-owned wrapper preserves the
+`Sender::reserve` (both `async`). The Pureflow-owned wrapper preserves the
 boundary contract documented in `crates/conduit-core/src/ports.rs:1-27`.
 
 `recv_any` is the FBP "pick from any input" primitive. Implement by polling
@@ -273,7 +273,7 @@ features so consumers compile only what they use:
 | `conduit-runtime` | `tracing` | `tracing` events at lifecycle/metadata seams |
 
 `asupersync` already depends on `tracing`; the `tracing` feature here only
-controls Conduit's emission, not its presence in the dep tree.
+controls Pureflow's emission, not its presence in the dep tree.
 
 ---
 
@@ -442,7 +442,7 @@ nodes ever need typed interfaces).
 
 - **`asupersync`.** Single-vendor, recently published (`0.2.9`). Watch
   upstream cadence; if a quarter passes without releases, fork into
-  `crates/conduit-asupersync/` so Conduit can patch independently. The
+  `crates/conduit-asupersync/` so Pureflow can patch independently. The
   boundary documented in `crates/conduit-runtime/src/lib.rs:11-19` is
   precisely the seam that makes a fork cheap.
 - **`serde_yml`.** Already a fork. If its release pace stalls, the workflow
@@ -450,7 +450,7 @@ nodes ever need typed interfaces).
   `yaml-rust2`.
 - **`rdf-datafusion`.** Mentioned in `docs/audits/Audit_4_23.md` §2.6 as the
   eventual RDF integration path. Track maturity; `oxigraph` is the
-  conservative fallback. Neither becomes a Conduit dep — both are *node*
+  conservative fallback. Neither becomes a Pureflow dep — both are *node*
   implementations consumers ship separately.
 
 ### 5.7 Crates intentionally NOT recommended
@@ -618,7 +618,7 @@ generic warnings.
 
 ### 8.1 `asupersync` stalls or breaks compatibility
 
-- **Severity:** High. Conduit's runtime substrate is a single-vendor crate at
+- **Severity:** High. Pureflow's runtime substrate is a single-vendor crate at
   `0.2.9`.
 - **Likelihood:** Moderate; experimental research crates churn.
 - **Mitigation:** The boundary in `crates/conduit-core/src/error.rs:404-442`
@@ -712,4 +712,4 @@ shortest path to a runtime that earns the v4 vision is:
 
 Done in that order, the architecture stays internally consistent, no library
 choice is locked in before its time, and `asupersync` remains a substrate that
-Conduit can fork without touching node-facing APIs.
+Pureflow can fork without touching node-facing APIs.

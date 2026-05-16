@@ -1,6 +1,6 @@
 # Metadata JSONL and Run Summary JSON
 
-Conduit emits machine-facing runtime facts in two related JSON surfaces:
+Pureflow emits machine-facing runtime facts in two related JSON surfaces:
 
 - Metadata JSONL: one JSON object per runtime observation.
 - CLI run summary JSON: one JSON document describing a completed `conduit run --json` invocation.
@@ -88,7 +88,7 @@ Current lifecycle `kind` values are:
 
 ### Message Boundary
 
-Message records describe packet movement at Conduit-owned port boundaries. They
+Message records describe packet movement at Pureflow-owned port boundaries. They
 carry message metadata, not payload bytes.
 
 ```json
@@ -169,7 +169,7 @@ observe queued input packets.
 ### Error
 
 Error records describe node-level or workflow-level failures using the stable
-Conduit error taxonomy.
+Pureflow error taxonomy.
 
 ```json
 {
@@ -221,7 +221,7 @@ Deadlock watchdog failures attach a structured diagnostic:
 
 External effect records describe node-observed tool, service, database, or API
 effects. They are explicit metadata facts emitted by node/runtime integration
-code; Conduit does not infer them from ordinary message traffic.
+code; Pureflow does not infer them from ordinary message traffic.
 
 ```json
 {

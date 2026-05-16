@@ -1,4 +1,4 @@
-//! Shared error types for Conduit runtime-facing APIs.
+//! Shared error types for Pureflow runtime-facing APIs.
 //!
 //! ## Fragment: error-taxonomy
 //!
@@ -24,7 +24,7 @@
 //!
 //! ## Fragment: asupersync-error-boundary
 //!
-//! `asupersync` errors are runtime substrate details. The shared Conduit error
+//! `asupersync` errors are runtime substrate details. The shared Pureflow error
 //! model maps them into cancellation or execution failures at the boundary so
 //! downstream node and workflow APIs do not grow a public dependency on raw
 //! channel or task error types.
@@ -39,7 +39,7 @@ use conduit_types::IdentifierError;
 use crate::capability::CapabilityValidationError;
 use crate::ports::{PortRecvError, PortSendError};
 
-/// Stable machine-readable code for one Conduit error condition.
+/// Stable machine-readable code for one Pureflow error condition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
     /// A user supplied identifier was malformed.
@@ -94,7 +94,7 @@ pub enum RetryDisposition {
 /// Validation error exposed through the shared runtime-facing error model.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
-    /// A Conduit identifier failed validation.
+    /// A Pureflow identifier failed validation.
     Identifier(IdentifierError),
     /// A node capability descriptor failed validation.
     Capability(CapabilityValidationError),
@@ -259,7 +259,7 @@ impl fmt::Display for MetadataError {
 
 impl Error for MetadataError {}
 
-/// Shared runtime-facing error for the Conduit foundation layer.
+/// Shared runtime-facing error for the Pureflow foundation layer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConduitError {
     /// Invalid user- or config-provided data.

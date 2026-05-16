@@ -1,7 +1,7 @@
 # Workflow Authoring Examples
 
 This pack gives small workflow shapes to copy while authoring generated or
-hand-written Conduit workflow files. The examples are intentionally compact so
+hand-written Pureflow workflow files. The examples are intentionally compact so
 the topology is easy to inspect before adding real node implementations.
 
 Run commands from the repository root.
@@ -170,5 +170,5 @@ cargo run -p conduit-cli -- schema workflow
 cargo run -p conduit-cli -- schema wasm-manifest
 ```
 
-Use `conduit validate` and `conduit validate-manifest --workflow` as the final
+Use `pureflow validate` and `pureflow validate-manifest --workflow` as the final
 authoritative checks after schema-assisted editing.

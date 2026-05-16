@@ -46,4 +46,4 @@ The metadata file contains 24 records:
 - sink input dequeued from `transform.cleaned`
 
 See `../docs/metadata-json.md` for the stable metadata JSONL and
-`conduit run --json` summary shapes.
+`pureflow run --json` summary shapes.

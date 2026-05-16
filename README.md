@@ -1,10 +1,10 @@
-# Conduit
+# Pureflow
 
 <p align="center">
-  <img src="assets/conduit-banner.svg" alt="Conduit banner" width="960" />
+  <img src="assets/pureflow-banner.svg" alt="Pureflow banner" width="960" />
 </p>
 
-Conduit is an experimental Flow-Based Programming workflow engine written in Rust.
+Pureflow is an experimental Flow-Based Programming workflow engine written in Rust.
 It validates workflow documents, executes node graphs through bounded channels,
 and emits machine-facing metadata and run summaries.
 
@@ -17,7 +17,7 @@ and Wasmtime Component Model batch nodes.
 - Bounded channels make backpressure visible instead of hiding it.
 - Metadata is treated as a first-class artifact, so runs are easier to inspect and explain.
 - Native executors and WASM batch nodes share the same graph model.
-- The runtime boundary stays narrow: Conduit owns workflow shape, contracts, ports, metadata, and capabilities.
+- The runtime boundary stays narrow: Pureflow owns workflow shape, contracts, ports, metadata, and capabilities.
 
 ## Start Here
 
@@ -52,7 +52,7 @@ and Wasmtime Component Model batch nodes.
 - Run workflows through a real executor registry backed by bounded async ports.
 - Capture lifecycle, message-boundary, queue-pressure, structured error, and
   deadlock metadata as JSONL.
-- Emit machine-facing `conduit run --json` summaries with stable status and
+- Emit machine-facing `pureflow run --json` summaries with stable status and
   error fields.
 - Execute native nodes and manifest-loaded WASM component nodes in the same
   graph.
@@ -185,10 +185,10 @@ Generate completions for your shell and source them in your shell profile:
 cargo run -p conduit-cli -- completions bash >> ~/.bash_completion
 
 # Zsh
-cargo run -p conduit-cli -- completions zsh > ~/.zfunc/_conduit
+cargo run -p conduit-cli -- completions zsh > ~/.zfunc/_pureflow
 
 # Fish
-cargo run -p conduit-cli -- completions fish > ~/.config/fish/completions/conduit.fish
+cargo run -p conduit-cli -- completions fish > ~/.config/fish/completions/pureflow.fish
 ```
 
 Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.

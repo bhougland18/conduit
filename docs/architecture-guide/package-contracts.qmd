@@ -6,7 +6,7 @@ Define crate-level roles and the contract boundaries that keep workflow authorin
 runtime execution, and integration adapters decoupled.
 
 This chapter matters because crate boundaries are not just a packaging detail
-here. They are the line between “the thing Conduit promises” and “the thing a
+here. They are the line between “the thing Pureflow promises” and “the thing a
 particular backend happens to use today.”
 
 If the system starts to feel too abstract, this is the chapter to return to. It

@@ -193,7 +193,7 @@
 \IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
 \urlstyle{same}
 \hypersetup{
-  pdftitle={Conduit Architecture Guide},
+  pdftitle={Pureflow Architecture Guide},
   colorlinks=true,
   linkcolor={blue},
   filecolor={Maroon},
@@ -202,7 +202,7 @@
   pdfcreator={LaTeX via pandoc}}
 
 
-\title{Conduit Architecture Guide}
+\title{Pureflow Architecture Guide}
 \author{}
 \date{}
 \begin{document}
@@ -217,12 +217,12 @@
 
 \bookmarksetup{startatroot}
 
-\chapter{Conduit Architecture Guide}\label{conduit-architecture-guide}
+\chapter{Pureflow Architecture Guide}\label{conduit-architecture-guide}
 
 \section{Audience}\label{audience}
 
 This guide is for engineers who need a system-level understanding of
-Conduit.
+Pureflow.
 
 \section{Scope}\label{scope}
 
@@ -252,13 +252,13 @@ Conduit.
 
 \chapter{System Overview}\label{system-overview}
 
-\section{What Conduit Is}\label{what-conduit-is}
+\section{What Pureflow Is}\label{what-pureflow-is}
 
-Conduit is an experimental Flow-Based Programming engine in Rust. It
+Pureflow is an experimental Flow-Based Programming engine in Rust. It
 validates workflow documents, executes node graphs through bounded
 channels, and emits machine-facing metadata and run summaries.
 
-At a high level, Conduit separates:
+At a high level, Pureflow separates:
 
 \begin{itemize}
 \tightlist
@@ -366,7 +366,7 @@ tests/docs \\
 
 \section{Metadata Surfaces and Usage}\label{metadata-surfaces-and-usage}
 
-Conduit emits two machine-facing outputs:
+Pureflow emits two machine-facing outputs:
 
 \begin{itemize}
 \tightlist
@@ -437,7 +437,7 @@ Notes
 \texttt{status} & terminal state (\texttt{completed}, \texttt{failed},
 \texttt{cancelled}) & primary machine decision field \\
 \texttt{error} & terminal error object or \texttt{null} & mirrors stable
-Conduit error shape \\
+Pureflow error shape \\
 \texttt{workflow} & workflow identity and shape counts & quick context
 for automation \\
 \texttt{metadata} & output metadata path and record totals & ties

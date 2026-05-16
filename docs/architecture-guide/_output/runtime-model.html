@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
-<title>3&nbsp; Runtime Model – Conduit Architecture Guide</title>
+<title>3&nbsp; Runtime Model – Pureflow Architecture Guide</title>
 <style>
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
@@ -17,7 +17,7 @@ div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
   width: 0.8em;
-  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */
   vertical-align: middle;
 }
 </style>
@@ -84,7 +84,7 @@ ul.task-list li input[type="checkbox"] {
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
         <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./runtime-model.html"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Runtime Model</span></a></li></ol></nav>
-        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         </a>
       <button type="button" class="btn quarto-search-button" aria-label="Search" onclick="window.quartoOpenSearch();">
         <i class="bi bi-search"></i>
@@ -98,7 +98,7 @@ ul.task-list li input[type="checkbox"] {
   <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
     <div class="pt-lg-2 mt-2 text-left sidebar-header">
     <div class="sidebar-title mb-0 py-0">
-      <a href="./">Conduit Architecture Guide</a> 
+      <a href="./">Pureflow Architecture Guide</a>
     </div>
       </div>
         <div class="mt-2 flex-shrink-0 align-items-center">
@@ -106,34 +106,34 @@ ul.task-list li input[type="checkbox"] {
         <div id="quarto-search" class="" title="Search"></div>
         </div>
         </div>
-    <div class="sidebar-menu-container"> 
+    <div class="sidebar-menu-container">
     <ul class="list-unstyled mt-1">
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./index.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Conduit Architecture Guide</span></span></a>
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Pureflow Architecture Guide</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./system-overview.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">System Overview</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./runtime-model.html" class="sidebar-item-text sidebar-link active">
  <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Runtime Model</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./package-contracts.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Package and Contract Boundaries</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./diagrams-and-flows.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Diagrams and Flows</span></span></a>
   </div>
@@ -146,7 +146,7 @@ ul.task-list li input[type="checkbox"] {
     <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
         <nav id="TOC" role="doc-toc" class="toc-active">
     <h2 id="toc-title">Table of contents</h2>
-   
+
   <ul>
   <li><a href="#intent" id="toc-intent" class="nav-link active" data-scroll-target="#intent"><span class="header-section-number">3.1</span> Intent</a></li>
   <li><a href="#execution-lifecycle" id="toc-execution-lifecycle" class="nav-link" data-scroll-target="#execution-lifecycle"><span class="header-section-number">3.2</span> Execution Lifecycle</a>
@@ -178,11 +178,11 @@ ul.task-list li input[type="checkbox"] {
 
 <div class="quarto-title-meta">
 
-    
-  
-    
+
+
+
   </div>
-  
+
 
 
 </header>
@@ -191,12 +191,12 @@ ul.task-list li input[type="checkbox"] {
 <section id="intent" class="level2" data-number="3.1">
 <h2 data-number="3.1" class="anchored" data-anchor-id="intent"><span class="header-section-number">3.1</span> Intent</h2>
 <p>Explain how execution proceeds from workflow input through node scheduling, message flow, metadata emission, and terminal summary.</p>
-<p>The short version is that Conduit tries to make execution feel ordinary: validate first, run second, record what happened as it happens, and stop with a clear terminal state. That may sound conservative, but it is what keeps the system understandable when workflows start to get interesting.</p>
+<p>The short version is that Pureflow tries to make execution feel ordinary: validate first, run second, record what happened as it happens, and stop with a clear terminal state. That may sound conservative, but it is what keeps the system understandable when workflows start to get interesting.</p>
 <p>The chapter is organized the same way a run happens: first the setup, then the movement of work, then the point where the run becomes a finished artifact you can inspect.</p>
 </section>
 <section id="execution-lifecycle" class="level2" data-number="3.2">
 <h2 data-number="3.2" class="anchored" data-anchor-id="execution-lifecycle"><span class="header-section-number">3.2</span> Execution Lifecycle</h2>
-<p>Conduit runtime behavior is coordinated by three layers:</p>
+<p>Pureflow runtime behavior is coordinated by three layers:</p>
 <ul>
 <li><code>conduit-cli</code> handles input/output and user-facing options.</li>
 <li><code>conduit-engine</code> validates execution preconditions, builds run context, and orchestrates node execution.</li>
@@ -231,7 +231,7 @@ ul.task-list li input[type="checkbox"] {
 <p>The phase table below is the fast version. The sections that follow unpack each step in plain language.</p>
 <section id="phase-1-definition-and-safety-checks" class="level3" data-number="3.3.1">
 <h3 data-number="3.3.1" class="anchored" data-anchor-id="phase-1-definition-and-safety-checks"><span class="header-section-number">3.3.1</span> Phase 1: Definition and Safety Checks</h3>
-<p>Before any node logic runs, Conduit enforces static safety:</p>
+<p>Before any node logic runs, Pureflow enforces static safety:</p>
 <ul>
 <li>identifiers and format version are validated,</li>
 <li>graph connectivity and port references are validated,</li>
@@ -257,19 +257,19 @@ ul.task-list li input[type="checkbox"] {
 </section>
 <section id="phase-3-terminalization-and-summary" class="level3" data-number="3.3.3">
 <h3 data-number="3.3.3" class="anchored" data-anchor-id="phase-3-terminalization-and-summary"><span class="header-section-number">3.3.3</span> Phase 3: Terminalization and Summary</h3>
-<p>When execution reaches a terminal state (<code>completed</code>, <code>failed</code>, or <code>cancelled</code>), Conduit emits:</p>
+<p>When execution reaches a terminal state (<code>completed</code>, <code>failed</code>, or <code>cancelled</code>), Pureflow emits:</p>
 <ul>
 <li>final metadata records (including terminal lifecycle and error records),</li>
 <li><code>WorkflowRunSummary</code> with status, counts, and metadata path totals.</li>
 </ul>
 <p>The summary is the machine-facing endpoint for automation and CI decisions.</p>
-<p>That split is deliberate. The metadata stream is for forensics and live inspection. The summary is for the final answer. Most systems blur those two ideas together; Conduit keeps them separate so each one stays simpler.</p>
+<p>That split is deliberate. The metadata stream is for forensics and live inspection. The summary is for the final answer. Most systems blur those two ideas together; Pureflow keeps them separate so each one stays simpler.</p>
 <p>The result is that automation can stay fast while humans still have enough history to understand a run afterward.</p>
 </section>
 </section>
 <section id="error-handling-model" class="level2" data-number="3.4">
 <h2 data-number="3.4" class="anchored" data-anchor-id="error-handling-model"><span class="header-section-number">3.4</span> Error Handling Model</h2>
-<p>Conduit uses stable error taxonomies (<code>CDT-*</code>) and structured error payloads so consumers can branch behavior without string parsing.</p>
+<p>Pureflow uses stable error taxonomies (<code>CDT-*</code>) and structured error payloads so consumers can branch behavior without string parsing.</p>
 <p>The goal is not just nicer errors. The goal is errors that stay meaningful after the system grows.</p>
 <p>Error surfaces are intentionally split:</p>
 <p>Retry/recovery policy remains a node/runtime concern and is represented through contract/core policy types rather than ad hoc CLI-only logic.</p>
@@ -294,8 +294,8 @@ ul.task-list li input[type="checkbox"] {
 <li>Queue capacities in workflow edges are part of runtime behavior, not only structural metadata.</li>
 <li>Metadata JSONL is designed for tooling and dashboards; it is the canonical event stream for run forensics.</li>
 <li>The run summary is intentionally compact and should be preferred for fast pass/fail automation.</li>
-<li>Cancellation is represented as a shared Conduit-owned signal, so a node can see the same request that the runtime supervisor sees.</li>
-<li>The runtime wrapper intentionally stays narrow. Most of the interesting behavior belongs to Conduit itself, not to the async substrate.</li>
+<li>Cancellation is represented as a shared Pureflow-owned signal, so a node can see the same request that the runtime supervisor sees.</li>
+<li>The runtime wrapper intentionally stays narrow. Most of the interesting behavior belongs to Pureflow itself, not to the async substrate.</li>
 </ul>
 <p>Those two notes are the practical summary of this chapter.</p>
 </section>
@@ -319,7 +319,7 @@ ul.task-list li input[type="checkbox"] {
     anchorJS.add('.anchored');
     const isCodeAnnotation = (el) => {
       for (const clz of el.classList) {
-        if (clz.startsWith('code-annotation-')) {                     
+        if (clz.startsWith('code-annotation-')) {
           return true;
         }
       }
@@ -339,11 +339,11 @@ ul.task-list li input[type="checkbox"] {
         button.setAttribute("data-bs-toggle", "tooltip");
         button.setAttribute("data-bs-placement", "left");
         button.setAttribute("data-bs-title", "Copied!");
-        tooltip = new bootstrap.Tooltip(button, 
-          { trigger: "manual", 
+        tooltip = new bootstrap.Tooltip(button,
+          { trigger: "manual",
             customClass: "code-copy-button-tooltip",
             offset: [0, -8]});
-        tooltip.show();    
+        tooltip.show();
       }
       setTimeout(function() {
         if (tooltip) {
@@ -420,7 +420,7 @@ ul.task-list li input[type="checkbox"] {
       if (onUntriggerFn) {
         config.onUntrigger = onUntriggerFn;
       }
-      window.tippy(el, config); 
+      window.tippy(el, config);
     }
     const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
     for (var i=0; i<noterefs.length; i++) {
@@ -495,7 +495,7 @@ ul.task-list li input[type="checkbox"] {
       tippyHover(xref, undefined, function(instance) {
         instance.disable();
         let url = xref.getAttribute('href');
-        let hash = undefined; 
+        let hash = undefined;
         if (url.startsWith('#')) {
           hash = url;
         } else {
@@ -523,7 +523,7 @@ ul.task-list li input[type="checkbox"] {
               if (note !== null) {
                 const html = processXRef(id, note);
                 instance.setContent(html);
-              } 
+              }
             }).finally(() => {
               instance.enable();
               instance.show();
@@ -547,7 +547,7 @@ ul.task-list li input[type="checkbox"] {
               }
               const html = processXRef(null, note);
               instance.setContent(html);
-            } 
+            }
           }).finally(() => {
             instance.enable();
             instance.show();
@@ -587,7 +587,7 @@ ul.task-list li input[type="checkbox"] {
               height = bottom - top;
             }
             if (top !== null && height !== null && parent !== null) {
-              // cook up a div (if necessary) and position it 
+              // cook up a div (if necessary) and position it
               let div = window.document.getElementById("code-annotation-line-highlight");
               if (div === null) {
                 div = window.document.createElement("div");
@@ -712,7 +712,7 @@ ul.task-list li input[type="checkbox"] {
   <div class="nav-page nav-page-previous">
       <a href="./system-overview.html" class="pagination-link" aria-label="System Overview">
         <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">System Overview</span></span>
-      </a>          
+      </a>
   </div>
   <div class="nav-page nav-page-next">
       <a href="./package-contracts.html" class="pagination-link" aria-label="Package and Contract Boundaries">

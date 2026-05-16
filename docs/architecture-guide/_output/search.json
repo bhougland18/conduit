@@ -2,61 +2,61 @@
   {
     "objectID": "index.html",
     "href": "index.html",
-    "title": "Conduit Architecture Guide",
+    "title": "Pureflow Architecture Guide",
     "section": "",
-    "text": "1 Conduit Architecture Guide",
+    "text": "1 Pureflow Architecture Guide",
     "crumbs": [
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Conduit Architecture Guide</span>"
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Pureflow Architecture Guide</span>"
     ]
   },
   {
     "objectID": "index.html#audience",
     "href": "index.html#audience",
-    "title": "Conduit Architecture Guide",
+    "title": "Pureflow Architecture Guide",
     "section": "1.1 Audience",
-    "text": "1.1 Audience\nThis guide is for engineers who need a system-level understanding of Conduit.\nIt is written for humans first. The point is not to compress the design into a set of symbols for tooling; the point is to explain why the system is shaped the way it is, what each layer is protecting, and what tradeoffs are worth remembering when the code changes.",
+    "text": "1.1 Audience\nThis guide is for engineers who need a system-level understanding of Pureflow.\nIt is written for humans first. The point is not to compress the design into a set of symbols for tooling; the point is to explain why the system is shaped the way it is, what each layer is protecting, and what tradeoffs are worth remembering when the code changes.",
     "crumbs": [
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Conduit Architecture Guide</span>"
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Pureflow Architecture Guide</span>"
     ]
   },
   {
     "objectID": "index.html#scope",
     "href": "index.html#scope",
-    "title": "Conduit Architecture Guide",
+    "title": "Pureflow Architecture Guide",
     "section": "1.2 Scope",
     "text": "1.2 Scope\n\nHigh-level architecture and subsystem responsibilities.\nRuntime flow and execution model.\nPackage and contract boundaries.\nDiagram-backed explanations for key pathways.",
     "crumbs": [
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Conduit Architecture Guide</span>"
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Pureflow Architecture Guide</span>"
     ]
   },
   {
     "objectID": "index.html#recommended-reading-order",
     "href": "index.html#recommended-reading-order",
-    "title": "Conduit Architecture Guide",
+    "title": "Pureflow Architecture Guide",
     "section": "1.3 Recommended Reading Order",
     "text": "1.3 Recommended Reading Order\nIf you are new to the codebase, read this guide in order:\n\nSystem Overview for the big picture and the main design choices.\nRuntime Model for how work actually moves through the engine.\nPackage and Contract Boundaries for why the crates are split the way they are.\nDiagrams and Flows for the conventions behind the figures.",
     "crumbs": [
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Conduit Architecture Guide</span>"
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Pureflow Architecture Guide</span>"
     ]
   },
   {
     "objectID": "index.html#why-this-guide-exists",
     "href": "index.html#why-this-guide-exists",
-    "title": "Conduit Architecture Guide",
+    "title": "Pureflow Architecture Guide",
     "section": "1.4 Why This Guide Exists",
-    "text": "1.4 Why This Guide Exists\nConduit has enough moving parts that “what the code does” is not the same as “why the code is arranged this way.” This guide is here to bridge that gap for the next person who opens the repo with coffee in hand and wants the short version before they start reading Rust.",
+    "text": "1.4 Why This Guide Exists\nPureflow has enough moving parts that “what the code does” is not the same as “why the code is arranged this way.” This guide is here to bridge that gap for the next person who opens the repo with coffee in hand and wants the short version before they start reading Rust.",
     "crumbs": [
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Conduit Architecture Guide</span>"
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Pureflow Architecture Guide</span>"
     ]
   },
   {
     "objectID": "index.html#relationship-to-other-docs",
     "href": "index.html#relationship-to-other-docs",
-    "title": "Conduit Architecture Guide",
+    "title": "Pureflow Architecture Guide",
     "section": "1.5 Relationship to Other Docs",
     "text": "1.5 Relationship to Other Docs\n\nAPI reference is generated separately via cargo doc.\nRetrieval-oriented facts live in docs/llm/.",
     "crumbs": [
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Conduit Architecture Guide</span>"
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>Pureflow Architecture Guide</span>"
     ]
   },
   {
@@ -64,14 +64,14 @@
     "href": "system-overview.html",
     "title": "2  System Overview",
     "section": "",
-    "text": "2.1 Conduit Overview\nConduit is an experimental Flow-Based Programming engine in Rust. It validates workflow documents, executes node graphs through bounded channels, and emits machine-facing metadata and run summaries.\nThe system is built to keep three things visible at once: what the workflow looks like, how the run is executing, and where the boundaries of responsibility actually sit. That is what makes the rest of the guide worth reading slowly.\nIf you want a mental model, think of Conduit like a shipping hub:\nAt a high level, Conduit separates:\nIf you only remember one thing from this chapter, remember that those concerns are intentionally not mixed together. Most of the design choices in the rest of the guide are there to protect that separation.",
+    "text": "2.1 Pureflow Overview\nPureflow is an experimental Flow-Based Programming engine in Rust. It validates workflow documents, executes node graphs through bounded channels, and emits machine-facing metadata and run summaries.\nThe system is built to keep three things visible at once: what the workflow looks like, how the run is executing, and where the boundaries of responsibility actually sit. That is what makes the rest of the guide worth reading slowly.\nIf you want a mental model, think of Pureflow like a shipping hub:\nAt a high level, Pureflow separates:\nIf you only remember one thing from this chapter, remember that those concerns are intentionally not mixed together. Most of the design choices in the rest of the guide are there to protect that separation.",
     "crumbs": [
       "<span class='chapter-number'>2</span>  <span class='chapter-title'>System Overview</span>"
     ]
   },
   {
-    "objectID": "system-overview.html#conduit-overview",
-    "href": "system-overview.html#conduit-overview",
+    "objectID": "system-overview.html#pureflow-overview",
+    "href": "system-overview.html#pureflow-overview",
     "title": "2  System Overview",
     "section": "",
     "text": "the workflow document is the route map,\nnodes are processing stations,\nedges are conveyor belts with finite space,\nmetadata is the camera footage and scanner log.\n\n\n\nstatic graph and format validation,\nruntime execution and orchestration,\ncontract/capability policy,\nintrospection and CLI surfaces.",
@@ -84,7 +84,7 @@
     "href": "system-overview.html#original-fbp-roots",
     "title": "2  System Overview",
     "section": "2.2 Original FBP Roots",
-    "text": "2.2 Original FBP Roots\nConduit is based on J. Paul Morrison’s original Flow-Based Programming model. That model matters here because it gives the architecture a very practical shape:\n\ncomponents behave like long-lived processes instead of one-shot functions,\ndata moves over bounded channels instead of through hidden shared state,\nexecution is streaming and demand-driven instead of batch-only,\nbackpressure becomes visible when downstream work cannot keep up,\nthe graph stays loosely coupled because each node only knows its ports.\n\nThat fit is deliberate because it keeps the system honest. You can see where data is waiting, where work is blocked, and where a contract mismatch is really a wiring problem rather than a mysterious runtime bug.\nIf you are coming from a more traditional scheduler or queue-heavy design, this is the part to notice: FBP is not trying to hide the graph. It is trying to make the graph the thing you reason about.",
+    "text": "2.2 Original FBP Roots\nPureflow is based on J. Paul Morrison’s original Flow-Based Programming model. That model matters here because it gives the architecture a very practical shape:\n\ncomponents behave like long-lived processes instead of one-shot functions,\ndata moves over bounded channels instead of through hidden shared state,\nexecution is streaming and demand-driven instead of batch-only,\nbackpressure becomes visible when downstream work cannot keep up,\nthe graph stays loosely coupled because each node only knows its ports.\n\nThat fit is deliberate because it keeps the system honest. You can see where data is waiting, where work is blocked, and where a contract mismatch is really a wiring problem rather than a mysterious runtime bug.\nIf you are coming from a more traditional scheduler or queue-heavy design, this is the part to notice: FBP is not trying to hide the graph. It is trying to make the graph the thing you reason about.",
     "crumbs": [
       "<span class='chapter-number'>2</span>  <span class='chapter-title'>System Overview</span>"
     ]
@@ -104,7 +104,7 @@
     "href": "system-overview.html#why-this-architecture-matters",
     "title": "2  System Overview",
     "section": "2.4 Why This Architecture Matters",
-    "text": "2.4 Why This Architecture Matters\nThe architecture is built to make the important things visible instead of leaving them implicit.\n\nWorkflow shape is validated before execution, so a bad document fails early and clearly.\nBounded channels make pressure a first-class event instead of a hidden scheduler accident.\nRuntime metadata records what happened while the run is still live, which makes debugging and replay easier than reconstructing a story from logs after the fact.\nCapability and contract checks keep the node boundary honest, which matters more as execution modes get more diverse.\nThe same design gives Conduit room to run native nodes, WASM nodes, and future adapters without rewriting the whole graph model.\n\nThat combination is what makes the system interesting: it behaves like a serious execution engine, but it still tries to keep the logic comprehensible to a person reading the code for the first time.\nConduit is trying to be the kind of system you can debug by reading from top to bottom, not the kind you need to reverse-engineer from a pile of moving parts.",
+    "text": "2.4 Why This Architecture Matters\nThe architecture is built to make the important things visible instead of leaving them implicit.\n\nWorkflow shape is validated before execution, so a bad document fails early and clearly.\nBounded channels make pressure a first-class event instead of a hidden scheduler accident.\nRuntime metadata records what happened while the run is still live, which makes debugging and replay easier than reconstructing a story from logs after the fact.\nCapability and contract checks keep the node boundary honest, which matters more as execution modes get more diverse.\nThe same design gives Pureflow room to run native nodes, WASM nodes, and future adapters without rewriting the whole graph model.\n\nThat combination is what makes the system interesting: it behaves like a serious execution engine, but it still tries to keep the logic comprehensible to a person reading the code for the first time.\nPureflow is trying to be the kind of system you can debug by reading from top to bottom, not the kind you need to reverse-engineer from a pile of moving parts.",
     "crumbs": [
       "<span class='chapter-number'>2</span>  <span class='chapter-title'>System Overview</span>"
     ]
@@ -144,7 +144,7 @@
     "href": "system-overview.html#why-wasm-helps-here",
     "title": "2  System Overview",
     "section": "2.8 Why WASM Helps Here",
-    "text": "2.8 Why WASM Helps Here\nWASM is useful in Conduit because it gives you a narrow, portable execution boundary without asking the rest of the system to trust a whole host runtime.\nThe value here is not just “WASM is safer.” It is that WASM gives Conduit a second implementation path without letting that path leak into the core model.\n\nA WASM node is easier to ship and inspect than a native plugin with deep host reach.\nThe host owns the channels, so the graph still looks like Conduit even when a node is compiled to a different execution target.\nThe capability boundary stays explicit. If a guest cannot reach the network or filesystem, that limitation is visible in the adapter instead of hidden in the node implementation.\nThe batch-style component model keeps the WASM story focused on data in, data out, which is a good fit for flow graphs.\n\nThis means WASM is not just a deployment trick. It is a way to make extension safer, more portable, and easier to reason about when the engine starts to grow.\nThat makes it a good fit for a system that wants strong boundaries and a clear story for how untrusted or semi-trusted code fits into the graph.",
+    "text": "2.8 Why WASM Helps Here\nWASM is useful in Pureflow because it gives you a narrow, portable execution boundary without asking the rest of the system to trust a whole host runtime.\nThe value here is not just “WASM is safer.” It is that WASM gives Pureflow a second implementation path without letting that path leak into the core model.\n\nA WASM node is easier to ship and inspect than a native plugin with deep host reach.\nThe host owns the channels, so the graph still looks like Pureflow even when a node is compiled to a different execution target.\nThe capability boundary stays explicit. If a guest cannot reach the network or filesystem, that limitation is visible in the adapter instead of hidden in the node implementation.\nThe batch-style component model keeps the WASM story focused on data in, data out, which is a good fit for flow graphs.\n\nThis means WASM is not just a deployment trick. It is a way to make extension safer, more portable, and easier to reason about when the engine starts to grow.\nThat makes it a good fit for a system that wants strong boundaries and a clear story for how untrusted or semi-trusted code fits into the graph.",
     "crumbs": [
       "<span class='chapter-number'>2</span>  <span class='chapter-title'>System Overview</span>"
     ]
@@ -154,7 +154,7 @@
     "href": "system-overview.html#why-asupersync-instead-of-tokio",
     "title": "2  System Overview",
     "section": "2.9 Why asupersync Instead of Tokio",
-    "text": "2.9 Why asupersync Instead of Tokio\nTokio is a strong general-purpose async ecosystem, but Conduit does not need a general-purpose app runtime to explain its own model. It needs a substrate that stays out of the way while still giving the engine task-tree execution, cancellation, and bounded channel behavior.\nThe goal is to keep the runtime layer boring in the right way: it should execute Conduit’s model, not define a second one.\nThat is why asupersync sits underneath conduit-runtime rather than being the public model itself.\n\nConduit owns the graph, ports, contracts, metadata, and capability story.\nasupersync provides the execution machinery that makes those ideas run.\nThe boundary stays narrow, which makes it easier to test and easier to replace later if the project ever needs to.\nThe public API does not inherit Tokio’s larger vocabulary when Conduit only needs a smaller one for workflow execution.\n\nThere is nothing wrong with Tokio in general. The point is simply that Conduit is trying to teach and preserve its own runtime story, not inherit a broader framework story it does not need.\nThat makes the boundary easier to test, easier to describe, and easier to swap later if the project ever needs to.",
+    "text": "2.9 Why asupersync Instead of Tokio\nTokio is a strong general-purpose async ecosystem, but Pureflow does not need a general-purpose app runtime to explain its own model. It needs a substrate that stays out of the way while still giving the engine task-tree execution, cancellation, and bounded channel behavior.\nThe goal is to keep the runtime layer boring in the right way: it should execute Pureflow’s model, not define a second one.\nThat is why asupersync sits underneath conduit-runtime rather than being the public model itself.\n\nPureflow owns the graph, ports, contracts, metadata, and capability story.\nasupersync provides the execution machinery that makes those ideas run.\nThe boundary stays narrow, which makes it easier to test and easier to replace later if the project ever needs to.\nThe public API does not inherit Tokio’s larger vocabulary when Pureflow only needs a smaller one for workflow execution.\n\nThere is nothing wrong with Tokio in general. The point is simply that Pureflow is trying to teach and preserve its own runtime story, not inherit a broader framework story it does not need.\nThat makes the boundary easier to test, easier to describe, and easier to swap later if the project ever needs to.",
     "crumbs": [
       "<span class='chapter-number'>2</span>  <span class='chapter-title'>System Overview</span>"
     ]
@@ -164,7 +164,7 @@
     "href": "system-overview.html#metadata-surfaces-and-usage",
     "title": "2  System Overview",
     "section": "2.10 Metadata Surfaces and Usage",
-    "text": "2.10 Metadata Surfaces and Usage\nConduit emits two machine-facing outputs:\n\nmetadata JSONL stream (event records),\nconduit run --json terminal summary.\n\nThe short version: JSONL is the play-by-play, while the summary JSON is the box score at the end of the game.\nThe two outputs serve different readers. One is for tracing the run while it is happening. The other is for the final yes/no decision when the run is over.\n\n2.10.1 Metadata JSONL record families\nUse the first table when you are following the shape of a normal run. It is the timeline view.\nUse the second table when you are looking for what went wrong, or what side effects were intentionally observed.\n\n\n2.10.2 Run summary JSON fields",
+    "text": "2.10 Metadata Surfaces and Usage\nPureflow emits two machine-facing outputs:\n\nmetadata JSONL stream (event records),\nconduit run --json terminal summary.\n\nThe short version: JSONL is the play-by-play, while the summary JSON is the box score at the end of the game.\nThe two outputs serve different readers. One is for tracing the run while it is happening. The other is for the final yes/no decision when the run is over.\n\n2.10.1 Metadata JSONL record families\nUse the first table when you are following the shape of a normal run. It is the timeline view.\nUse the second table when you are looking for what went wrong, or what side effects were intentionally observed.\n\n\n2.10.2 Run summary JSON fields",
     "crumbs": [
       "<span class='chapter-number'>2</span>  <span class='chapter-title'>System Overview</span>"
     ]
@@ -174,7 +174,7 @@
     "href": "system-overview.html#important-examples",
     "title": "2  System Overview",
     "section": "2.11 Important Examples",
-    "text": "2.11 Important Examples\n\n2.11.1 CLI usage\n# Validate workflow structure and format\ncargo run -p conduit-cli -- validate examples/native-linear-etl.workflow.json\n\n# Inspect topology/contracts/capabilities\ncargo run -p conduit-cli -- inspect examples/native-linear-etl.workflow.json\n\n# Run and emit machine-facing summary\ncargo run -p conduit-cli -- run --json \\\n  examples/native-linear-etl.workflow.json \\\n  /tmp/conduit-native-linear.metadata.jsonl\n\n\n2.11.2 Workflow document shape\n{\n  \"conduit_version\": \"1\",\n  \"id\": \"native-linear-etl\",\n  \"nodes\": [\n    { \"id\": \"source\", \"inputs\": [], \"outputs\": [\"rows\"] },\n    { \"id\": \"transform\", \"inputs\": [\"rows\"], \"outputs\": [\"cleaned\"] },\n    { \"id\": \"sink\", \"inputs\": [\"cleaned\"], \"outputs\": [] }\n  ],\n  \"edges\": [\n    {\n      \"source\": { \"node\": \"source\", \"port\": \"rows\" },\n      \"target\": { \"node\": \"transform\", \"port\": \"rows\" },\n      \"capacity\": 2\n    }\n  ]\n}\n\n\n2.11.3 Contract/capability alignment example (Rust)\nuse conduit_contract::{\n    Determinism, ExecutionMode, NodeContract, PortContract, SchemaRef,\n    validate_workflow_contracts,\n};\nuse conduit_core::{\n    RetryDisposition,\n    capability::{NodeCapabilities, PortCapability, PortCapabilityDirection},\n};\n\n// Build contracts and capabilities for each workflow node, then validate:\nvalidate_workflow_contracts(&workflow, &contracts, &capabilities)?;\nThis is a key authoring boundary for both humans and future LLM assistants: workflow topology, contracts, and capabilities must match before execution. If those three disagree, Conduit treats it like a wiring mismatch and stops before runtime surprises can happen.\nThat rule is part of the architecture’s value. It catches structural mistakes before they turn into runtime folklore.",
+    "text": "2.11 Important Examples\n\n2.11.1 CLI usage\n# Validate workflow structure and format\ncargo run -p conduit-cli -- validate examples/native-linear-etl.workflow.json\n\n# Inspect topology/contracts/capabilities\ncargo run -p conduit-cli -- inspect examples/native-linear-etl.workflow.json\n\n# Run and emit machine-facing summary\ncargo run -p conduit-cli -- run --json \\\n  examples/native-linear-etl.workflow.json \\\n  /tmp/conduit-native-linear.metadata.jsonl\n\n\n2.11.2 Workflow document shape\n{\n  \"conduit_version\": \"1\",\n  \"id\": \"native-linear-etl\",\n  \"nodes\": [\n    { \"id\": \"source\", \"inputs\": [], \"outputs\": [\"rows\"] },\n    { \"id\": \"transform\", \"inputs\": [\"rows\"], \"outputs\": [\"cleaned\"] },\n    { \"id\": \"sink\", \"inputs\": [\"cleaned\"], \"outputs\": [] }\n  ],\n  \"edges\": [\n    {\n      \"source\": { \"node\": \"source\", \"port\": \"rows\" },\n      \"target\": { \"node\": \"transform\", \"port\": \"rows\" },\n      \"capacity\": 2\n    }\n  ]\n}\n\n\n2.11.3 Contract/capability alignment example (Rust)\nuse conduit_contract::{\n    Determinism, ExecutionMode, NodeContract, PortContract, SchemaRef,\n    validate_workflow_contracts,\n};\nuse conduit_core::{\n    RetryDisposition,\n    capability::{NodeCapabilities, PortCapability, PortCapabilityDirection},\n};\n\n// Build contracts and capabilities for each workflow node, then validate:\nvalidate_workflow_contracts(&workflow, &contracts, &capabilities)?;\nThis is a key authoring boundary for both humans and future LLM assistants: workflow topology, contracts, and capabilities must match before execution. If those three disagree, Pureflow treats it like a wiring mismatch and stops before runtime surprises can happen.\nThat rule is part of the architecture’s value. It catches structural mistakes before they turn into runtime folklore.",
     "crumbs": [
       "<span class='chapter-number'>2</span>  <span class='chapter-title'>System Overview</span>"
     ]
@@ -204,7 +204,7 @@
     "href": "system-overview.html#chapter-takeaways",
     "title": "2  System Overview",
     "section": "2.14 Chapter Takeaways",
-    "text": "2.14 Chapter Takeaways\nConduit works best when the workflow document, runtime behavior, and capability policy remain separate things that meet at the boundary instead of collapsing into one blurry execution blob.\nThat is the recurring theme in this chapter. Bounded channels, explicit contracts, and narrow adapters all serve the same goal: keep the graph legible enough that a human can reason about it without carrying the whole system in their head at once.\nIf the architecture continues to feel coherent as the code grows, it is because those boundaries are still doing their job.",
+    "text": "2.14 Chapter Takeaways\nPureflow works best when the workflow document, runtime behavior, and capability policy remain separate things that meet at the boundary instead of collapsing into one blurry execution blob.\nThat is the recurring theme in this chapter. Bounded channels, explicit contracts, and narrow adapters all serve the same goal: keep the graph legible enough that a human can reason about it without carrying the whole system in their head at once.\nIf the architecture continues to feel coherent as the code grows, it is because those boundaries are still doing their job.",
     "crumbs": [
       "<span class='chapter-number'>2</span>  <span class='chapter-title'>System Overview</span>"
     ]
@@ -214,7 +214,7 @@
     "href": "runtime-model.html",
     "title": "3  Runtime Model",
     "section": "",
-    "text": "3.1 Intent\nExplain how execution proceeds from workflow input through node scheduling, message flow, metadata emission, and terminal summary.\nThe short version is that Conduit tries to make execution feel ordinary: validate first, run second, record what happened as it happens, and stop with a clear terminal state. That may sound conservative, but it is what keeps the system understandable when workflows start to get interesting.\nThe chapter is organized the same way a run happens: first the setup, then the movement of work, then the point where the run becomes a finished artifact you can inspect.",
+    "text": "3.1 Intent\nExplain how execution proceeds from workflow input through node scheduling, message flow, metadata emission, and terminal summary.\nThe short version is that Pureflow tries to make execution feel ordinary: validate first, run second, record what happened as it happens, and stop with a clear terminal state. That may sound conservative, but it is what keeps the system understandable when workflows start to get interesting.\nThe chapter is organized the same way a run happens: first the setup, then the movement of work, then the point where the run becomes a finished artifact you can inspect.",
     "crumbs": [
       "<span class='chapter-number'>3</span>  <span class='chapter-title'>Runtime Model</span>"
     ]
@@ -224,7 +224,7 @@
     "href": "runtime-model.html#execution-lifecycle",
     "title": "3  Runtime Model",
     "section": "3.2 Execution Lifecycle",
-    "text": "3.2 Execution Lifecycle\nConduit runtime behavior is coordinated by three layers:\n\nconduit-cli handles input/output and user-facing options.\nconduit-engine validates execution preconditions, builds run context, and orchestrates node execution.\nconduit-runtime bridges engine scheduling into the underlying async runtime and observer hooks.\n\nThat split is not accidental. It keeps the user-facing command path, the policy layer, and the execution substrate from collapsing into one giant abstraction.\nAt a high level, execution follows this order:\n\nParse workflow document (conduit-workflow-format).\nBuild/validate graph shape (conduit-workflow).\nValidate contracts and capabilities (conduit-contract + conduit-core).\nConstruct runtime registry for node executors (native and/or WASM).\nSchedule nodes and move packets over bounded ports.\nEmit lifecycle/queue/message/error metadata records.\nProduce terminal WorkflowRunSummary for CLI output.\n\nRead that list as a story about the run rather than a checklist. Each step narrows the question from “is this workflow valid?” to “what happened on this particular execution?”\n\n\n\nRuntime lifecycle state diagram\n\n\n\n3.2.1 Runtime Layers at a Glance\nThis table is the simple map of who does what during a run.",
+    "text": "3.2 Execution Lifecycle\nPureflow runtime behavior is coordinated by three layers:\n\nconduit-cli handles input/output and user-facing options.\nconduit-engine validates execution preconditions, builds run context, and orchestrates node execution.\nconduit-runtime bridges engine scheduling into the underlying async runtime and observer hooks.\n\nThat split is not accidental. It keeps the user-facing command path, the policy layer, and the execution substrate from collapsing into one giant abstraction.\nAt a high level, execution follows this order:\n\nParse workflow document (conduit-workflow-format).\nBuild/validate graph shape (conduit-workflow).\nValidate contracts and capabilities (conduit-contract + conduit-core).\nConstruct runtime registry for node executors (native and/or WASM).\nSchedule nodes and move packets over bounded ports.\nEmit lifecycle/queue/message/error metadata records.\nProduce terminal WorkflowRunSummary for CLI output.\n\nRead that list as a story about the run rather than a checklist. Each step narrows the question from “is this workflow valid?” to “what happened on this particular execution?”\n\n\n\nRuntime lifecycle state diagram\n\n\n\n3.2.1 Runtime Layers at a Glance\nThis table is the simple map of who does what during a run.",
     "crumbs": [
       "<span class='chapter-number'>3</span>  <span class='chapter-title'>Runtime Model</span>"
     ]
@@ -234,7 +234,7 @@
     "href": "runtime-model.html#runtime-phases-and-boundaries",
     "title": "3  Runtime Model",
     "section": "3.3 Runtime Phases and Boundaries",
-    "text": "3.3 Runtime Phases and Boundaries\nThe phases below are the practical way to think about a run from start to finish.\nThe phase table below is the fast version. The sections that follow unpack each step in plain language.\n\n3.3.1 Phase 1: Definition and Safety Checks\nBefore any node logic runs, Conduit enforces static safety:\n\nidentifiers and format version are validated,\ngraph connectivity and port references are validated,\ncontract/capability alignment is checked,\nschema compatibility across connected ports is checked.\n\nThis keeps runtime failures focused on execution concerns rather than document shape mistakes.\nIt also keeps the guide honest for junior readers: if a workflow fails before runtime starts, that is usually not a “node problem.” It is a contract, topology, or capability problem.\nThat distinction saves time in debugging, because it points attention to the right layer immediately.\n\n\n3.3.2 Phase 2: Execution and Message Transport\nDuring execution, nodes communicate through bounded channels associated with workflow edges:\n\nsenders reserve queue capacity,\npackets are enqueued/dequeued at typed ports,\nqueue pressure is observable via metadata records,\nbackpressure is explicit through bounded capacity behavior.\n\nThis gives deterministic pressure points for debugging and policy decisions.\nIt is a small but important detail. Unbounded queues make it too easy to hide a design problem behind memory growth. Bounded queues force the system to say “slow down” in a way people can actually observe.\nThat is why the guide keeps coming back to bounded channels. They are one of the main reasons the runtime feels legible.\n\n\n3.3.3 Phase 3: Terminalization and Summary\nWhen execution reaches a terminal state (completed, failed, or cancelled), Conduit emits:\n\nfinal metadata records (including terminal lifecycle and error records),\nWorkflowRunSummary with status, counts, and metadata path totals.\n\nThe summary is the machine-facing endpoint for automation and CI decisions.\nThat split is deliberate. The metadata stream is for forensics and live inspection. The summary is for the final answer. Most systems blur those two ideas together; Conduit keeps them separate so each one stays simpler.\nThe result is that automation can stay fast while humans still have enough history to understand a run afterward.",
+    "text": "3.3 Runtime Phases and Boundaries\nThe phases below are the practical way to think about a run from start to finish.\nThe phase table below is the fast version. The sections that follow unpack each step in plain language.\n\n3.3.1 Phase 1: Definition and Safety Checks\nBefore any node logic runs, Pureflow enforces static safety:\n\nidentifiers and format version are validated,\ngraph connectivity and port references are validated,\ncontract/capability alignment is checked,\nschema compatibility across connected ports is checked.\n\nThis keeps runtime failures focused on execution concerns rather than document shape mistakes.\nIt also keeps the guide honest for junior readers: if a workflow fails before runtime starts, that is usually not a “node problem.” It is a contract, topology, or capability problem.\nThat distinction saves time in debugging, because it points attention to the right layer immediately.\n\n\n3.3.2 Phase 2: Execution and Message Transport\nDuring execution, nodes communicate through bounded channels associated with workflow edges:\n\nsenders reserve queue capacity,\npackets are enqueued/dequeued at typed ports,\nqueue pressure is observable via metadata records,\nbackpressure is explicit through bounded capacity behavior.\n\nThis gives deterministic pressure points for debugging and policy decisions.\nIt is a small but important detail. Unbounded queues make it too easy to hide a design problem behind memory growth. Bounded queues force the system to say “slow down” in a way people can actually observe.\nThat is why the guide keeps coming back to bounded channels. They are one of the main reasons the runtime feels legible.\n\n\n3.3.3 Phase 3: Terminalization and Summary\nWhen execution reaches a terminal state (completed, failed, or cancelled), Pureflow emits:\n\nfinal metadata records (including terminal lifecycle and error records),\nWorkflowRunSummary with status, counts, and metadata path totals.\n\nThe summary is the machine-facing endpoint for automation and CI decisions.\nThat split is deliberate. The metadata stream is for forensics and live inspection. The summary is for the final answer. Most systems blur those two ideas together; Pureflow keeps them separate so each one stays simpler.\nThe result is that automation can stay fast while humans still have enough history to understand a run afterward.",
     "crumbs": [
       "<span class='chapter-number'>3</span>  <span class='chapter-title'>Runtime Model</span>"
     ]
@@ -244,7 +244,7 @@
     "href": "runtime-model.html#error-handling-model",
     "title": "3  Runtime Model",
     "section": "3.4 Error Handling Model",
-    "text": "3.4 Error Handling Model\nConduit uses stable error taxonomies (CDT-*) and structured error payloads so consumers can branch behavior without string parsing.\nThe goal is not just nicer errors. The goal is errors that stay meaningful after the system grows.\nError surfaces are intentionally split:\nRetry/recovery policy remains a node/runtime concern and is represented through contract/core policy types rather than ad hoc CLI-only logic.\nThat keeps retry behavior where it belongs: with the runtime and the contract, not buried in a command handler.",
+    "text": "3.4 Error Handling Model\nPureflow uses stable error taxonomies (CDT-*) and structured error payloads so consumers can branch behavior without string parsing.\nThe goal is not just nicer errors. The goal is errors that stay meaningful after the system grows.\nError surfaces are intentionally split:\nRetry/recovery policy remains a node/runtime concern and is represented through contract/core policy types rather than ad hoc CLI-only logic.\nThat keeps retry behavior where it belongs: with the runtime and the contract, not buried in a command handler.",
     "crumbs": [
       "<span class='chapter-number'>3</span>  <span class='chapter-title'>Runtime Model</span>"
     ]
@@ -264,7 +264,7 @@
     "href": "runtime-model.html#operational-notes",
     "title": "3  Runtime Model",
     "section": "3.6 Operational Notes",
-    "text": "3.6 Operational Notes\n\nQueue capacities in workflow edges are part of runtime behavior, not only structural metadata.\nMetadata JSONL is designed for tooling and dashboards; it is the canonical event stream for run forensics.\nThe run summary is intentionally compact and should be preferred for fast pass/fail automation.\nCancellation is represented as a shared Conduit-owned signal, so a node can see the same request that the runtime supervisor sees.\nThe runtime wrapper intentionally stays narrow. Most of the interesting behavior belongs to Conduit itself, not to the async substrate.\n\nThose two notes are the practical summary of this chapter.",
+    "text": "3.6 Operational Notes\n\nQueue capacities in workflow edges are part of runtime behavior, not only structural metadata.\nMetadata JSONL is designed for tooling and dashboards; it is the canonical event stream for run forensics.\nThe run summary is intentionally compact and should be preferred for fast pass/fail automation.\nCancellation is represented as a shared Pureflow-owned signal, so a node can see the same request that the runtime supervisor sees.\nThe runtime wrapper intentionally stays narrow. Most of the interesting behavior belongs to Pureflow itself, not to the async substrate.\n\nThose two notes are the practical summary of this chapter.",
     "crumbs": [
       "<span class='chapter-number'>3</span>  <span class='chapter-title'>Runtime Model</span>"
     ]
@@ -284,7 +284,7 @@
     "href": "package-contracts.html",
     "title": "4  Package and Contract Boundaries",
     "section": "",
-    "text": "4.1 Intent\nDefine crate-level roles and the contract boundaries that keep workflow authoring, runtime execution, and integration adapters decoupled.\nThis chapter matters because crate boundaries are not just a packaging detail here. They are the line between “the thing Conduit promises” and “the thing a particular backend happens to use today.”\nIf the system starts to feel too abstract, this is the chapter to return to. It shows which parts are foundational, which parts are policy, and which parts are just adapters.",
+    "text": "4.1 Intent\nDefine crate-level roles and the contract boundaries that keep workflow authoring, runtime execution, and integration adapters decoupled.\nThis chapter matters because crate boundaries are not just a packaging detail here. They are the line between “the thing Pureflow promises” and “the thing a particular backend happens to use today.”\nIf the system starts to feel too abstract, this is the chapter to return to. It shows which parts are foundational, which parts are policy, and which parts are just adapters.",
     "crumbs": [
       "<span class='chapter-number'>4</span>  <span class='chapter-title'>Package and Contract Boundaries</span>"
     ]
@@ -364,7 +364,7 @@
     "href": "diagrams-and-flows.html",
     "title": "5  Diagrams and Flows",
     "section": "",
-    "text": "5.1 Intent\nTrack canonical architecture diagrams and flow narratives used across the Conduit architecture guide.\nThe diagrams support the prose; they do not replace it. The point of this guide is still to explain the architecture in words a person can sit with and read, with the figures acting as orientation rather than as the whole story.\nThis chapter is basically the map key for the rest of the book. It tells you what the diagrams are trying to prove and where to look if the layout changes.",
+    "text": "5.1 Intent\nTrack canonical architecture diagrams and flow narratives used across the Pureflow architecture guide.\nThe diagrams support the prose; they do not replace it. The point of this guide is still to explain the architecture in words a person can sit with and read, with the figures acting as orientation rather than as the whole story.\nThis chapter is basically the map key for the rest of the book. It tells you what the diagrams are trying to prove and where to look if the layout changes.",
     "crumbs": [
       "<span class='chapter-number'>5</span>  <span class='chapter-title'>Diagrams and Flows</span>"
     ]
@@ -384,7 +384,7 @@
     "href": "diagrams-and-flows.html#rendering-notes-quarto-mermaid",
     "title": "5  Diagrams and Flows",
     "section": "5.3 Rendering Notes (Quarto + Mermaid)",
-    "text": "5.3 Rendering Notes (Quarto + Mermaid)\nCurrent rendering path for this guide:\nUse this command when you want the whole book rebuilt from the checked sources.\nnix develop . --command bash -lc 'cd docs/architecture-guide && quarto render --to pdf'\nPDF output path:\n\ndocs/architecture-guide/_output/Conduit-Architecture-Guide.pdf\n\nFor PDF stability:\n\ngenerate SVG assets with frankenmermaid,\nrasterize the SVGs to PNG for Quarto PDF output,\nkeep the SVGs committed as the reviewable diagram artifact,\nkeep labels concise to reduce node expansion in the source diagram.",
+    "text": "5.3 Rendering Notes (Quarto + Mermaid)\nCurrent rendering path for this guide:\nUse this command when you want the whole book rebuilt from the checked sources.\nnix develop . --command bash -lc 'cd docs/architecture-guide && quarto render --to pdf'\nPDF output path:\n\ndocs/architecture-guide/_output/Pureflow-Architecture-Guide.pdf\n\nFor PDF stability:\n\ngenerate SVG assets with frankenmermaid,\nrasterize the SVGs to PNG for Quarto PDF output,\nkeep the SVGs committed as the reviewable diagram artifact,\nkeep labels concise to reduce node expansion in the source diagram.",
     "crumbs": [
       "<span class='chapter-number'>5</span>  <span class='chapter-title'>Diagrams and Flows</span>"
     ]

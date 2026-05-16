@@ -5,7 +5,7 @@
 Explain how execution proceeds from workflow input through node scheduling,
 message flow, metadata emission, and terminal summary.
 
-The short version is that Conduit tries to make execution feel ordinary:
+The short version is that Pureflow tries to make execution feel ordinary:
 validate first, run second, record what happened as it happens, and stop with a
 clear terminal state. That may sound conservative, but it is what keeps the
 system understandable when workflows start to get interesting.
@@ -16,7 +16,7 @@ can inspect.
 
 ## Execution Lifecycle
 
-Conduit runtime behavior is coordinated by three layers:
+Pureflow runtime behavior is coordinated by three layers:
 
 - `conduit-cli` handles input/output and user-facing options.
 - `conduit-engine` validates execution preconditions, builds run context, and
@@ -93,7 +93,7 @@ step in plain language.
 
 ### Phase 1: Definition and Safety Checks
 
-Before any node logic runs, Conduit enforces static safety:
+Before any node logic runs, Pureflow enforces static safety:
 
 - identifiers and format version are validated,
 - graph connectivity and port references are validated,
@@ -132,7 +132,7 @@ the main reasons the runtime feels legible.
 ### Phase 3: Terminalization and Summary
 
 When execution reaches a terminal state (`completed`, `failed`, or
-`cancelled`), Conduit emits:
+`cancelled`), Pureflow emits:
 
 - final metadata records (including terminal lifecycle and error records),
 - `WorkflowRunSummary` with status, counts, and metadata path totals.
@@ -141,14 +141,14 @@ The summary is the machine-facing endpoint for automation and CI decisions.
 
 That split is deliberate. The metadata stream is for forensics and live
 inspection. The summary is for the final answer. Most systems blur those two
-ideas together; Conduit keeps them separate so each one stays simpler.
+ideas together; Pureflow keeps them separate so each one stays simpler.
 
 The result is that automation can stay fast while humans still have enough
 history to understand a run afterward.
 
 ## Error Handling Model
 
-Conduit uses stable error taxonomies (`CDT-*`) and structured error payloads so
+Pureflow uses stable error taxonomies (`CDT-*`) and structured error payloads so
 consumers can branch behavior without string parsing.
 
 The goal is not just nicer errors. The goal is errors that stay meaningful
@@ -222,10 +222,10 @@ That consistency matters more than verbosity.
   event stream for run forensics.
 - The run summary is intentionally compact and should be preferred for fast
   pass/fail automation.
-- Cancellation is represented as a shared Conduit-owned signal, so a node can
+- Cancellation is represented as a shared Pureflow-owned signal, so a node can
   see the same request that the runtime supervisor sees.
 - The runtime wrapper intentionally stays narrow. Most of the interesting
-  behavior belongs to Conduit itself, not to the async substrate.
+  behavior belongs to Pureflow itself, not to the async substrate.
 
 Those two notes are the practical summary of this chapter.
 

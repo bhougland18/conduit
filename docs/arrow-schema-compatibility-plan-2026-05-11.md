@@ -1,6 +1,6 @@
 # Arrow Schema Compatibility Plan - 2026-05-11
 
-This note resolves `cdt-pyg.1`: define how Conduit should treat Arrow schema
+This note resolves `cdt-pyg.1`: define how Pureflow should treat Arrow schema
 compatibility before any DataFusion or broader data-tier work resumes.
 
 ## Current State
@@ -44,7 +44,7 @@ evolution policy.
 
 ## Compatibility Rules
 
-1. If neither endpoint declares a `SchemaRef`, Conduit performs no schema
+1. If neither endpoint declares a `SchemaRef`, Pureflow performs no schema
    compatibility check.
 2. If one endpoint declares a `SchemaRef` and the other does not, current
    validation accepts the edge. Authors should avoid this for Arrow edges unless

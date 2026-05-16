@@ -3,7 +3,7 @@
 ## Intent
 
 Track canonical architecture diagrams and flow narratives used across the
-Conduit architecture guide.
+Pureflow architecture guide.
 
 The diagrams support the prose; they do not replace it. The point of this
 guide is still to explain the architecture in words a person can sit with and
@@ -60,7 +60,7 @@ nix develop . --command bash -lc 'cd docs/architecture-guide && quarto render --
 
 PDF output path:
 
-- `docs/architecture-guide/_output/Conduit-Architecture-Guide.pdf`
+- `docs/architecture-guide/_output/Pureflow-Architecture-Guide.pdf`
 
 For PDF stability:
 

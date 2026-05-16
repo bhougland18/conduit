@@ -1,4 +1,4 @@
-# Conduit Audit — 2026-04-23
+# Pureflow Audit — 2026-04-23
 
 Auditor: Claude (Opus 4.7)
 Scope: `docs/audits/Audit_scope.md`
@@ -88,7 +88,7 @@ inside each crate follows idiomatic Rust.
 
 ### 2.2 Proposal alignment (audit scope 2.2)
 
-**Proposal source: `docs/conduit_proposal.md` (the audit scope doc references
+**Proposal source: `docs/pureflow_proposal.md` (the audit scope doc references
 `Documents/proposal.md`; the scope's paths are stale).**
 
 Per the nightly-audit framing, this section does **not** penalize the code
@@ -228,13 +228,13 @@ expected input sizes.
 
 ### 2.4 Documentation
 
-- `docs/conduit_proposal.md` is thorough for a vision doc; see §2.2 above for
+- `docs/pureflow_proposal.md` is thorough for a vision doc; see §2.2 above for
   concretization gaps.
 - `docs/epics/epic-1-foundation.md` is well-shaped and consistent with the
   current bead state.
-- `docs/AGENTS.md` intentionally mixes Conduit-specific policy with
+- `docs/AGENTS.md` intentionally mixes Pureflow-specific policy with
   `beads_rust` onboarding content (confirmed with author: the `br` content
-  is there so agents working on Conduit also pick up the beads ticket
+  is there so agents working on Pureflow also pick up the beads ticket
   database conventions between sessions). No finding — noting for future
   auditors so the `br` sections are not flagged again.
 - `docs/HANDOFF.md` is current as of bead .2 closure; it should be updated
@@ -264,10 +264,10 @@ invariants per AGENTS.md policy.
 ### 2.6 Proposal feasibility assessment
 
 Added after a standalone discussion with the author. Records the
-vision-level read of `docs/conduit_proposal.md` so future audits can observe
+vision-level read of `docs/pureflow_proposal.md` so future audits can observe
 whether the direction of travel has changed.
 
-**Scope context** (confirmed with author): Conduit is a personal project
+**Scope context** (confirmed with author): Pureflow is a personal project
 for the author's own use. Not being productized, no plans to open-source at
 this time. RDF (proposal §2.4) is planned as a node — likely
 `oxigraph` or `rdf-datafusion` once the latter matures — not a core
@@ -318,12 +318,12 @@ yet address:
   provided the author does not later mistake native node capabilities for a
   sandbox.
 - **`asupersync` single-point-of-failure.** Setting newness aside per the
-  author's direction: Conduit inherits asupersync's stability envelope.
-  Accepted as a research-vehicle tradeoff; worth re-evaluating if Conduit
+  author's direction: Pureflow inherits asupersync's stability envelope.
+  Accepted as a research-vehicle tradeoff; worth re-evaluating if Pureflow
   graduates to routine personal-production use.
 
 **Architectural bets I would keep front and centre.** The proposal's
-strongest ideas are the ones that make Conduit *AI-inspectable* rather than
+strongest ideas are the ones that make Pureflow *AI-inspectable* rather than
 just *AI-integrated*: FBP over DAG, metadata-first capture, and capabilities
 encoded in the type system. These three together are the proposal's
 differentiator and should drive prioritization.
@@ -343,7 +343,7 @@ Ordered by leverage — each one is concrete enough to become a bead.
    checklist, and fixes a real licensing claim gap.
 
 2. **Refresh `docs/audits/Audit_scope.md`** to reference `docs/` (not
-   `Documents/`), `conduit_proposal.md` (not `proposal.md`), and the beads
+   `Documents/`), `pureflow_proposal.md` (not `proposal.md`), and the beads
    task system (not `task_database.md`). Took 10 minutes to reconcile during
    this audit; cheaper to fix once.
 
@@ -353,7 +353,7 @@ Ordered by leverage — each one is concrete enough to become a bead.
    closes, or immediately after, avoids that churn.
 
 4. **Decide the `NodeExecutor` shape before the runtime grows.** Either:
-   - update `docs/conduit_proposal.md` §4.2 to match the current sync
+   - update `docs/pureflow_proposal.md` §4.2 to match the current sync
      trait (if that is the intended scaffold); **or**
    - replace the scaffold trait with `async fn run(&self, ctx: NodeContext, inputs: PortsIn, outputs: PortsOut) -> Result<()>`
      behind placeholder `PortsIn`/`PortsOut` types.
@@ -375,7 +375,7 @@ Ordered by leverage — each one is concrete enough to become a bead.
 
 9. **Link `asupersync` in the proposal.** It is a real experimental runtime
    (https://github.com/Dicklesworthstone/asupersync) but currently referenced
-   by name only. Adding the link in `docs/conduit_proposal.md` §2.1 saves
+   by name only. Adding the link in `docs/pureflow_proposal.md` §2.1 saves
    every future reader the lookup.
 
 10. **Cap identifier lengths.** Before the first external workflow format
@@ -398,7 +398,7 @@ Resolved in this audit cycle (recorded for future auditors):
 - Nightly audit scope is "grade what exists, not what is planned".
 - Findings go into this markdown under §5 "Suggested Audit Beads"; the user
   will triage into beads.
-- `docs/AGENTS.md` intentionally mixes Conduit-specific policy with
+- `docs/AGENTS.md` intentionally mixes Pureflow-specific policy with
   `beads_rust` onboarding — this is by design (agent memory continuity) and
   should not be flagged in future audits.
 
@@ -421,8 +421,8 @@ one JJ change.
 **Why:** Audit scope 2.1 requires both. Workspace declares `license = "MIT"`
 but there is no `LICENSE` file on disk.
 **Acceptance:**
-- `README.md` describes what Conduit is, how to build, how to test, and
-  points at `docs/conduit_proposal.md` and `docs/epics/epic-1-foundation.md`.
+- `README.md` describes what Pureflow is, how to build, how to test, and
+  points at `docs/pureflow_proposal.md` and `docs/epics/epic-1-foundation.md`.
 - `LICENSE` contains the MIT text matching the manifest declaration.
 
 ### AB-2 — Refresh `docs/audits/Audit_scope.md`
@@ -430,7 +430,7 @@ but there is no `LICENSE` file on disk.
 **Why:** Paths in the scope doc (`Documents/AGENTS.md`, `Documents/proposal.md`,
 `Documents/assessment.md`, `task_database.md`) do not match the repo.
 **Acceptance:**
-- References point at `docs/AGENTS.md`, `docs/conduit_proposal.md`, and the
+- References point at `docs/AGENTS.md`, `docs/pureflow_proposal.md`, and the
   `docs/audits/Audit_*.md` output pattern.
 - Any beads/task-database references mention `beads` (`cdt-*`) explicitly.
 
@@ -498,7 +498,7 @@ sequencing it next avoids migrating every new trait signature later.
 ### AB-8 — Link `asupersync` in the proposal
 
 **Why:** The runtime is referenced by name only. A single line in
-`docs/conduit_proposal.md` §2.1 saves every future contributor the lookup.
+`docs/pureflow_proposal.md` §2.1 saves every future contributor the lookup.
 **Acceptance:**
 - Proposal §2.1 includes the repository URL.
 - Optional: a `docs/decisions/` ADR explaining why `asupersync` was chosen

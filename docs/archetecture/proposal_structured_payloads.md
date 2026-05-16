@@ -1,4 +1,4 @@
-# Conduit Structured Payloads Proposal
+# Pureflow Structured Payloads Proposal
 
 Date: 2026-05-03
 Status: Draft for review
@@ -8,7 +8,7 @@ Extends: `docs/archetecture/proposal_final.md` §6.9 (payload tiering)
 
 Add a `Structured(Arc<dyn DataPacket>)` variant to `PacketPayload` and a
 `DataPacket` trait in `conduit-core`. Provide an optional, feature-gated
-`PostcardPacket<T>` impl behind `serde-postcard`. Conduit core remains
+`PostcardPacket<T>` impl behind `serde-postcard`. Pureflow core remains
 format-agnostic; postcard becomes the obvious zero-boilerplate path for
 consumers that opt in. Arrow, JSON, and bytes paths are unchanged.
 
@@ -21,7 +21,7 @@ This addresses two real consumer needs:
 - **Two-format consumers.** Downstream apps (zeroflat is the immediate
   case) will use both postcard (forms, CRDT ops, UI state) and Arrow
   (sensor data, batch analytics) as primary in-flight payload shapes.
-  Both should be first-class without coupling Conduit core to either.
+  Both should be first-class without coupling Pureflow core to either.
 
 ## 2. Current state
 
@@ -73,7 +73,7 @@ pub struct SchemaId(pub &'static str);
 pub enum SerializeError { /* ... */ }
 ```
 
-`Any + 'static` lets typed consumers downcast without Conduit owning a
+`Any + 'static` lets typed consumers downcast without Pureflow owning a
 type registry.
 
 ### 3.2 Variant addition
@@ -176,7 +176,7 @@ Symmetric with the existing `arrow` feature:
 | Substrate-cleanliness | `DataPacket` trait, `Structured` variant | postcard impl, schema id type, postcard error variant |
 | Mandatory deps | none (uses `bytes`, `std::any`) | `postcard`, `serde` (already in workspace) |
 | Consumer choice | implement `DataPacket` themselves | one-liner `PostcardPacket::wrap(...)` |
-| Coupling | none — Conduit knows nothing about format | format-aware only when feature is on |
+| Coupling | none — Pureflow knows nothing about format | format-aware only when feature is on |
 
 A consumer using fbs, CBOR, MessagePack, capnproto, or a hand-rolled
 codec implements `DataPacket` directly. Consumers using postcard get the
@@ -189,10 +189,10 @@ Behavior at boundaries that cannot pass `Arc<dyn DataPacket>`:
 | Boundary | Strategy |
 |---|---|
 | WASM batch executor | Host calls `payload.serialize()` before invoking guest; guest output returns as `Bytes` (host can re-wrap if it knows the schema). MVP: bytes-out, no auto-reconstruction. |
-| Persistence (JSONL replay, future) | `serialize()` to bytes plus `schema_id` recorded as metadata. Reconstruction is a per-consumer concern; Conduit does not own a global registry. |
+| Persistence (JSONL replay, future) | `serialize()` to bytes plus `schema_id` recorded as metadata. Reconstruction is a per-consumer concern; Pureflow does not own a global registry. |
 | Future network distribution | Same as persistence — `serialize()` + `schema_id` on the wire, peer reconstructs if it knows the type. |
 
-Conduit does not own a global type registry; the consumer that knows
+Pureflow does not own a global type registry; the consumer that knows
 the workflow knows the schemas. This keeps the runtime free of
 schema-versioning policy.
 
@@ -267,7 +267,7 @@ work resumes.
 | Trait-object equality footgun | Low | `Eq` not implemented for the `Structured` variant; document explicitly. |
 | Schema-id collision across consumers | Medium | `SchemaId(&'static str)` uses string identity; consumers should namespace (e.g., `"zeroflat::Form/v1"`). Document the convention; defer enforcement to the future contracts work. |
 | Feature-flag combinatorics | Low | `serde-postcard` adds one feature; matrix already covers `arrow` and `tracing`. CI matrix grows by one column. |
-| Postcard schema fragility (field order) | Medium (consumer-side) | This is a consumer-discipline issue, not Conduit's problem. Document that `PostcardPacket<T>` users must manage `T`'s schema evolution themselves (versioned envelope pattern). |
+| Postcard schema fragility (field order) | Medium (consumer-side) | This is a consumer-discipline issue, not Pureflow's problem. Document that `PostcardPacket<T>` users must manage `T`'s schema evolution themselves (versioned envelope pattern). |
 | Async runtime substrate leakage | None | `DataPacket` and `PostcardPacket<T>` reference no runtime types. |
 
 ## 11. Open questions

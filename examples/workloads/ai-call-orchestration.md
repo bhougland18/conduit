@@ -144,7 +144,7 @@ validation time. The feedback-loop policy is available via the library API
 ### 2. External-effect capability enforcement
 
 `tool-executor` in this workload is a native mock. A real implementation would
-make outbound HTTP calls, query a database, or call an external API. Conduit now
+make outbound HTTP calls, query a database, or call an external API. Pureflow now
 has the first vocabulary pieces for this path:
 
 - `EffectCapability::ExternalEffect` declares that a node may perform a tool,

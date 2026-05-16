@@ -1,6 +1,6 @@
 # Release Readiness Checklist
 
-This checklist is for deciding whether the current Conduit checkout is ready to
+This checklist is for deciding whether the current Pureflow checkout is ready to
 tag, package, demo, or hand off as a release candidate. The workspace is still
 early-stage and currently has `publish = false`, so "release" means a reviewed
 repository state rather than a crates.io publication.
@@ -85,7 +85,7 @@ cargo run -p conduit-cli -- run --json examples/native-linear-etl.workflow.json 
 - [ ] No-progress watchdog policy remains library-only for this release. The
   CLI rejects cycles under the default acyclic run policy and does not expose a
   watchdog flag until feedback-loop execution policy is also exposed.
-- [ ] `CONDUIT_TRACE` or `RUST_LOG` tracing remains opt-in and writes to stderr,
+- [ ] `PUREFLOW_TRACE` or `RUST_LOG` tracing remains opt-in and writes to stderr,
   not stable metadata JSONL.
 
 ## Examples

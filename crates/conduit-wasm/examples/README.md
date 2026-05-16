@@ -1,4 +1,4 @@
-# conduit-wasm examples
+# pureflow-wasm examples
 
 ## `mixed_pipeline`
 

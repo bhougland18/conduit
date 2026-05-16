@@ -270,7 +270,7 @@ impl ErrorMetadataRecord {
         &self.execution
     }
 
-    /// Structured Conduit error observed.
+    /// Structured Pureflow error observed.
     #[must_use]
     pub const fn error(&self) -> &ConduitError {
         &self.error

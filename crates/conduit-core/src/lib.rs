@@ -1,4 +1,4 @@
-//! Core traits and contracts for Conduit.
+//! Core traits and contracts for Pureflow.
 
 pub mod batch;
 pub mod capability;
@@ -36,7 +36,7 @@ pub type Result<T> = std::result::Result<T, ConduitError>;
 /// Async node interface for the first runtime skeleton.
 ///
 /// The trait matches the proposal's intended boundary shape early, but the
-/// `PortsIn` and `PortsOut` values remain Conduit-owned adapters. Runtime
+/// `PortsIn` and `PortsOut` values remain Pureflow-owned adapters. Runtime
 /// beads can change the transport behind those handles without leaking raw
 /// async runtime primitives into every executor signature.
 pub trait NodeExecutor: Sync {

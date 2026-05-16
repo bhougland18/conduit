@@ -89,7 +89,7 @@ records: 24
 ```
 
 The CLI constructs a real executor registry for the workflow, runs nodes through
-bounded Conduit ports, validates output ports before graph delivery, and records
+bounded Pureflow ports, validates output ports before graph delivery, and records
 runtime facts into the requested JSONL file.
 
 The built-in native CLI executor is intentionally generic. It drains declared
@@ -117,7 +117,7 @@ single JSON document with:
 For successful runs, `error`, `summary.first_error`, and
 `summary.deadlock_diagnostic` are `null`.
 
-For failed runs, `error` and `summary.first_error` use the stable Conduit error
+For failed runs, `error` and `summary.first_error` use the stable Pureflow error
 object with `code`, `message`, `visibility`, and `retry_disposition`.
 
 `summary.observed_message_count` is reserved and currently remains `0` until
@@ -177,7 +177,7 @@ observation. Current record families are:
 - `message`: enqueue, dequeue, and drop observations at port boundaries
 - `queue_pressure`: bounded edge capacity, reserve, send, receive, and closure
   observations
-- `error`: node and workflow errors with stable Conduit error codes
+- `error`: node and workflow errors with stable Pureflow error codes
 
 Metadata intentionally omits timestamps, process ids, hostnames, thread ids,
 random addresses, and raw payload bytes so repeated runs remain reproducible.

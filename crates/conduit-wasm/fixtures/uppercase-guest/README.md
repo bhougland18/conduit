@@ -1,6 +1,6 @@
 # uppercase-guest — WASM Node Authoring Template
 
-`uppercase-guest` is the canonical example for authoring a Conduit Component
+`uppercase-guest` is the canonical example for authoring a Pureflow Component
 Model batch node. Copy this fixture as a starting point for any new WASM guest.
 
 ## Fixture Layout
@@ -22,7 +22,7 @@ not commit them.
 ## WIT Contract
 
 All guests implement the `conduit:batch@0.1.0` `conduit-node` world defined in
-`crates/conduit-wasm/wit/conduit-batch.wit`:
+`crates/conduit-wasm/wit/pureflow-batch.wit`:
 
 ```wit
 package conduit:batch@0.1.0;

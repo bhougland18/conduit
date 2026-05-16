@@ -1,4 +1,4 @@
-//! Reusable builders, test doubles, and property strategies for Conduit tests.
+//! Reusable builders, test doubles, and property strategies for Pureflow tests.
 
 use std::{
     collections::BTreeMap,
@@ -29,7 +29,7 @@ const IDENTIFIER_ALPHABET: [char; 66] = [
 ///
 /// # Panics
 ///
-/// Panics if `value` is not a valid Conduit workflow identifier.
+/// Panics if `value` is not a valid Pureflow workflow identifier.
 #[must_use]
 pub fn workflow_id(value: &str) -> WorkflowId {
     WorkflowId::new(value).expect("test workflow id must be valid")
@@ -39,7 +39,7 @@ pub fn workflow_id(value: &str) -> WorkflowId {
 ///
 /// # Panics
 ///
-/// Panics if `value` is not a valid Conduit node identifier.
+/// Panics if `value` is not a valid Pureflow node identifier.
 #[must_use]
 pub fn node_id(value: &str) -> NodeId {
     NodeId::new(value).expect("test node id must be valid")
@@ -49,7 +49,7 @@ pub fn node_id(value: &str) -> NodeId {
 ///
 /// # Panics
 ///
-/// Panics if `value` is not a valid Conduit port identifier.
+/// Panics if `value` is not a valid Pureflow port identifier.
 #[must_use]
 pub fn port_id(value: &str) -> PortId {
     PortId::new(value).expect("test port id must be valid")
@@ -59,7 +59,7 @@ pub fn port_id(value: &str) -> PortId {
 ///
 /// # Panics
 ///
-/// Panics if `value` is not a valid Conduit execution identifier.
+/// Panics if `value` is not a valid Pureflow execution identifier.
 #[must_use]
 pub fn execution_metadata(value: &str) -> ExecutionMetadata {
     ExecutionMetadata::first_attempt(
@@ -285,7 +285,7 @@ pub struct FailingExecutor {
 }
 
 impl FailingExecutor {
-    /// Create a failing executor with an explicit Conduit error.
+    /// Create a failing executor with an explicit Pureflow error.
     #[must_use]
     pub const fn new(error: ConduitError) -> Self {
         Self { error }
@@ -306,7 +306,7 @@ impl NodeExecutor for FailingExecutor {
     }
 }
 
-/// Strategy for identifiers that satisfy Conduit's current validation rules.
+/// Strategy for identifiers that satisfy Pureflow's current validation rules.
 pub fn valid_identifier_strategy() -> impl Strategy<Value = String> {
     prop::collection::vec(select(&IDENTIFIER_ALPHABET), 1..16)
         .prop_map(|chars: Vec<char>| chars.into_iter().collect())
@@ -454,7 +454,7 @@ impl SourceExecutor {
     ///
     /// # Panics
     ///
-    /// Panics if `port` is not a valid Conduit port identifier.
+    /// Panics if `port` is not a valid Pureflow port identifier.
     #[must_use]
     pub fn with_port_payloads(mut self, port: &str, payloads: Vec<Vec<u8>>) -> Self {
         self.payloads_by_port.insert(port_id(port), payloads);

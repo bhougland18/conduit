@@ -1,4 +1,4 @@
-//! Node contract data and validation for Conduit.
+//! Node contract data and validation for Pureflow.
 //!
 //! ## Fragment: contract-data-boundary
 //!

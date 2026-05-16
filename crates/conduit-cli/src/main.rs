@@ -1,4 +1,4 @@
-//! CLI entrypoint for Conduit workflow validation, inspection, and scaffold runs.
+//! CLI entrypoint for Pureflow workflow validation, inspection, and scaffold runs.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -55,11 +55,12 @@ use tracing_subscriber::{
 
 type CliResult<T> = Result<T, CliError>;
 
-const CONDUIT_TRACE_ENV: &str = "CONDUIT_TRACE";
+const PUREFLOW_TRACE_ENV: &str = "PUREFLOW_TRACE";
+const LEGACY_CONDUIT_TRACE_ENV: &str = "CONDUIT_TRACE";
 const RUST_LOG_ENV: &str = "RUST_LOG";
 
 #[derive(Debug, Parser)]
-#[command(name = "conduit", about = "Conduit workflow engine CLI")]
+#[command(name = "pureflow", about = "Pureflow workflow engine CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -161,8 +162,11 @@ fn initialize_tracing_from_env() -> CliResult<()> {
 fn tracing_targets_from_env(
     read_env: impl Fn(&str) -> Option<String>,
 ) -> CliResult<Option<Targets>> {
-    if let Some(value) = read_env(CONDUIT_TRACE_ENV) {
-        return tracing_targets_from_value(CONDUIT_TRACE_ENV, &value);
+    if let Some(value) = read_env(PUREFLOW_TRACE_ENV) {
+        return tracing_targets_from_value(PUREFLOW_TRACE_ENV, &value);
+    }
+    if let Some(value) = read_env(LEGACY_CONDUIT_TRACE_ENV) {
+        return tracing_targets_from_value(LEGACY_CONDUIT_TRACE_ENV, &value);
     }
     if let Some(value) = read_env(RUST_LOG_ENV) {
         return tracing_targets_from_value(RUST_LOG_ENV, &value);
@@ -292,7 +296,7 @@ fn workflow_schema_json() -> Value {
             "https://conduit.dev/schemas/workflow-v{}.schema.json",
             CURRENT_CONDUIT_VERSION
         ),
-        "title": "Conduit workflow document",
+        "title": "Pureflow workflow document",
         "type": "object",
         "additionalProperties": false,
         "required": ["conduit_version", "id", "nodes", "edges"],
@@ -300,7 +304,7 @@ fn workflow_schema_json() -> Value {
             "conduit_version": {
                 "type": "string",
                 "const": CURRENT_CONDUIT_VERSION,
-                "description": "Required Conduit workflow format version."
+                "description": "Required Pureflow workflow format version."
             },
             "id": identifier_schema_json("Workflow identifier."),
             "nodes": {
@@ -343,7 +347,7 @@ fn wasm_component_manifest_schema_json() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "https://conduit.dev/schemas/wasm-component-manifest.schema.json",
-        "title": "Conduit WASM component manifest",
+        "title": "Pureflow WASM component manifest",
         "type": "object",
         "additionalProperties": false,
         "required": ["components"],
@@ -1590,7 +1594,7 @@ mod tests {
         .expect("schema command should succeed");
         let value: Value = serde_json::from_str(&output).expect("schema output should be JSON");
 
-        assert_eq!(value["title"], "Conduit workflow document");
+        assert_eq!(value["title"], "Pureflow workflow document");
         assert_eq!(
             value["properties"]["conduit_version"]["const"],
             CURRENT_CONDUIT_VERSION
@@ -1620,7 +1624,7 @@ mod tests {
         .expect("schema command should succeed");
         let value: Value = serde_json::from_str(&output).expect("schema output should be JSON");
 
-        assert_eq!(value["title"], "Conduit WASM component manifest");
+        assert_eq!(value["title"], "Pureflow WASM component manifest");
         assert_eq!(value["additionalProperties"], false);
         assert_eq!(
             value["properties"]["components"]["items"]["additionalProperties"],

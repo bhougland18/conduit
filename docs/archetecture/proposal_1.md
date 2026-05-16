@@ -1,12 +1,12 @@
-# Conduit FBP Engine Strategy Proposal 1
+# Pureflow FBP Engine Strategy Proposal 1
 
 Date: 2026-04-26
 
 ## 1. Executive Position
 
-Conduit should continue with the original proposal's direction: a metadata-first,
+Pureflow should continue with the original proposal's direction: a metadata-first,
 AI-inspectable Flow-Based Programming runtime built on `asupersync`, with
-Conduit-owned graph, port, capability, metadata, and node-contract APIs. The
+Pureflow-owned graph, port, capability, metadata, and node-contract APIs. The
 important correction is sequencing. The repository currently contains a strong
 foundation, but not yet a full FBP runtime:
 
@@ -35,7 +35,7 @@ architecture baseline:
 
 - Nodes are long-lived processes, not one-shot DAG tasks.
 - Edges are bounded channels and backpressure is a correctness feature.
-- The runtime owns channels; node implementations receive Conduit port handles.
+- The runtime owns channels; node implementations receive Pureflow port handles.
 - Workflow structure, runtime behavior, metadata, capabilities, and extensions
   remain separate concerns.
 - WASM nodes should initially operate on host-managed message batches rather
@@ -55,7 +55,7 @@ extend those seams instead of replacing them.
 | Engine execution | Runs nodes one after another | Spawn all eligible nodes under one supervised task tree |
 | Ports | Bounded channel handles with non-blocking try operations | Add cancel-safe async receive/reserve/send APIs and explicit close/drain semantics |
 | Backpressure | Bounded channels exist | Prove upstream pressure propagation with concurrent tests and occupancy metadata |
-| Cancellation | Conduit-owned cancellation tokens are visible in node contexts | Attach one workflow-level cancellation handle to all node contexts and propagate failure policy deterministically |
+| Cancellation | Pureflow-owned cancellation tokens are visible in node contexts | Attach one workflow-level cancellation handle to all node contexts and propagate failure policy deterministically |
 | Lifecycle | Node start/complete/fail events exist | Emit scheduled/cancelled events, workflow-level events, and message observations |
 | Metadata | Sink boundary exists | Record execution context, lifecycle, message send/receive, queue pressure, and validation facts without collapsing source-specific metadata |
 | Capabilities | Capability descriptors and workflow cross-validation exist | Add node-contract registry and enforcement adapters for WASM |
@@ -81,7 +81,7 @@ Validation Pipeline
   - edge capacity policy
         |
         v
-Conduit Engine
+Pureflow Engine
   - graph wiring
   - workflow supervisor
   - node task lifecycle
@@ -89,7 +89,7 @@ Conduit Engine
   - metadata fan-in
         |
         v
-Conduit Runtime Adapter
+Pureflow Runtime Adapter
   - asupersync task tree
   - bounded channels
   - cancellation bridge
@@ -202,7 +202,7 @@ Concrete changes:
 
 - Keep reserve/commit semantics for fan-out so a packet is either delivered to
   every connected downstream edge or to none.
-- Map runtime channel errors into Conduit errors at the port boundary.
+- Map runtime channel errors into Pureflow errors at the port boundary.
 - Define input closure semantics: `Ok(None)` means all upstream senders are
   closed and drained; cancellation remains an error.
 - Add queue occupancy/available-capacity observations behind a metadata hook,
@@ -277,7 +277,7 @@ MVP shape:
 - Host reads up to `batch_size` messages from declared inputs.
 - Host calls a WASM component with message metadata and payload bytes.
 - WASM returns zero or more output envelopes.
-- Host validates output ports and pushes messages through normal Conduit ports.
+- Host validates output ports and pushes messages through normal Pureflow ports.
 
 Do not expose direct channel operations inside WASM in the MVP. That would mix
 sandboxing, scheduling, and backpressure before the host contract is proven.
@@ -307,7 +307,7 @@ Once definitions and validation exist, replace the temporary CLI with:
 - `conduit explain <workflow-file>` for AI- and human-readable validation and
   runtime summaries
 
-The CLI should depend on public Conduit APIs only. It should not reach into
+The CLI should depend on public Pureflow APIs only. It should not reach into
 `asupersync` directly.
 
 ## 6. Recommended Rust Crates
@@ -343,14 +343,14 @@ especially for Wasmtime and DataFusion because they release frequently.
 ### Fork Or Upstream Improvement Candidates
 
 Do not fork crates preemptively. Wrap first, fork only when the wrapper cannot
-preserve Conduit semantics.
+preserve Pureflow semantics.
 
 - `asupersync`: request or contribute task-tree introspection, deterministic
   scheduler hooks, channel occupancy observation, and lifecycle callbacks if
   these cannot be cleanly implemented through adapters.
 - `serde_yaml`: avoid as a default dependency. If YAML must become first-class,
   either isolate it behind a feature flag or maintain a narrow fork/importer
-  with only the subset Conduit supports.
+  with only the subset Pureflow supports.
 - `wasmtime`: do not fork. Isolate behind `conduit-wasm` because release cadence
   and component APIs can move quickly.
 - `datafusion`: do not fork for MVP. If future nodes require custom streaming
@@ -493,7 +493,7 @@ seams executable under true flow-based semantics.
 
 ## References
 
-- Original architecture proposal: `docs/archetecture/conduit_proposal.md`
+- Original architecture proposal: `docs/archetecture/pureflow_proposal.md`
 - Strategy request: `docs/archetecture/strategy/proposal_request.md`
 - Current engine scaffold: `crates/conduit-engine/src/lib.rs`
 - Current runtime boundary: `crates/conduit-runtime/src/lib.rs`

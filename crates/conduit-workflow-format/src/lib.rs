@@ -22,7 +22,7 @@ pub const CURRENT_CONDUIT_VERSION: &str = "1";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawWorkflowDefinition {
-    /// Required Conduit workflow format version.
+    /// Required Pureflow workflow format version.
     pub conduit_version: Option<String>,
     /// Workflow identifier.
     pub id: String,

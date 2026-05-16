@@ -23,7 +23,7 @@ Useful state terms:
 - Backpressure: the signal that downstream work cannot keep up.
 - Packet: one item moving across a port.
 - Port: a named input or output on a node.
-- Cancellation: a Conduit-owned shared signal visible to the runtime and node context.
+- Cancellation: a Pureflow-owned shared signal visible to the runtime and node context.
 - Metadata JSONL: the canonical event stream for run forensics.
 - Run summary: the compact terminal machine-facing answer for automation.
 
@@ -32,7 +32,7 @@ Ownership model:
 - `conduit-cli` handles input and output.
 - `conduit-engine` owns orchestration and policy decisions.
 - `conduit-runtime` bridges into the async substrate and observer hooks.
-- Node execution sees Conduit-owned context and port semantics rather than raw runtime types.
+- Node execution sees Pureflow-owned context and port semantics rather than raw runtime types.
 
 ## Failure Handling
 

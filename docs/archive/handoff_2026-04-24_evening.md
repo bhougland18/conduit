@@ -1,4 +1,4 @@
-# Conduit Handoff - 2026-04-24 (Evening)
+# Pureflow Handoff - 2026-04-24 (Evening)
 
 ## Current State
 
@@ -17,7 +17,7 @@ Closed beads:
 
 Closed epic:
 
-- `cdt-dmh` - Epic 1: Conduit Foundation
+- `cdt-dmh` - Epic 1: Pureflow Foundation
 
 The current active working-copy change is:
 

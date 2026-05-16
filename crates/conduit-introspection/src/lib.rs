@@ -33,7 +33,7 @@ use conduit_workflow::{
 /// Runtime boundary strength declared by a node contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnforcementLevel {
-    /// Native host code is inspectable but not sandboxed by Conduit.
+    /// Native host code is inspectable but not sandboxed by Pureflow.
     Advisory,
     /// A strict boundary must be able to enforce every declared effect.
     Strict,

@@ -6,7 +6,7 @@ diagnostics in metadata JSONL and CLI `run --json` summaries.
 
 ## Error Taxonomy
 
-Conduit exposes one shared runtime-facing error type: `ConduitError`. Node
+Pureflow exposes one shared runtime-facing error type: `ConduitError`. Node
 authors most often use:
 
 | Condition | Native return | Stable code | Visibility | Retry |
@@ -24,7 +24,7 @@ not intentionally surface transient errors as if retrying were safe.
 
 ## Native Node Pattern
 
-Native nodes should preserve cancellation and port errors by using the Conduit
+Native nodes should preserve cancellation and port errors by using the Pureflow
 port APIs directly and propagating `?`:
 
 ```rust
@@ -214,7 +214,7 @@ reports the first workflow error.
   port operation.
 - Treat malformed runtime payloads as execution failures with concise messages.
 - Use WASM `unsupported-payload` for unsupported WIT payload variants.
-- Avoid raw substrate errors in public node APIs; let Conduit adapters map
+- Avoid raw substrate errors in public node APIs; let Pureflow adapters map
   port, task, and Wasmtime failures into `ConduitError`.
 - Verify failure behavior with metadata JSONL and `run --json`, not just text
   output.

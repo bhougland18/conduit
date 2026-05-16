@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
-<title>2&nbsp; System Overview – Conduit Architecture Guide</title>
+<title>2&nbsp; System Overview – Pureflow Architecture Guide</title>
 <style>
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
@@ -17,7 +17,7 @@ div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
   width: 0.8em;
-  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */
   vertical-align: middle;
 }
 /* CSS for syntax highlighting */
@@ -119,7 +119,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
         <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./system-overview.html"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">System Overview</span></a></li></ol></nav>
-        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         </a>
       <button type="button" class="btn quarto-search-button" aria-label="Search" onclick="window.quartoOpenSearch();">
         <i class="bi bi-search"></i>
@@ -133,7 +133,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
     <div class="pt-lg-2 mt-2 text-left sidebar-header">
     <div class="sidebar-title mb-0 py-0">
-      <a href="./">Conduit Architecture Guide</a> 
+      <a href="./">Pureflow Architecture Guide</a>
     </div>
       </div>
         <div class="mt-2 flex-shrink-0 align-items-center">
@@ -141,34 +141,34 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
         <div id="quarto-search" class="" title="Search"></div>
         </div>
         </div>
-    <div class="sidebar-menu-container"> 
+    <div class="sidebar-menu-container">
     <ul class="list-unstyled mt-1">
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./index.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Conduit Architecture Guide</span></span></a>
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Pureflow Architecture Guide</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./system-overview.html" class="sidebar-item-text sidebar-link active">
  <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">System Overview</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./runtime-model.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Runtime Model</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./package-contracts.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Package and Contract Boundaries</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="./diagrams-and-flows.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Diagrams and Flows</span></span></a>
   </div>
@@ -181,9 +181,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
         <nav id="TOC" role="doc-toc" class="toc-active">
     <h2 id="toc-title">Table of contents</h2>
-   
+
   <ul>
-  <li><a href="#conduit-overview" id="toc-conduit-overview" class="nav-link active" data-scroll-target="#conduit-overview"><span class="header-section-number">2.1</span> Conduit Overview</a></li>
+  <li><a href="#pureflow-overview" id="toc-pureflow-overview" class="nav-link active" data-scroll-target="#pureflow-overview"><span class="header-section-number">2.1</span> Pureflow Overview</a></li>
   <li><a href="#original-fbp-roots" id="toc-original-fbp-roots" class="nav-link" data-scroll-target="#original-fbp-roots"><span class="header-section-number">2.2</span> Original FBP Roots</a></li>
   <li><a href="#key-terms" id="toc-key-terms" class="nav-link" data-scroll-target="#key-terms"><span class="header-section-number">2.3</span> Key Terms</a></li>
   <li><a href="#why-this-architecture-matters" id="toc-why-this-architecture-matters" class="nav-link" data-scroll-target="#why-this-architecture-matters"><span class="header-section-number">2.4</span> Why This Architecture Matters</a></li>
@@ -221,28 +221,28 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 <div class="quarto-title-meta">
 
-    
-  
-    
+
+
+
   </div>
-  
+
 
 
 </header>
 
 
-<section id="conduit-overview" class="level2" data-number="2.1">
-<h2 data-number="2.1" class="anchored" data-anchor-id="conduit-overview"><span class="header-section-number">2.1</span> Conduit Overview</h2>
-<p>Conduit is an experimental Flow-Based Programming engine in Rust. It validates workflow documents, executes node graphs through bounded channels, and emits machine-facing metadata and run summaries.</p>
+<section id="pureflow-overview" class="level2" data-number="2.1">
+<h2 data-number="2.1" class="anchored" data-anchor-id="pureflow-overview"><span class="header-section-number">2.1</span> Pureflow Overview</h2>
+<p>Pureflow is an experimental Flow-Based Programming engine in Rust. It validates workflow documents, executes node graphs through bounded channels, and emits machine-facing metadata and run summaries.</p>
 <p>The system is built to keep three things visible at once: what the workflow looks like, how the run is executing, and where the boundaries of responsibility actually sit. That is what makes the rest of the guide worth reading slowly.</p>
-<p>If you want a mental model, think of Conduit like a shipping hub:</p>
+<p>If you want a mental model, think of Pureflow like a shipping hub:</p>
 <ul>
 <li>the workflow document is the route map,</li>
 <li>nodes are processing stations,</li>
 <li>edges are conveyor belts with finite space,</li>
 <li>metadata is the camera footage and scanner log.</li>
 </ul>
-<p>At a high level, Conduit separates:</p>
+<p>At a high level, Pureflow separates:</p>
 <ul>
 <li>static graph and format validation,</li>
 <li>runtime execution and orchestration,</li>
@@ -253,7 +253,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="original-fbp-roots" class="level2" data-number="2.2">
 <h2 data-number="2.2" class="anchored" data-anchor-id="original-fbp-roots"><span class="header-section-number">2.2</span> Original FBP Roots</h2>
-<p>Conduit is based on J. Paul Morrison’s original Flow-Based Programming model. That model matters here because it gives the architecture a very practical shape:</p>
+<p>Pureflow is based on J. Paul Morrison’s original Flow-Based Programming model. That model matters here because it gives the architecture a very practical shape:</p>
 <ul>
 <li>components behave like long-lived processes instead of one-shot functions,</li>
 <li>data moves over bounded channels instead of through hidden shared state,</li>
@@ -287,10 +287,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>Bounded channels make pressure a first-class event instead of a hidden scheduler accident.</li>
 <li>Runtime metadata records what happened while the run is still live, which makes debugging and replay easier than reconstructing a story from logs after the fact.</li>
 <li>Capability and contract checks keep the node boundary honest, which matters more as execution modes get more diverse.</li>
-<li>The same design gives Conduit room to run native nodes, WASM nodes, and future adapters without rewriting the whole graph model.</li>
+<li>The same design gives Pureflow room to run native nodes, WASM nodes, and future adapters without rewriting the whole graph model.</li>
 </ul>
 <p>That combination is what makes the system interesting: it behaves like a serious execution engine, but it still tries to keep the logic comprehensible to a person reading the code for the first time.</p>
-<p>Conduit is trying to be the kind of system you can debug by reading from top to bottom, not the kind you need to reverse-engineer from a pile of moving parts.</p>
+<p>Pureflow is trying to be the kind of system you can debug by reading from top to bottom, not the kind you need to reverse-engineer from a pile of moving parts.</p>
 </section>
 <section id="layered-architecture" class="level2" data-number="2.5">
 <h2 data-number="2.5" class="anchored" data-anchor-id="layered-architecture"><span class="header-section-number">2.5</span> Layered Architecture</h2>
@@ -319,11 +319,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="why-wasm-helps-here" class="level2" data-number="2.8">
 <h2 data-number="2.8" class="anchored" data-anchor-id="why-wasm-helps-here"><span class="header-section-number">2.8</span> Why WASM Helps Here</h2>
-<p>WASM is useful in Conduit because it gives you a narrow, portable execution boundary without asking the rest of the system to trust a whole host runtime.</p>
-<p>The value here is not just “WASM is safer.” It is that WASM gives Conduit a second implementation path without letting that path leak into the core model.</p>
+<p>WASM is useful in Pureflow because it gives you a narrow, portable execution boundary without asking the rest of the system to trust a whole host runtime.</p>
+<p>The value here is not just “WASM is safer.” It is that WASM gives Pureflow a second implementation path without letting that path leak into the core model.</p>
 <ul>
 <li>A WASM node is easier to ship and inspect than a native plugin with deep host reach.</li>
-<li>The host owns the channels, so the graph still looks like Conduit even when a node is compiled to a different execution target.</li>
+<li>The host owns the channels, so the graph still looks like Pureflow even when a node is compiled to a different execution target.</li>
 <li>The capability boundary stays explicit. If a guest cannot reach the network or filesystem, that limitation is visible in the adapter instead of hidden in the node implementation.</li>
 <li>The batch-style component model keeps the WASM story focused on data in, data out, which is a good fit for flow graphs.</li>
 </ul>
@@ -332,21 +332,21 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="why-asupersync-instead-of-tokio" class="level2" data-number="2.9">
 <h2 data-number="2.9" class="anchored" data-anchor-id="why-asupersync-instead-of-tokio"><span class="header-section-number">2.9</span> Why <code>asupersync</code> Instead of Tokio</h2>
-<p>Tokio is a strong general-purpose async ecosystem, but Conduit does not need a general-purpose app runtime to explain its own model. It needs a substrate that stays out of the way while still giving the engine task-tree execution, cancellation, and bounded channel behavior.</p>
-<p>The goal is to keep the runtime layer boring in the right way: it should execute Conduit’s model, not define a second one.</p>
+<p>Tokio is a strong general-purpose async ecosystem, but Pureflow does not need a general-purpose app runtime to explain its own model. It needs a substrate that stays out of the way while still giving the engine task-tree execution, cancellation, and bounded channel behavior.</p>
+<p>The goal is to keep the runtime layer boring in the right way: it should execute Pureflow’s model, not define a second one.</p>
 <p>That is why <code>asupersync</code> sits underneath <code>conduit-runtime</code> rather than being the public model itself.</p>
 <ul>
-<li>Conduit owns the graph, ports, contracts, metadata, and capability story.</li>
+<li>Pureflow owns the graph, ports, contracts, metadata, and capability story.</li>
 <li><code>asupersync</code> provides the execution machinery that makes those ideas run.</li>
 <li>The boundary stays narrow, which makes it easier to test and easier to replace later if the project ever needs to.</li>
-<li>The public API does not inherit Tokio’s larger vocabulary when Conduit only needs a smaller one for workflow execution.</li>
+<li>The public API does not inherit Tokio’s larger vocabulary when Pureflow only needs a smaller one for workflow execution.</li>
 </ul>
-<p>There is nothing wrong with Tokio in general. The point is simply that Conduit is trying to teach and preserve its own runtime story, not inherit a broader framework story it does not need.</p>
+<p>There is nothing wrong with Tokio in general. The point is simply that Pureflow is trying to teach and preserve its own runtime story, not inherit a broader framework story it does not need.</p>
 <p>That makes the boundary easier to test, easier to describe, and easier to swap later if the project ever needs to.</p>
 </section>
 <section id="metadata-surfaces-and-usage" class="level2" data-number="2.10">
 <h2 data-number="2.10" class="anchored" data-anchor-id="metadata-surfaces-and-usage"><span class="header-section-number">2.10</span> Metadata Surfaces and Usage</h2>
-<p>Conduit emits two machine-facing outputs:</p>
+<p>Pureflow emits two machine-facing outputs:</p>
 <ul>
 <li>metadata JSONL stream (event records),</li>
 <li><code>conduit run --json</code> terminal summary.</li>
@@ -410,7 +410,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="co">// Build contracts and capabilities for each workflow node, then validate:</span></span>
 <span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>validate_workflow_contracts(<span class="op">&amp;</span>workflow<span class="op">,</span> <span class="op">&amp;</span>contracts<span class="op">,</span> <span class="op">&amp;</span>capabilities)<span class="op">?;</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p>This is a key authoring boundary for both humans and future LLM assistants: workflow topology, contracts, and capabilities must match before execution. If those three disagree, Conduit treats it like a wiring mismatch and stops before runtime surprises can happen.</p>
+<p>This is a key authoring boundary for both humans and future LLM assistants: workflow topology, contracts, and capabilities must match before execution. If those three disagree, Pureflow treats it like a wiring mismatch and stops before runtime surprises can happen.</p>
 <p>That rule is part of the architecture’s value. It catches structural mistakes before they turn into runtime folklore.</p>
 </section>
 </section>
@@ -427,7 +427,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="chapter-takeaways" class="level2" data-number="2.14">
 <h2 data-number="2.14" class="anchored" data-anchor-id="chapter-takeaways"><span class="header-section-number">2.14</span> Chapter Takeaways</h2>
-<p>Conduit works best when the workflow document, runtime behavior, and capability policy remain separate things that meet at the boundary instead of collapsing into one blurry execution blob.</p>
+<p>Pureflow works best when the workflow document, runtime behavior, and capability policy remain separate things that meet at the boundary instead of collapsing into one blurry execution blob.</p>
 <p>That is the recurring theme in this chapter. Bounded channels, explicit contracts, and narrow adapters all serve the same goal: keep the graph legible enough that a human can reason about it without carrying the whole system in their head at once.</p>
 <p>If the architecture continues to feel coherent as the code grows, it is because those boundaries are still doing their job.</p>
 
@@ -446,7 +446,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     anchorJS.add('.anchored');
     const isCodeAnnotation = (el) => {
       for (const clz of el.classList) {
-        if (clz.startsWith('code-annotation-')) {                     
+        if (clz.startsWith('code-annotation-')) {
           return true;
         }
       }
@@ -466,11 +466,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
         button.setAttribute("data-bs-toggle", "tooltip");
         button.setAttribute("data-bs-placement", "left");
         button.setAttribute("data-bs-title", "Copied!");
-        tooltip = new bootstrap.Tooltip(button, 
-          { trigger: "manual", 
+        tooltip = new bootstrap.Tooltip(button,
+          { trigger: "manual",
             customClass: "code-copy-button-tooltip",
             offset: [0, -8]});
-        tooltip.show();    
+        tooltip.show();
       }
       setTimeout(function() {
         if (tooltip) {
@@ -547,7 +547,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       if (onUntriggerFn) {
         config.onUntrigger = onUntriggerFn;
       }
-      window.tippy(el, config); 
+      window.tippy(el, config);
     }
     const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
     for (var i=0; i<noterefs.length; i++) {
@@ -622,7 +622,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       tippyHover(xref, undefined, function(instance) {
         instance.disable();
         let url = xref.getAttribute('href');
-        let hash = undefined; 
+        let hash = undefined;
         if (url.startsWith('#')) {
           hash = url;
         } else {
@@ -650,7 +650,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
               if (note !== null) {
                 const html = processXRef(id, note);
                 instance.setContent(html);
-              } 
+              }
             }).finally(() => {
               instance.enable();
               instance.show();
@@ -674,7 +674,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
               }
               const html = processXRef(null, note);
               instance.setContent(html);
-            } 
+            }
           }).finally(() => {
             instance.enable();
             instance.show();
@@ -714,7 +714,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
               height = bottom - top;
             }
             if (top !== null && height !== null && parent !== null) {
-              // cook up a div (if necessary) and position it 
+              // cook up a div (if necessary) and position it
               let div = window.document.getElementById("code-annotation-line-highlight");
               if (div === null) {
                 div = window.document.createElement("div");
@@ -837,9 +837,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   </script>
 <nav class="page-navigation">
   <div class="nav-page nav-page-previous">
-      <a href="./index.html" class="pagination-link" aria-label="Conduit Architecture Guide">
-        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Conduit Architecture Guide</span></span>
-      </a>          
+      <a href="./index.html" class="pagination-link" aria-label="Pureflow Architecture Guide">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Pureflow Architecture Guide</span></span>
+      </a>
   </div>
   <div class="nav-page nav-page-next">
       <a href="./runtime-model.html" class="pagination-link" aria-label="Runtime Model">

@@ -3,7 +3,7 @@
 //! ## Fragment: lifecycle-observer-seam
 //!
 //! The lifecycle surface exists before the runtime fully uses it because
-//! observability is part of the public direction of Conduit, not an afterthought.
+//! observability is part of the public direction of Pureflow, not an afterthought.
 //! The current seam is intentionally thin: it names the events that matter and
 //! leaves registration, fan-out, and buffering policy to later runtime beads.
 //!

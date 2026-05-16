@@ -1,8 +1,8 @@
-# Conduit Workflow Engine — Architecture & Requirements Proposal (v4)
+# Pureflow Workflow Engine — Architecture & Requirements Proposal (v4)
 
 ## 1. Vision
 
-Conduit is a **Flow-Based Programming (FBP) execution engine** designed for:
+Pureflow is a **Flow-Based Programming (FBP) execution engine** designed for:
 
 * AI-first inspection and collaboration
 * high-concurrency, structured execution
@@ -11,7 +11,7 @@ Conduit is a **Flow-Based Programming (FBP) execution engine** designed for:
 * clear architectural boundaries (Polylith-aligned)
 * metadata-rich, provenance-aware computation
 
-> Conduit is not a DAG scheduler.
+> Pureflow is not a DAG scheduler.
 > It is a **runtime for correct, observable, AI-native computation**.
 
 ---
@@ -48,10 +48,10 @@ This replaces DAG execution with:
 
 Runtime boundary:
 
-* Conduit owns workflow topology, node contracts, port abstractions, metadata,
+* Pureflow owns workflow topology, node contracts, port abstractions, metadata,
   capability descriptors, and introspection
 * `asupersync` provides task execution, cancellation, and async primitives under
-  those Conduit-owned abstractions
+  those Pureflow-owned abstractions
 * public node APIs should not expose raw `asupersync` task context or channel
   types without an explicit design decision
 
@@ -163,7 +163,7 @@ Future:
 * enables independent testing and evolution
 
 > Polylith defines structure
-> Conduit defines execution
+> Pureflow defines execution
 
 ---
 
@@ -387,7 +387,7 @@ Explicit goals:
 
 ## 10. Summary
 
-Conduit is:
+Pureflow is:
 
 > a **flow-based, metadata-first, AI-inspectable execution engine**
 > built in Rust with structured concurrency and pluggable capabilities
@@ -403,7 +403,7 @@ It prioritizes:
 
 ## Final Note
 
-Conduit is not:
+Pureflow is not:
 
 * a DAG runner
 * a scheduler

@@ -1,4 +1,4 @@
-//! High-level workflow orchestration for Conduit.
+//! High-level workflow orchestration for Pureflow.
 
 use std::num::NonZeroUsize;
 use std::time::Duration;

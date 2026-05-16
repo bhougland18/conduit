@@ -1,4 +1,4 @@
-# Conduit Handoff - 2026-04-24 (Late)
+# Pureflow Handoff - 2026-04-24 (Late)
 
 ## Current State
 
@@ -18,7 +18,7 @@ The repository is in a healthy state after the latest validation runs, with the 
 Read these first when resuming:
 
 - [docs/AGENTS.md](/home/ben/code/conduit/docs/AGENTS.md)
-- [docs/conduit_proposal.md](/home/ben/code/conduit/docs/conduit_proposal.md)
+- [docs/pureflow_proposal.md](/home/ben/code/conduit/docs/pureflow_proposal.md)
 - [docs/archive/handoff_2026-04-24_evening.md](/home/ben/code/conduit/docs/archive/handoff_2026-04-24_evening.md)
 - [docs/audits/Audit_scope.md](/home/ben/code/conduit/docs/audits/Audit_scope.md)
 - [docs/audits/Audit_4_23.md](/home/ben/code/conduit/docs/audits/Audit_4_23.md)
@@ -41,7 +41,7 @@ Decision after resuming:
 - A first-class metadata sink API is the collection boundary, not a replacement metadata model.
 - `asupersync` remains a thin bootstrap wrapper until lifecycle and metadata observation are stable.
 - Introspection should come before deeper task-tree orchestration.
-- `asupersync` task context, channel, permit, and join types should stay behind Conduit-owned adapters unless a future bead explicitly changes the public FBP boundary.
+- `asupersync` task context, channel, permit, and join types should stay behind Pureflow-owned adapters unless a future bead explicitly changes the public FBP boundary.
 
 ## Suggested Resume Point
 

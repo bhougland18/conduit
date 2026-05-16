@@ -3,7 +3,7 @@ project:
   output-dir: _output
 
 book:
-  title: "Conduit Architecture Guide"
+  title: "Pureflow Architecture Guide"
   chapters:
     - index.qmd
     - system-overview.qmd

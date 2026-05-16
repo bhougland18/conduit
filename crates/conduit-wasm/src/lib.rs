@@ -1,8 +1,8 @@
-//! Wasmtime-backed batch adapter boundary for Conduit.
+//! Wasmtime-backed batch adapter boundary for Pureflow.
 //!
 //! The crate owns the Component Model/WIT ABI and keeps Wasmtime types out of
 //! `conduit-core`. Guest components implement `conduit:batch/conduit-node`
-//! from `wit/conduit-batch.wit`; the host remains responsible for output port
+//! from `wit/pureflow-batch.wit`; the host remains responsible for output port
 //! validation before packets are sent through `PortsOut`.
 
 use std::{
@@ -28,10 +28,10 @@ use wasmtime::{
     component::{Component, ComponentExportIndex, Func, Instance, Linker, Val},
 };
 
-/// WIT package identifier implemented by Conduit WASM batch guests.
+/// WIT package identifier implemented by Pureflow WASM batch guests.
 pub const WIT_PACKAGE: &str = "conduit:batch@0.1.0";
 
-/// WIT world exported by Conduit WASM batch guests.
+/// WIT world exported by Pureflow WASM batch guests.
 pub const WIT_WORLD: &str = "conduit-node";
 
 const DEFAULT_GUEST_FUEL: u64 = 100_000_000;
@@ -96,7 +96,7 @@ impl Default for WasmtimeExecutionLimits {
     }
 }
 
-/// Wasmtime component prepared for Conduit batch execution.
+/// Wasmtime component prepared for Pureflow batch execution.
 pub struct WasmtimeBatchComponent {
     engine: Engine,
     component: Component,
@@ -183,7 +183,7 @@ impl WasmtimeBatchComponent {
     /// # Errors
     ///
     /// Returns an error if the component cannot instantiate, the guest traps,
-    /// or the guest returns malformed Conduit data.
+    /// or the guest returns malformed Pureflow data.
     pub fn invoke(&self, inputs: &BatchInputs) -> Result<BatchOutputs> {
         self.invoke_with_cancellation(inputs, &CancellationToken::active())
     }
@@ -196,7 +196,7 @@ impl WasmtimeBatchComponent {
     ///
     /// Returns an error if cancellation is already requested, the component
     /// cannot instantiate, the guest traps or exceeds its fuel budget, or the
-    /// guest returns malformed Conduit data.
+    /// guest returns malformed Pureflow data.
     pub fn invoke_with_cancellation(
         &self,
         inputs: &BatchInputs,
@@ -282,7 +282,7 @@ pub fn validate_wasm_capabilities(capabilities: &NodeCapabilities) -> Result<()>
     Ok(())
 }
 
-/// Convert Conduit batch inputs to the WIT-facing ordered port batch shape.
+/// Convert Pureflow batch inputs to the WIT-facing ordered port batch shape.
 ///
 /// # Errors
 ///
@@ -303,12 +303,12 @@ pub fn to_wit_port_batches(inputs: &BatchInputs) -> Result<Vec<WitPortBatch>> {
         .collect()
 }
 
-/// Convert WIT-facing ordered port batches back to Conduit batch outputs.
+/// Convert WIT-facing ordered port batches back to Pureflow batch outputs.
 ///
 /// # Errors
 ///
 /// Returns an error if a port identifier or packet metadata identifier fails
-/// Conduit validation, or if a control payload is not valid JSON.
+/// Pureflow validation, or if a control payload is not valid JSON.
 pub fn from_wit_port_batches(port_batches: Vec<WitPortBatch>) -> Result<BatchOutputs> {
     let mut outputs: BatchOutputs = BatchOutputs::new();
     for port_batch in port_batches {

@@ -9,10 +9,10 @@
 //!
 //! ## Fragment: context-cancellation-shape
 //!
-//! Cancellation is represented as a Conduit-owned shared signal rather than as
+//! Cancellation is represented as a Pureflow-owned shared signal rather than as
 //! an exposed async-runtime context. Runtime supervisors can request
 //! cancellation after a node starts, and cloned parent or child contexts observe
-//! the same request, but node APIs still see only Conduit `NodeContext`
+//! the same request, but node APIs still see only Pureflow `NodeContext`
 //! semantics rather than raw `asupersync::Cx`.
 //!
 //! ## Fragment: context-attempt-numbering

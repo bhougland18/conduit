@@ -23,7 +23,7 @@ nix develop . --command bash -lc 'cd docs/architecture-guide && quarto render --
 
 Useful outputs:
 
-- `docs/architecture-guide/_output/Conduit-Architecture-Guide.pdf`
+- `docs/architecture-guide/_output/Pureflow-Architecture-Guide.pdf`
 - `docs/architecture-guide/_output/*.html`
 
 ## Diagram Tooling

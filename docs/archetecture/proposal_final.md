@@ -1,12 +1,12 @@
-# Conduit FBP Engine Final Strategy Proposal
+# Pureflow FBP Engine Final Strategy Proposal
 
 Date: 2026-04-26
 
 ## 1. Final Recommendation
 
-Conduit should continue with the original architecture direction: a
+Pureflow should continue with the original architecture direction: a
 metadata-first, AI-inspectable Flow-Based Programming runtime built on
-`asupersync`, with Conduit-owned workflow, port, node-contract, metadata,
+`asupersync`, with Pureflow-owned workflow, port, node-contract, metadata,
 capability, and introspection APIs.
 
 The highest-priority correction is execution semantics. The repository has
@@ -14,7 +14,7 @@ good boundaries, but `conduit-engine::run_workflow` is still a sequential
 scaffold. It wires bounded channels, then awaits each node to completion before
 starting the next node. That is not yet FBP.
 
-The next implementation wave should make Conduit a true long-lived process
+The next implementation wave should make Pureflow a true long-lived process
 graph:
 
 1. Add async, cancel-safe port APIs.
@@ -106,7 +106,7 @@ Validation Pipeline
   - capability policy
         |
         v
-Conduit Engine
+Pureflow Engine
   - graph wiring
   - workflow supervisor
   - shared cancellation
@@ -115,7 +115,7 @@ Conduit Engine
   - metadata fan-in
         |
         v
-Conduit Runtime Adapter
+Pureflow Runtime Adapter
   - asupersync runtime
   - bounded channel substrate
   - deterministic test runtime
@@ -585,7 +585,7 @@ Adopt a merged strategy:
   isolation, identifier caps, and performance/concurrency testing
 
 The near-term goal is not WASM, Arrow, or a large CLI. The near-term goal is a
-small runtime that proves Conduit is actually FBP: long-lived concurrent nodes,
+small runtime that proves Pureflow is actually FBP: long-lived concurrent nodes,
 bounded backpressure, clean cancellation, structured metadata, and no runtime
 substrate leakage.
 
@@ -638,7 +638,7 @@ from `proposal_2`.
     default capacity, and fan-out/fan-in.
 27. `bench-metadata-overhead`: benchmark `NoopMetadataSink` vs default/tiered
     sinks.
-28. `api-substrate-leak-check`: add a check that public Conduit APIs do not
+28. `api-substrate-leak-check`: add a check that public Pureflow APIs do not
     expose `asupersync` types.
 29. `wasm-batch-trait`: add runtime-neutral `BatchExecutor`,
     `BatchInputs`, and `BatchOutputs`.
@@ -651,7 +651,7 @@ from `proposal_2`.
 
 ## References
 
-- Original architecture proposal: `docs/archetecture/conduit_proposal.md`
+- Original architecture proposal: `docs/archetecture/pureflow_proposal.md`
 - Strategy request: `docs/archetecture/strategy/proposal_request.md`
 - First strategy proposal: `docs/archetecture/proposal_1.md`
 - Second strategy proposal: `docs/archetecture/proposal_2.md`

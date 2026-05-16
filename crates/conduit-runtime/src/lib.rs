@@ -10,7 +10,7 @@
 //!
 //! ## Fragment: runtime-asupersync-boundary
 //!
-//! `asupersync` is the runtime substrate, not the public FBP model. Conduit
+//! `asupersync` is the runtime substrate, not the public FBP model. Pureflow
 //! owns graph validation, node contracts, port handles, metadata, capability
 //! descriptors, and introspection. Runtime adapters may use `asupersync`
 //! contexts, bounded channels, cancellation, and task handles internally, but
@@ -23,7 +23,7 @@
 //! Production construction intentionally keeps the default `asupersync`
 //! builder. Tests that assert ordering, cancellation, or failure propagation
 //! should use the deterministic current-thread constructor so those checks are
-//! about Conduit behavior rather than host scheduler timing.
+//! about Pureflow behavior rather than host scheduler timing.
 
 use asupersync::runtime::{Runtime, RuntimeBuilder};
 use conduit_core::{
@@ -73,7 +73,7 @@ impl AsupersyncRuntime {
         Self::from_builder(RuntimeBuilder::current_thread().poll_budget(1))
     }
 
-    /// Create a Conduit-owned cancellation handle for runtime-managed contexts.
+    /// Create a Pureflow-owned cancellation handle for runtime-managed contexts.
     #[must_use]
     pub fn cancellation_handle() -> CancellationHandle {
         CancellationHandle::new()

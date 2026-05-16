@@ -2,7 +2,7 @@
 
 ## System Shape
 
-Conduit is an experimental Flow-Based Programming engine written in Rust.
+Pureflow is an experimental Flow-Based Programming engine written in Rust.
 It validates workflow documents, executes node graphs through bounded channels,
 and emits machine-facing metadata and run summaries.
 
@@ -27,11 +27,11 @@ Stable responsibilities:
 - Contracts and capabilities must agree before nodes run.
 - Runtime execution uses bounded channels, explicit cancellation, and metadata emission.
 - Run summaries and metadata JSONL are separate machine-facing artifacts.
-- Native and WASM execution are both supported, but the public model stays Conduit-owned.
+- Native and WASM execution are both supported, but the public model stays Pureflow-owned.
 
 Important architectural idea:
 
-- Conduit owns the workflow model, contracts, ports, metadata, and capabilities.
+- Pureflow owns the workflow model, contracts, ports, metadata, and capabilities.
 - `asupersync` is the runtime substrate, not the public model.
 - WASM is an adapter boundary, not the center of the design.
 
@@ -48,5 +48,5 @@ Boundary facts to remember:
 
 - `conduit-runtime` may use `asupersync` internally.
 - `conduit-core` should not expose raw `asupersync` or Wasmtime types in its public API.
-- WASM guests use a Conduit-defined WIT world and host-owned channels.
+- WASM guests use a Pureflow-defined WIT world and host-owned channels.
 - Capability enforcement is explicit and becomes a real boundary for WASM and future process-backed nodes.

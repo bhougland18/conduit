@@ -1,4 +1,4 @@
-# LLM Retrieval Notes
+# Pureflow LLM Retrieval Notes
 
 This directory contains compact, topic-oriented documentation intended for retrieval use.
 

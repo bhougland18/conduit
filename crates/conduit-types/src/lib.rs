@@ -1,4 +1,4 @@
-//! Shared domain types for Conduit.
+//! Shared domain types for Pureflow.
 
 use std::error::Error;
 use std::fmt;
@@ -10,7 +10,7 @@ use std::str::FromStr;
 /// protects transport and storage boundaries rather than display width.
 pub const MAX_IDENTIFIER_LEN: usize = 256;
 
-/// Kinds of opaque identifiers used by Conduit.
+/// Kinds of opaque identifiers used by Pureflow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdentifierKind {
     /// A workflow identifier.

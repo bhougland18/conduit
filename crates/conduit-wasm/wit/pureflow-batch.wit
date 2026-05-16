@@ -2,7 +2,7 @@ package conduit:batch@0.1.0;
 
 // MVP ABI target: Component Model preview2 / WASI 0.2 component shape, with no
 // imports. The Rust host uses Wasmtime's dynamic Component Model values because
-// typed bindgen currently expands unsafe internals and Conduit forbids unsafe
+// typed bindgen currently expands unsafe internals and Pureflow forbids unsafe
 // code at the workspace lint boundary.
 interface batch {
     record endpoint {

@@ -1,5 +1,5 @@
 {
-  description = "Conduit development shell";
+  description = "Pureflow development shell";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -82,7 +82,7 @@
           };
 
           dendritic.devShell = {
-            description = "Conduit ACFS development shell";
+            description = "Pureflow ACFS development shell";
             env.RUSTUP_TOOLCHAIN = "nightly-2025-09-18";
             packages = [ ];
 

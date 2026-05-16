@@ -2,7 +2,7 @@
 
 ## 1. Initial Setup
 1. Read `docs/AGENTS.md` to understand repository requirements and local bead workflow conventions.
-2. Review `docs/conduit_proposal.md` for the project direction and intended runtime model.
+2. Review `docs/pureflow_proposal.md` for the project direction and intended runtime model.
 3. Review the relevant epic plan in `docs/epics/` before grading proposed-versus-implemented scope.
 
 ## 2. Repository Analysis
@@ -20,7 +20,7 @@
   - repo metadata that conflicts with the workspace manifest
 
 ### 2.2 Proposal Review
-- Analyze `docs/conduit_proposal.md`:
+- Analyze `docs/pureflow_proposal.md`:
   - clarity of objectives
   - technical feasibility
   - alignment with current code structure

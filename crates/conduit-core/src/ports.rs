@@ -1,26 +1,26 @@
-//! Conduit-owned port handles for the executor boundary.
+//! Pureflow-owned port handles for the executor boundary.
 //!
 //! ## Fragment: executor-port-staging
 //!
 //! The executor contract is explicit about engine-owned inputs and outputs.
 //! These handles now preserve declared port identity and can carry bounded
-//! edge channels, but the node-facing surface remains Conduit-owned. Runtime
+//! edge channels, but the node-facing surface remains Pureflow-owned. Runtime
 //! code may use `asupersync` internally without making node implementations
 //! depend on raw runtime channels or task context.
 //!
 //! ## Fragment: port-adapter-boundary
 //!
 //! The handles expose both non-blocking probes and async operations while
-//! callers still depend on Conduit port semantics rather than on the concrete
+//! callers still depend on Pureflow port semantics rather than on the concrete
 //! async runtime. In practice that means `asupersync` concepts such as task
 //! context, send permits, and channel errors belong behind `PortsIn` and
-//! `PortsOut`, with explicit Conduit error and cancellation mapping at the
+//! `PortsOut`, with explicit Pureflow error and cancellation mapping at the
 //! boundary.
 //!
 //! ## Fragment: output-reserve-commit
 //!
 //! Output sends use a two-phase reserve/commit shape even before the fully
-//! async `Cx`-based API lands. Reserving capacity produces a Conduit-owned
+//! async `Cx`-based API lands. Reserving capacity produces a Pureflow-owned
 //! permit; committing enqueues the packet; dropping or aborting the permit
 //! releases capacity without creating a ghost message. This mirrors the
 //! `asupersync` channel contract while keeping runtime details hidden.
