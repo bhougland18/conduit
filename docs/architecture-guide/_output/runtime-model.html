@@ -198,16 +198,16 @@ ul.task-list li input[type="checkbox"] {
 <h2 data-number="3.2" class="anchored" data-anchor-id="execution-lifecycle"><span class="header-section-number">3.2</span> Execution Lifecycle</h2>
 <p>Pureflow runtime behavior is coordinated by three layers:</p>
 <ul>
-<li><code>conduit-cli</code> handles input/output and user-facing options.</li>
-<li><code>conduit-engine</code> validates execution preconditions, builds run context, and orchestrates node execution.</li>
-<li><code>conduit-runtime</code> bridges engine scheduling into the underlying async runtime and observer hooks.</li>
+<li><code>pureflow-cli</code> handles input/output and user-facing options.</li>
+<li><code>pureflow-engine</code> validates execution preconditions, builds run context, and orchestrates node execution.</li>
+<li><code>pureflow-runtime</code> bridges engine scheduling into the underlying async runtime and observer hooks.</li>
 </ul>
 <p>That split is not accidental. It keeps the user-facing command path, the policy layer, and the execution substrate from collapsing into one giant abstraction.</p>
 <p>At a high level, execution follows this order:</p>
 <ol type="1">
-<li>Parse workflow document (<code>conduit-workflow-format</code>).</li>
-<li>Build/validate graph shape (<code>conduit-workflow</code>).</li>
-<li>Validate contracts and capabilities (<code>conduit-contract</code> + <code>conduit-core</code>).</li>
+<li>Parse workflow document (<code>pureflow-workflow-format</code>).</li>
+<li>Build/validate graph shape (<code>pureflow-workflow</code>).</li>
+<li>Validate contracts and capabilities (<code>pureflow-contract</code> + <code>pureflow-core</code>).</li>
 <li>Construct runtime registry for node executors (native and/or WASM).</li>
 <li>Schedule nodes and move packets over bounded ports.</li>
 <li>Emit lifecycle/queue/message/error metadata records.</li>

@@ -17,12 +17,12 @@ The repository is in a healthy state after the latest validation runs, with the 
 
 Read these first when resuming:
 
-- [docs/AGENTS.md](/home/ben/code/conduit/docs/AGENTS.md)
-- [docs/pureflow_proposal.md](/home/ben/code/conduit/docs/pureflow_proposal.md)
-- [docs/archive/handoff_2026-04-24_evening.md](/home/ben/code/conduit/docs/archive/handoff_2026-04-24_evening.md)
-- [docs/audits/Audit_scope.md](/home/ben/code/conduit/docs/audits/Audit_scope.md)
-- [docs/audits/Audit_4_23.md](/home/ben/code/conduit/docs/audits/Audit_4_23.md)
-- [docs/epics/epic-1-foundation.md](/home/ben/code/conduit/docs/epics/epic-1-foundation.md)
+- [docs/AGENTS.md](/home/ben/code/pureflow/docs/AGENTS.md)
+- [docs/pureflow_proposal.md](/home/ben/code/pureflow/docs/pureflow_proposal.md)
+- [docs/archive/handoff_2026-04-24_evening.md](/home/ben/code/pureflow/docs/archive/handoff_2026-04-24_evening.md)
+- [docs/audits/Audit_scope.md](/home/ben/code/pureflow/docs/audits/Audit_scope.md)
+- [docs/audits/Audit_4_23.md](/home/ben/code/pureflow/docs/audits/Audit_4_23.md)
+- [docs/epics/epic-1-foundation.md](/home/ben/code/pureflow/docs/epics/epic-1-foundation.md)
 
 ## Topics To Discuss
 
@@ -46,5 +46,5 @@ Decision after resuming:
 ## Suggested Resume Point
 
 1. Review the important docs above.
-2. Review the metadata sink and lifecycle observer wiring in `conduit-core` and `conduit-runtime`.
+2. Review the metadata sink and lifecycle observer wiring in `pureflow-core` and `pureflow-runtime`.
 3. Continue with `cdt-rtb.4` for bounded async port handles, or `cdt-rtb.8` for deterministic runtime tests.

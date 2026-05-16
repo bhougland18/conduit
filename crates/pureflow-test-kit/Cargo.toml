@@ -1,0 +1,18 @@
+[package]
+name = "pureflow-test-kit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pureflow-core.workspace = true
+pureflow-types.workspace = true
+pureflow-workflow.workspace = true
+proptest.workspace = true
+
+[dev-dependencies]
+pureflow-runtime.workspace = true
+
+[lints]
+workspace = true

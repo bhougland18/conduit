@@ -2,22 +2,22 @@
 
 Pureflow currently has two Criterion benchmark suites:
 
-- `conduit-core` metadata sink overhead
-- `conduit-engine` workflow backpressure capacity
+- `pureflow-core` metadata sink overhead
+- `pureflow-engine` workflow backpressure capacity
 
 Run commands from the repository root. Use the Nix devshell when you want the
 same toolchain used by the rest of project validation:
 
 ```bash
-nix develop . --command cargo bench -p conduit-core --bench metadata_overhead
-nix develop . --command cargo bench -p conduit-engine --bench backpressure_capacity
+nix develop . --command cargo bench -p pureflow-core --bench metadata_overhead
+nix develop . --command cargo bench -p pureflow-engine --bench backpressure_capacity
 ```
 
 For CI-style compile checks without executing measurements:
 
 ```bash
-cargo bench -p conduit-core --bench metadata_overhead --no-run
-cargo bench -p conduit-engine --bench backpressure_capacity --no-run
+cargo bench -p pureflow-core --bench metadata_overhead --no-run
+cargo bench -p pureflow-engine --bench backpressure_capacity --no-run
 ```
 
 Criterion writes reports and historical samples under `target/criterion/`.
@@ -31,18 +31,18 @@ as a same-machine comparison anchor, not a portable performance guarantee.
 
 Source:
 
-- `crates/conduit-core/benches/metadata_overhead.rs`
+- `crates/pureflow-core/benches/metadata_overhead.rs`
 
 Run:
 
 ```bash
-cargo bench -p conduit-core --bench metadata_overhead
+cargo bench -p pureflow-core --bench metadata_overhead
 ```
 
 Compile only:
 
 ```bash
-cargo bench -p conduit-core --bench metadata_overhead --no-run
+cargo bench -p pureflow-core --bench metadata_overhead --no-run
 ```
 
 Criterion group:
@@ -89,18 +89,18 @@ Interpretation:
 
 Source:
 
-- `crates/conduit-engine/benches/backpressure_capacity.rs`
+- `crates/pureflow-engine/benches/backpressure_capacity.rs`
 
 Run:
 
 ```bash
-cargo bench -p conduit-engine --bench backpressure_capacity
+cargo bench -p pureflow-engine --bench backpressure_capacity
 ```
 
 Compile only:
 
 ```bash
-cargo bench -p conduit-engine --bench backpressure_capacity --no-run
+cargo bench -p pureflow-engine --bench backpressure_capacity --no-run
 ```
 
 Criterion group:
@@ -192,7 +192,7 @@ When summarizing benchmark results in a PR or handoff, include:
 Example summary:
 
 ```text
-cargo bench -p conduit-core --bench metadata_overhead
+cargo bench -p pureflow-core --bench metadata_overhead
 metadata_sink_record/tiered_jsonl_control:
   Criterion reported +2.1% mean time, confidence interval crossed zero.
   Treat as no clear regression without repeated confirmation.

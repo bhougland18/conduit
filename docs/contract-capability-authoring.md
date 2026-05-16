@@ -110,16 +110,16 @@ source (native) -> wasm-upper (WASM) -> sink (native)
 All packets use the same byte-payload schema:
 
 ```rust
-use conduit_contract::{
+use pureflow_contract::{
     Determinism, ExecutionMode, NodeContract, PortContract, SchemaRef,
     validate_workflow_contracts,
 };
-use conduit_core::{
+use pureflow_core::{
     RetryDisposition,
     capability::{NodeCapabilities, PortCapability, PortCapabilityDirection},
 };
-use conduit_test_kit::{NodeBuilder, WorkflowBuilder, node_id, port_id};
-use conduit_workflow::PortDirection;
+use pureflow_test_kit::{NodeBuilder, WorkflowBuilder, node_id, port_id};
+use pureflow_workflow::PortDirection;
 
 let packet_schema = SchemaRef::new("schema://uppercase-bytes/v1")?;
 
@@ -207,10 +207,10 @@ For native host code, effect capabilities are still useful documentation. A
 native source that reads from a file might declare:
 
 ```rust
-use conduit_core::capability::{
+use pureflow_core::capability::{
     EffectCapability, NodeCapabilities, PortCapability, PortCapabilityDirection,
 };
-use conduit_test_kit::{node_id, port_id};
+use pureflow_test_kit::{node_id, port_id};
 
 let source_capabilities = NodeCapabilities::new(
     node_id("source"),
@@ -226,10 +226,10 @@ effect declarations conservative and specific.
 A native AI tool executor that calls a tool service can declare:
 
 ```rust
-use conduit_core::capability::{
+use pureflow_core::capability::{
     EffectCapability, NodeCapabilities, PortCapability, PortCapabilityDirection,
 };
-use conduit_test_kit::{node_id, port_id};
+use pureflow_test_kit::{node_id, port_id};
 
 let tool_capabilities = NodeCapabilities::new(
     node_id("tool-executor"),
@@ -266,5 +266,5 @@ effect observations from message movement and queue pressure.
 - Use [`../examples/wasm-uppercase.md`](../examples/wasm-uppercase.md) for the
   full template-to-run WASM smoke path.
 - Use
-  [`../crates/conduit-wasm/fixtures/uppercase-guest/README.md`](../crates/conduit-wasm/fixtures/uppercase-guest/README.md)
+  [`../crates/pureflow-wasm/fixtures/uppercase-guest/README.md`](../crates/pureflow-wasm/fixtures/uppercase-guest/README.md)
   when authoring a new WASM guest component.

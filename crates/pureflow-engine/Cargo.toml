@@ -1,0 +1,25 @@
+[package]
+name = "pureflow-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pureflow-contract.workspace = true
+pureflow-core.workspace = true
+pureflow-runtime.workspace = true
+pureflow-types.workspace = true
+pureflow-workflow.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+pureflow-test-kit.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "backpressure_capacity"
+harness = false
+
+[lints]
+workspace = true

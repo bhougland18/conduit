@@ -10,11 +10,11 @@ Pureflow-owned graph, port, capability, metadata, and node-contract APIs. The
 important correction is sequencing. The repository currently contains a strong
 foundation, but not yet a full FBP runtime:
 
-- `conduit-workflow` validates static nodes, ports, and edges.
-- `conduit-core` owns node context, cancellation, message metadata, lifecycle,
+- `pureflow-workflow` validates static nodes, ports, and edges.
+- `pureflow-core` owns node context, cancellation, message metadata, lifecycle,
   capability descriptors, errors, and bounded port handles.
-- `conduit-runtime` wraps `asupersync` for one node execution boundary.
-- `conduit-engine` wires bounded edge channels, then invokes nodes sequentially.
+- `pureflow-runtime` wraps `asupersync` for one node execution boundary.
+- `pureflow-engine` wires bounded edge channels, then invokes nodes sequentially.
 - `PortsIn` and `PortsOut` expose non-blocking `try_recv`, `try_reserve`, and
   `try_send`, but they do not yet expose the async waiting surface needed for
   long-lived streaming nodes.
@@ -59,7 +59,7 @@ extend those seams instead of replacing them.
 | Lifecycle | Node start/complete/fail events exist | Emit scheduled/cancelled events, workflow-level events, and message observations |
 | Metadata | Sink boundary exists | Record execution context, lifecycle, message send/receive, queue pressure, and validation facts without collapsing source-specific metadata |
 | Capabilities | Capability descriptors and workflow cross-validation exist | Add node-contract registry and enforcement adapters for WASM |
-| WASM | Not implemented | Add a `conduit-wasm` crate using a batch-oriented host adapter |
+| WASM | Not implemented | Add a `pureflow-wasm` crate using a batch-oriented host adapter |
 | CLI | Temporary scaffold | Add `validate`, `run`, `inspect`, and `explain` commands once external definitions exist |
 
 ## 4. Proposed Target Architecture
@@ -155,7 +155,7 @@ where
 
 Concrete changes:
 
-- Replace the sequential loop in `conduit-engine::run_workflow` with graph
+- Replace the sequential loop in `pureflow-engine::run_workflow` with graph
   wiring plus one supervised task per node.
 - Keep the current sequential function only as a test helper or remove it once
   the concurrent runner is available; do not let it remain the primary engine
@@ -215,7 +215,7 @@ Concrete changes:
 The workflow crate should continue to own only static topology. Node
 implementation details belong in a separate contract layer.
 
-Add a new crate or module, preferably `conduit-contract`, with:
+Add a new crate or module, preferably `pureflow-contract`, with:
 
 - `NodeContractId` or `ComponentId`
 - `NodeContract`
@@ -233,7 +233,7 @@ Then validate:
 - node capabilities align with topology and selected execution mode
 - WASM nodes have enforceable capabilities before execution
 
-This keeps `conduit-workflow` small and prevents it from becoming a security,
+This keeps `pureflow-workflow` small and prevents it from becoming a security,
 typing, or scheduling crate.
 
 ### 5.4 Add External Workflow Definitions
@@ -241,7 +241,7 @@ typing, or scheduling crate.
 Add serde-backed raw definition types that parse into validated domain types:
 
 ```text
-crates/conduit-workflow
+crates/pureflow-workflow
   RawWorkflowDefinition
   RawNodeDefinition
   RawEdgeDefinition
@@ -269,7 +269,7 @@ pipelines. Use capacity `1` in tests that intentionally prove backpressure.
 
 ### 5.5 Build A WASM Batch Adapter
 
-Add `crates/conduit-wasm` after the native concurrent runtime passes tests.
+Add `crates/pureflow-wasm` after the native concurrent runtime passes tests.
 
 MVP shape:
 
@@ -301,10 +301,10 @@ implementations.
 
 Once definitions and validation exist, replace the temporary CLI with:
 
-- `conduit validate <workflow-file>`
-- `conduit inspect <workflow-file>`
-- `conduit run <workflow-file> --execution-id <id>`
-- `conduit explain <workflow-file>` for AI- and human-readable validation and
+- `pureflow validate <workflow-file>`
+- `pureflow inspect <workflow-file>`
+- `pureflow run <workflow-file> --execution-id <id>`
+- `pureflow explain <workflow-file>` for AI- and human-readable validation and
   runtime summaries
 
 The CLI should depend on public Pureflow APIs only. It should not reach into
@@ -351,7 +351,7 @@ preserve Pureflow semantics.
 - `serde_yaml`: avoid as a default dependency. If YAML must become first-class,
   either isolate it behind a feature flag or maintain a narrow fork/importer
   with only the subset Pureflow supports.
-- `wasmtime`: do not fork. Isolate behind `conduit-wasm` because release cadence
+- `wasmtime`: do not fork. Isolate behind `pureflow-wasm` because release cadence
   and component APIs can move quickly.
 - `datafusion`: do not fork for MVP. If future nodes require custom streaming
   operators, implement them as extension nodes before considering engine-level
@@ -422,7 +422,7 @@ Goal: prove the extension boundary without giving WASM direct channel access.
 
 Deliverables:
 
-- `conduit-wasm` crate
+- `pureflow-wasm` crate
 - Wasmtime host adapter
 - WIT contract for batch input and output
 - one sample WASM node
@@ -456,13 +456,13 @@ Exit criteria:
 | Risk | Mitigation |
 | --- | --- |
 | Sequential runner hides FBP bugs | Prioritize concurrent supervisor before WASM or schema work |
-| Runtime substrate leaks into public API | Keep all `asupersync` types behind `conduit-runtime` and port adapters |
+| Runtime substrate leaks into public API | Keep all `asupersync` types behind `pureflow-runtime` and port adapters |
 | Deadlocks in bounded cyclic graphs | Add deterministic tests, explicit startup policy, and cancellation-on-deadlock diagnostics |
 | Fan-out produces partial messages | Preserve reserve/commit across every downstream edge before sending |
 | Native capabilities create false security | Document native capabilities as advisory and enforce only in WASM/process modes |
 | Metadata becomes logging | Keep metadata records typed and source-specific; tracing remains an optional sink/bridge |
 | YAML maintenance risk | Make JSON/TOML first-class; gate YAML |
-| Wasmtime release churn | Hide behind `conduit-wasm`; pin versions and update intentionally |
+| Wasmtime release churn | Hide behind `pureflow-wasm`; pin versions and update intentionally |
 | DataFusion/Arrow complexity overwhelms MVP | Defer until the byte-message runtime and WASM boundary are stable |
 | AI-generated workflows bypass policy | Require validation pipeline before execution; provide structured diagnostics rather than best-effort execution |
 
@@ -495,10 +495,10 @@ seams executable under true flow-based semantics.
 
 - Original architecture proposal: `docs/archetecture/pureflow_proposal.md`
 - Strategy request: `docs/archetecture/strategy/proposal_request.md`
-- Current engine scaffold: `crates/conduit-engine/src/lib.rs`
-- Current runtime boundary: `crates/conduit-runtime/src/lib.rs`
-- Current port adapters: `crates/conduit-core/src/ports.rs`
-- Current workflow validation: `crates/conduit-workflow/src/lib.rs`
+- Current engine scaffold: `crates/pureflow-engine/src/lib.rs`
+- Current runtime boundary: `crates/pureflow-runtime/src/lib.rs`
+- Current port adapters: `crates/pureflow-core/src/ports.rs`
+- Current workflow validation: `crates/pureflow-workflow/src/lib.rs`
 - `serde`: https://docs.rs/crate/serde/latest
 - `serde_json`: https://docs.rs/crate/serde_json/latest
 - `toml`: https://docs.rs/crate/toml/0.9.8

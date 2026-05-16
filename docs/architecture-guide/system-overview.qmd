@@ -112,17 +112,17 @@ The figure below shows the major crates and handoffs.
     [#text(fill: rgb("#ffffff"))[*Primary responsibility*]],
     [#text(fill: rgb("#ffffff"))[*Used by*]],
   ),
-  [`conduit-types`], [`Validated identifier primitives (WorkflowId, NodeId, PortId)`], [`all crates`],
-  [`conduit-workflow-format`], [`External format decode + versioning (conduit_version)`], [`CLI + loaders`],
-  [`conduit-workflow`], [`Static topology model + structural validation`], [`contract/introspection/engine`],
-  [`conduit-core`], [`Runtime-facing traits, ports, metadata, errors, capabilities`], [`runtime/engine/cli/wasm`],
-  [`conduit-contract`], [`Node contract model + validation against workflow/capabilities`], [`engine/introspection/cli`],
-  [`conduit-introspection`], [`Read-only workflow+contract+capability projections`], [`CLI inspect/explain`],
-  [`conduit-runtime`], [`asupersync runtime wrapper + node observer boundary`], [`engine`],
-  [`conduit-engine`], [`Workflow orchestration, registry scheduling, summary/policy`], [`CLI`],
-  [`conduit-wasm`], [`Wasmtime Component Model batch execution adapter`], [`engine/CLI`],
-  [`conduit-cli`], [`User and automation entrypoint`], [`humans/CI`],
-  [`conduit-test-kit`], [`Builders and helpers for tests/examples`], [`tests/docs`],
+  [`pureflow-types`], [`Validated identifier primitives (WorkflowId, NodeId, PortId)`], [`all crates`],
+  [`pureflow-workflow-format`], [`External format decode + versioning (pureflow_version)`], [`CLI + loaders`],
+  [`pureflow-workflow`], [`Static topology model + structural validation`], [`contract/introspection/engine`],
+  [`pureflow-core`], [`Runtime-facing traits, ports, metadata, errors, capabilities`], [`runtime/engine/cli/wasm`],
+  [`pureflow-contract`], [`Node contract model + validation against workflow/capabilities`], [`engine/introspection/cli`],
+  [`pureflow-introspection`], [`Read-only workflow+contract+capability projections`], [`CLI inspect/explain`],
+  [`pureflow-runtime`], [`asupersync runtime wrapper + node observer boundary`], [`engine`],
+  [`pureflow-engine`], [`Workflow orchestration, registry scheduling, summary/policy`], [`CLI`],
+  [`pureflow-wasm`], [`Wasmtime Component Model batch execution adapter`], [`engine/CLI`],
+  [`pureflow-cli`], [`User and automation entrypoint`], [`humans/CI`],
+  [`pureflow-test-kit`], [`Builders and helpers for tests/examples`], [`tests/docs`],
 )
 ```
 
@@ -172,7 +172,7 @@ cancellation, and bounded channel behavior.
 The goal is to keep the runtime layer boring in the right way: it
 should execute Pureflow's model, not define a second one.
 
-That is why `asupersync` sits underneath `conduit-runtime` rather than being
+That is why `asupersync` sits underneath `pureflow-runtime` rather than being
 the public model itself.
 
 - Pureflow owns the graph, ports, contracts, metadata, and capability story.
@@ -194,7 +194,7 @@ later if the project ever needs to.
 Pureflow emits two machine-facing outputs:
 
 - metadata JSONL stream (event records),
-- `conduit run --json` terminal summary.
+- `pureflow run --json` terminal summary.
 
 The short version: JSONL is the play-by-play, while the summary JSON is the
 box score at the end of the game.
@@ -274,22 +274,22 @@ effects were intentionally observed.
 
 ```bash
 # Validate workflow structure and format
-cargo run -p conduit-cli -- validate examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- validate examples/native-linear-etl.workflow.json
 
 # Inspect topology/contracts/capabilities
-cargo run -p conduit-cli -- inspect examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- inspect examples/native-linear-etl.workflow.json
 
 # Run and emit machine-facing summary
-cargo run -p conduit-cli -- run --json \
+cargo run -p pureflow-cli -- run --json \
   examples/native-linear-etl.workflow.json \
-  /tmp/conduit-native-linear.metadata.jsonl
+  /tmp/pureflow-native-linear.metadata.jsonl
 ```
 
 ### Workflow document shape
 
 ```json
 {
-  "conduit_version": "1",
+  "pureflow_version": "1",
   "id": "native-linear-etl",
   "nodes": [
     { "id": "source", "inputs": [], "outputs": ["rows"] },
@@ -309,11 +309,11 @@ cargo run -p conduit-cli -- run --json \
 ### Contract/capability alignment example (Rust)
 
 ```rust
-use conduit_contract::{
+use pureflow_contract::{
     Determinism, ExecutionMode, NodeContract, PortContract, SchemaRef,
     validate_workflow_contracts,
 };
-use conduit_core::{
+use pureflow_core::{
     RetryDisposition,
     capability::{NodeCapabilities, PortCapability, PortCapabilityDirection},
 };
@@ -346,11 +346,11 @@ These are the boundaries worth remembering while reading the code:
     [#text(fill: rgb("#ffffff"))[*Owns*]],
     [#text(fill: rgb("#ffffff"))[*Why it matters*]],
   ),
-  [`conduit-workflow`], [`Structural graph honesty only.`], [`Keeps shape validation separate from policy.`],
-  [`conduit-contract`], [`Contract/capability alignment and schema compatibility.`], [`Catches wiring mismatches before runtime.`],
-  [`conduit-core`], [`Runtime interfaces and metadata shape.`], [`Defines the Pureflow-owned runtime vocabulary.`],
-  [`conduit-runtime`], [`The `asupersync` adapter boundary.`], [`Hides substrate details behind Pureflow types.`],
-  [`conduit-wasm`], [`Wasmtime and WIT/component ABI details.`], [`Keeps WASM specifics out of core.`],
+  [`pureflow-workflow`], [`Structural graph honesty only.`], [`Keeps shape validation separate from policy.`],
+  [`pureflow-contract`], [`Contract/capability alignment and schema compatibility.`], [`Catches wiring mismatches before runtime.`],
+  [`pureflow-core`], [`Runtime interfaces and metadata shape.`], [`Defines the Pureflow-owned runtime vocabulary.`],
+  [`pureflow-runtime`], [`The `asupersync` adapter boundary.`], [`Hides substrate details behind Pureflow types.`],
+  [`pureflow-wasm`], [`Wasmtime and WIT/component ABI details.`], [`Keeps WASM specifics out of core.`],
 )
 ```
 

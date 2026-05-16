@@ -3,7 +3,7 @@
 Auditor: Claude (Opus 4.7)
 Scope: `docs/audits/Audit_scope.md`
 Repo state: `HEAD = 3aa8277` (cdt-dmh.4 — execution context and message envelope);
-working tree contains an in-progress `crates/conduit-core/src/capability.rs` and matching
+working tree contains an in-progress `crates/pureflow-core/src/capability.rs` and matching
 `lib.rs` edit corresponding to bead `cdt-dmh.5` (capability and boundary types).
 
 ---
@@ -50,7 +50,7 @@ gets extra audit attention.
   but the scaffold's trait is synchronous and has no port surface. Expected at
   this bead; noting so the divergence is explicit and does not quietly
   propagate into downstream beads.
-- **`LifecycleHook` is defined but never invoked** — `conduit-runtime::run_node`
+- **`LifecycleHook` is defined but never invoked** — `pureflow-runtime::run_node`
   just trampolines to `node.run(ctx)`, so the observer seam exists only at the
   type level.
 - **Capability and workflow models are parallel and unconnected** — there is no
@@ -70,14 +70,14 @@ applicable — this is a workspace, not a single-crate repo. The equivalent
 expectation is satisfied by `crates/*/src/`.
 
 Workspace members (all present and building):
-- `crates/conduit-types` — identifier primitives.
-- `crates/conduit-core` — `NodeExecutor` trait, `NodeContext`, `MessageEnvelope`, capability descriptors, lifecycle events.
-- `crates/conduit-workflow` — static workflow graph validation.
-- `crates/conduit-runtime` — currently one public function.
-- `crates/conduit-engine` — sequential node dispatch.
-- `crates/conduit-cli` — scaffold entry point.
+- `crates/pureflow-types` — identifier primitives.
+- `crates/pureflow-core` — `NodeExecutor` trait, `NodeContext`, `MessageEnvelope`, capability descriptors, lifecycle events.
+- `crates/pureflow-workflow` — static workflow graph validation.
+- `crates/pureflow-runtime` — currently one public function.
+- `crates/pureflow-engine` — sequential node dispatch.
+- `crates/pureflow-cli` — scaffold entry point.
 
-Naming is consistent (`conduit-*`, lowercase, hyphenated). Directory layout
+Naming is consistent (`pureflow-*`, lowercase, hyphenated). Directory layout
 inside each crate follows idiomatic Rust.
 
 **Missing files (audit scope items 2.1):**
@@ -153,59 +153,59 @@ starts** (cheap to fix on paper, expensive to fix in code):
 
 **Specific issues (file:line):**
 
-1. **`crates/conduit-core/src/lib.rs:11`** — `pub type Result<T> = std::result::Result<T, String>;`.
+1. **`crates/pureflow-core/src/lib.rs:11`** — `pub type Result<T> = std::result::Result<T, String>;`.
    Stringly-typed errors at the trait boundary defeat the typed-error discipline
    the rest of the codebase maintains. The doc comment calls out that this is
    scaffolded; remove before any executor trait stabilizes.
 
-2. **`crates/conduit-core/src/lib.rs:14-22`** — `NodeExecutor` signature differs
+2. **`crates/pureflow-core/src/lib.rs:14-22`** — `NodeExecutor` signature differs
    from proposal §4.2 (sync vs async, no `PortsIn` / `PortsOut`). This is the
    load-bearing trait; letting the scaffold signature propagate into downstream
    beads will be costly to undo. Either update the proposal or stage the
    scaffold with `#[deprecated]` / `pub(crate)` to prevent callers outside
-   `conduit-engine` from depending on it.
+   `pureflow-engine` from depending on it.
 
-3. **`crates/conduit-runtime/src/lib.rs:10-12`** — `run_node` is a one-line
+3. **`crates/pureflow-runtime/src/lib.rs:10-12`** — `run_node` is a one-line
    trampoline that adds no supervision, cancellation, timing, or lifecycle
    dispatch. It is effectively dead weight at the moment. Either (a) begin
    using it to dispatch `LifecycleHook::observe` for `NodeStarted` /
-   `NodeCompleted` / `NodeFailed`, or (b) inline it into `conduit-engine`
+   `NodeCompleted` / `NodeFailed`, or (b) inline it into `pureflow-engine`
    until there is real runtime behavior to put here.
 
-4. **`crates/conduit-core/src/lifecycle.rs:48-55`** — `LifecycleHook` is
+4. **`crates/pureflow-core/src/lifecycle.rs:48-55`** — `LifecycleHook` is
    declared but never registered, stored, or called anywhere in the workspace.
    Dead code at the type level. Same remediation as (3): wire a default no-op
    hook through `run_node` so the seam is real rather than aspirational.
 
-5. **`crates/conduit-engine/Cargo.toml:11`** — `conduit-types.workspace = true`
-   is in `[dependencies]`, but `conduit_types` is only referenced inside the
-   `#[cfg(test)]` module of `crates/conduit-engine/src/lib.rs` (lines 32-62).
+5. **`crates/pureflow-engine/Cargo.toml:11`** — `pureflow-types.workspace = true`
+   is in `[dependencies]`, but `pureflow_types` is only referenced inside the
+   `#[cfg(test)]` module of `crates/pureflow-engine/src/lib.rs` (lines 32-62).
    This should move to `[dev-dependencies]` to keep the release dep graph honest.
 
-6. **`crates/conduit-engine/src/lib.rs:20`** — `run_workflow` iterates nodes in
+6. **`crates/pureflow-engine/src/lib.rs:20`** — `run_workflow` iterates nodes in
    declaration order. That is fine for the scaffold but should not be mistaken
    for FBP execution. When bead .n wires asupersync, this function's name
    should be re-examined.
 
-7. **`crates/conduit-core/src/capability.rs` vs `crates/conduit-workflow/src/lib.rs`**
+7. **`crates/pureflow-core/src/capability.rs` vs `crates/pureflow-workflow/src/lib.rs`**
    — `NodeCapabilities::ports` and `NodeDefinition::input_ports`/`output_ports`
    are two parallel representations of a node's port surface. Nothing
    cross-validates that a node's capability claims match its declared ports,
    or that port directions agree. Add this check before bead .5 closes, or the
    capability layer is cosmetic.
 
-8. **`crates/conduit-core/src/context.rs:132-136`** — `with_cancellation` is a
+8. **`crates/pureflow-core/src/context.rs:132-136`** — `with_cancellation` is a
    by-value builder that returns a new context. There is no mechanism for an
    external actor (e.g., runtime supervisor) to cancel a running node. This is
    fine as a placeholder but note that the real mechanism will need interior
    mutability or a channel signal — the current shape will not survive
    asupersync integration unchanged.
 
-9. **`crates/conduit-cli/src/main.rs:16-20`** — `PrintExecutor` uses `println!`.
+9. **`crates/pureflow-cli/src/main.rs:16-20`** — `PrintExecutor` uses `println!`.
    Proposal §2.4 wants metadata capture + introspection. Swap in `tracing`
    once the logging layer exists; not urgent for a scaffold.
 
-10. **Identifiers can exceed any bound.** `conduit_types::validate_identifier`
+10. **Identifiers can exceed any bound.** `pureflow_types::validate_identifier`
     rejects empty/whitespace/control characters but imposes no length cap.
     Decide whether there should be one before IDs are serialized into external
     workflow definitions (§2.9) — otherwise pathological values become a
@@ -250,12 +250,12 @@ expected input sizes.
 
 | Crate | Tests | Covers | Gaps |
 | --- | --- | --- | --- |
-| `conduit-types` | 6 | empty, whitespace, control-char, display/parse round-trip, per-kind | No property tests; no length / Unicode edge cases. |
-| `conduit-workflow` | 8 | duplicate nodes/ports, unknown node, unknown port (both endpoints, both directions), happy path | No property tests; no cycle detection (intentionally out of scope, but worth a note). |
-| `conduit-core` | 8 | capability validation (4), context cancellation (2), lifecycle event (1), message envelope (1) | No property tests; no tests for `NodeExecutor` trait object dispatch. |
-| `conduit-engine` | 1 | recording executor visits each node with correct ctx | Only happy path; no executor-error path; uses `RefCell` — fine for single-threaded scaffold, will not survive `Send + Sync` requirements. |
-| `conduit-runtime` | 0 | — | No tests at all (admittedly one line of code). |
-| `conduit-cli` | 0 | — | No integration test that exercises `main` end-to-end. |
+| `pureflow-types` | 6 | empty, whitespace, control-char, display/parse round-trip, per-kind | No property tests; no length / Unicode edge cases. |
+| `pureflow-workflow` | 8 | duplicate nodes/ports, unknown node, unknown port (both endpoints, both directions), happy path | No property tests; no cycle detection (intentionally out of scope, but worth a note). |
+| `pureflow-core` | 8 | capability validation (4), context cancellation (2), lifecycle event (1), message envelope (1) | No property tests; no tests for `NodeExecutor` trait object dispatch. |
+| `pureflow-engine` | 1 | recording executor visits each node with correct ctx | Only happy path; no executor-error path; uses `RefCell` — fine for single-threaded scaffold, will not survive `Send + Sync` requirements. |
+| `pureflow-runtime` | 0 | — | No tests at all (admittedly one line of code). |
+| `pureflow-cli` | 0 | — | No integration test that exercises `main` end-to-end. |
 
 **Recommendation**: add a `tests/` integration folder once bead .7 (Test Kit)
 lands; introduce `proptest` or `quickcheck` for identifier and graph
@@ -305,7 +305,7 @@ yet address:
    partially drained, who propagates what, in what order, with what
    guarantees? This is where `asupersync`'s specific behavior will shape
    the design most. Worth a Verso note in the bead that wires asupersync
-   into `conduit-runtime`.
+   into `pureflow-runtime`.
 
 **Remaining risks (with productization and RDF removed):**
 
@@ -359,18 +359,18 @@ Ordered by leverage — each one is concrete enough to become a bead.
      behind placeholder `PortsIn`/`PortsOut` types.
    Leaving these two in disagreement guarantees rework.
 
-5. **Wire `LifecycleHook` through `conduit-runtime::run_node`**, even as a
+5. **Wire `LifecycleHook` through `pureflow-runtime::run_node`**, even as a
    no-op default. This makes the observer seam load-bearing rather than
    theoretical and gives bead .7 (Test Kit) something to instrument.
 
 6. **Cross-validate `NodeCapabilities` against `NodeDefinition`** as part of
    closing bead .5. The capability layer is cosmetic without this check.
 
-7. **Move `conduit-types` from `[dependencies]` to `[dev-dependencies]` in
-   `crates/conduit-engine/Cargo.toml`.** One-line fix.
+7. **Move `pureflow-types` from `[dependencies]` to `[dev-dependencies]` in
+   `crates/pureflow-engine/Cargo.toml`.** One-line fix.
 
-8. **Add property tests** for `conduit-types::validate_identifier` and
-   `conduit-workflow::WorkflowGraph::validate`. AGENTS.md already requires
+8. **Add property tests** for `pureflow-types::validate_identifier` and
+   `pureflow-workflow::WorkflowGraph::validate`. AGENTS.md already requires
    them; do it before bead .7 so the test-kit bead has a concrete customer.
 
 9. **Link `asupersync` in the proposal.** It is a real experimental runtime
@@ -382,10 +382,10 @@ Ordered by leverage — each one is concrete enough to become a bead.
     parses user input (§2.9), decide on a maximum length and reject
     overlong IDs in `validate_identifier`.
 
-11. **Consider re-exporting identity types from `conduit-core`.** Downstream
-    callers currently import from both `conduit-core` and `conduit-types`.
-    A `pub use conduit_types::{WorkflowId, NodeId, PortId, MessageId, ExecutionId};`
-    in `conduit-core` would simplify consumer code.
+11. **Consider re-exporting identity types from `pureflow-core`.** Downstream
+    callers currently import from both `pureflow-core` and `pureflow-types`.
+    A `pub use pureflow_types::{WorkflowId, NodeId, PortId, MessageId, ExecutionId};`
+    in `pureflow-core` would simplify consumer code.
 
 ---
 
@@ -434,20 +434,20 @@ but there is no `LICENSE` file on disk.
   `docs/audits/Audit_*.md` output pattern.
 - Any beads/task-database references mention `beads` (`cdt-*`) explicitly.
 
-### AB-3 — Move `conduit-types` to `[dev-dependencies]` in `conduit-engine`
+### AB-3 — Move `pureflow-types` to `[dev-dependencies]` in `pureflow-engine`
 
-**Why:** `conduit-engine` only uses `conduit-types` inside
+**Why:** `pureflow-engine` only uses `pureflow-types` inside
 `#[cfg(test)]` code (lib.rs:32-62), but declares it as a runtime dependency.
 **Acceptance:**
-- `crates/conduit-engine/Cargo.toml` lists `conduit-types.workspace = true`
+- `crates/pureflow-engine/Cargo.toml` lists `pureflow-types.workspace = true`
   only under `[dev-dependencies]`.
 - `cargo check --workspace --all-targets` and `cargo test --workspace` stay
   clean.
 
 ### AB-4 — Cross-validate `NodeCapabilities` against `WorkflowDefinition`
 
-**Why:** The capability descriptors in `conduit-core` and the port
-declarations in `conduit-workflow` are two parallel representations of a
+**Why:** The capability descriptors in `pureflow-core` and the port
+declarations in `pureflow-workflow` are two parallel representations of a
 node's port surface with no cross-check. Without this, the capability layer
 is cosmetic.
 **Blocked by:** bead `cdt-dmh.5` closing.
@@ -459,7 +459,7 @@ is cosmetic.
 - Unit tests cover mismatched node, mismatched port, mismatched direction,
   and happy path.
 
-### AB-5 — Wire `LifecycleHook` through `conduit-runtime::run_node`
+### AB-5 — Wire `LifecycleHook` through `pureflow-runtime::run_node`
 
 **Why:** `LifecycleHook` is defined but never invoked. The observer seam
 exists only at the type level.
@@ -483,16 +483,16 @@ validation are the obvious first customers.
   names with edges that respect port direction validates.
 - Shrinking produces readable counterexamples for seeded failures.
 
-### AB-7 — Replace `conduit-core::Result<T, String>` with a structured error enum
+### AB-7 — Replace `pureflow-core::Result<T, String>` with a structured error enum
 
 **Why:** Stringly-typed errors at the trait boundary defeat the typed-error
 discipline used everywhere else. This is the epic's planned bead `cdt-dmh.6`;
 sequencing it next avoids migrating every new trait signature later.
 **Acceptance:**
-- `conduit-core` defines an error enum with explicit variants (at minimum:
+- `pureflow-core` defines an error enum with explicit variants (at minimum:
   validation, execution, cancellation) implementing `Display` + `Error`.
 - `NodeExecutor::run`, `LifecycleHook::observe`, and
-  `conduit-runtime::run_node` return the new type.
+  `pureflow-runtime::run_node` return the new type.
 - CLI `main` converts via `?` without `.map_err(|e| e.to_string())`.
 
 ### AB-8 — Link `asupersync` in the proposal
@@ -515,7 +515,7 @@ proposal §4.2 with every new consumer.
   with placeholder `PortsIn` / `PortsOut` types.
 - Existing tests continue to pass under the new signature.
 
-### AB-10 — Cap identifier lengths in `conduit-types`
+### AB-10 — Cap identifier lengths in `pureflow-types`
 
 **Why:** `validate_identifier` has no length bound. Before external workflow
 parsing (§2.9), pathological IDs become a DoS surface.
@@ -535,14 +535,14 @@ proposal does not mention.
 - Either the proposal or the enum is updated so both agree.
 - A short Verso note on `EffectCapability` explains the final taxonomy.
 
-### AB-12 — Re-export identity types from `conduit-core`
+### AB-12 — Re-export identity types from `pureflow-core`
 
-**Why:** Downstream callers currently `use conduit_core::...` and
-`use conduit_types::...` for related symbols. A re-export simplifies every
+**Why:** Downstream callers currently `use pureflow_core::...` and
+`use pureflow_types::...` for related symbols. A re-export simplifies every
 call site.
 **Acceptance:**
-- `conduit-core` has `pub use conduit_types::{WorkflowId, NodeId, PortId, MessageId, ExecutionId, IdentifierError};`.
-- At least one downstream crate drops its direct `conduit-types` import
+- `pureflow-core` has `pub use pureflow_types::{WorkflowId, NodeId, PortId, MessageId, ExecutionId, IdentifierError};`.
+- At least one downstream crate drops its direct `pureflow-types` import
   (picked to demonstrate the ergonomic improvement).
 
 ### AB-13 — Update `docs/HANDOFF.md` after each closed bead

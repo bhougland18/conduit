@@ -14,7 +14,7 @@ Workflow file:
 
 Runnable native executor example:
 
-- `crates/conduit-engine/examples/fanout_fanin.rs`
+- `crates/pureflow-engine/examples/fanout_fanin.rs`
 
 Shape:
 
@@ -33,9 +33,9 @@ upstream senders.
 ## Validate And Inspect
 
 ```bash
-cargo run -p conduit-cli -- validate examples/workloads/fanout-fanin.workflow.json
-cargo run -p conduit-cli -- inspect examples/workloads/fanout-fanin.workflow.json
-cargo run -p conduit-cli -- explain examples/workloads/fanout-fanin.workflow.json
+cargo run -p pureflow-cli -- validate examples/workloads/fanout-fanin.workflow.json
+cargo run -p pureflow-cli -- inspect examples/workloads/fanout-fanin.workflow.json
+cargo run -p pureflow-cli -- explain examples/workloads/fanout-fanin.workflow.json
 ```
 
 Expected `validate` output:
@@ -67,7 +67,7 @@ port on `splitter`, and one input port on `collector` fed by two upstream edges.
 ## Run
 
 ```bash
-cargo run -p conduit-engine --example fanout_fanin
+cargo run -p pureflow-engine --example fanout_fanin
 ```
 
 Expected output:

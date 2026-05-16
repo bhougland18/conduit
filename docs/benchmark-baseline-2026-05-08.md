@@ -9,8 +9,8 @@ Environment:
 - Checkout: `e03d186`
 - Plot backend: Criterion used plotters because `gnuplot` was not installed
 - Commands:
-  - `cargo bench -p conduit-core --bench metadata_overhead`
-  - `cargo bench -p conduit-engine --bench backpressure_capacity`
+  - `cargo bench -p pureflow-core --bench metadata_overhead`
+  - `cargo bench -p pureflow-engine --bench backpressure_capacity`
 
 Generated Criterion reports remain under `target/criterion/` and are not source
 artifacts.

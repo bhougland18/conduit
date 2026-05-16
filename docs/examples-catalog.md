@@ -32,15 +32,15 @@ Files:
 
 - `examples/workloads/fanout-fanin.workflow.json`
 - `examples/workloads/fanout-fanin.md`
-- `crates/conduit-engine/examples/fanout_fanin.rs`
+- `crates/pureflow-engine/examples/fanout_fanin.rs`
 
 Commands:
 
 ```bash
-cargo run -p conduit-cli -- validate examples/workloads/fanout-fanin.workflow.json
-cargo run -p conduit-cli -- inspect examples/workloads/fanout-fanin.workflow.json
-cargo run -p conduit-cli -- explain examples/workloads/fanout-fanin.workflow.json
-cargo run -p conduit-engine --example fanout_fanin
+cargo run -p pureflow-cli -- validate examples/workloads/fanout-fanin.workflow.json
+cargo run -p pureflow-cli -- inspect examples/workloads/fanout-fanin.workflow.json
+cargo run -p pureflow-cli -- explain examples/workloads/fanout-fanin.workflow.json
+cargo run -p pureflow-engine --example fanout_fanin
 ```
 
 Expected workload output:
@@ -73,15 +73,15 @@ Files:
 
 - `examples/workloads/stream-join-window.workflow.json`
 - `examples/workloads/stream-join-window.md`
-- `crates/conduit-engine/examples/stream_join_window.rs`
+- `crates/pureflow-engine/examples/stream_join_window.rs`
 
 Commands:
 
 ```bash
-cargo run -p conduit-cli -- validate examples/workloads/stream-join-window.workflow.json
-cargo run -p conduit-cli -- inspect examples/workloads/stream-join-window.workflow.json
-cargo run -p conduit-cli -- explain examples/workloads/stream-join-window.workflow.json
-cargo run -p conduit-engine --example stream_join_window
+cargo run -p pureflow-cli -- validate examples/workloads/stream-join-window.workflow.json
+cargo run -p pureflow-cli -- inspect examples/workloads/stream-join-window.workflow.json
+cargo run -p pureflow-cli -- explain examples/workloads/stream-join-window.workflow.json
+cargo run -p pureflow-engine --example stream_join_window
 ```
 
 Expected workload output:
@@ -117,15 +117,15 @@ Files:
 
 - `examples/workloads/replay-branch-eval.workflow.json`
 - `examples/workloads/replay-branch-eval.md`
-- `crates/conduit-engine/examples/replay_branch_eval.rs`
+- `crates/pureflow-engine/examples/replay_branch_eval.rs`
 
 Commands:
 
 ```bash
-cargo run -p conduit-cli -- validate examples/workloads/replay-branch-eval.workflow.json
-cargo run -p conduit-cli -- inspect examples/workloads/replay-branch-eval.workflow.json
-cargo run -p conduit-cli -- explain examples/workloads/replay-branch-eval.workflow.json
-cargo run -p conduit-engine --example replay_branch_eval
+cargo run -p pureflow-cli -- validate examples/workloads/replay-branch-eval.workflow.json
+cargo run -p pureflow-cli -- inspect examples/workloads/replay-branch-eval.workflow.json
+cargo run -p pureflow-cli -- explain examples/workloads/replay-branch-eval.workflow.json
+cargo run -p pureflow-engine --example replay_branch_eval
 ```
 
 Expected workload output:
@@ -160,15 +160,15 @@ Files:
 
 - `examples/workloads/ai-call-orchestration.workflow.json`
 - `examples/workloads/ai-call-orchestration.md`
-- `crates/conduit-engine/examples/ai_call_orchestration.rs`
+- `crates/pureflow-engine/examples/ai_call_orchestration.rs`
 
 Commands:
 
 ```bash
-cargo run -p conduit-cli -- validate examples/workloads/ai-call-orchestration.workflow.json
-cargo run -p conduit-cli -- inspect examples/workloads/ai-call-orchestration.workflow.json
-cargo run -p conduit-cli -- explain examples/workloads/ai-call-orchestration.workflow.json
-cargo run -p conduit-engine --example ai_call_orchestration
+cargo run -p pureflow-cli -- validate examples/workloads/ai-call-orchestration.workflow.json
+cargo run -p pureflow-cli -- inspect examples/workloads/ai-call-orchestration.workflow.json
+cargo run -p pureflow-cli -- explain examples/workloads/ai-call-orchestration.workflow.json
+cargo run -p pureflow-engine --example ai_call_orchestration
 ```
 
 Expected workload output:
@@ -202,15 +202,15 @@ Files:
 
 - `examples/workloads/watcher-cancellation.workflow.json`
 - `examples/workloads/watcher-cancellation.md`
-- `crates/conduit-engine/examples/watcher_cancellation.rs`
+- `crates/pureflow-engine/examples/watcher_cancellation.rs`
 
 Commands:
 
 ```bash
-cargo run -p conduit-cli -- validate examples/workloads/watcher-cancellation.workflow.json
-cargo run -p conduit-cli -- inspect examples/workloads/watcher-cancellation.workflow.json
-cargo run -p conduit-cli -- explain examples/workloads/watcher-cancellation.workflow.json
-cargo run -p conduit-engine --example watcher_cancellation
+cargo run -p pureflow-cli -- validate examples/workloads/watcher-cancellation.workflow.json
+cargo run -p pureflow-cli -- inspect examples/workloads/watcher-cancellation.workflow.json
+cargo run -p pureflow-cli -- explain examples/workloads/watcher-cancellation.workflow.json
+cargo run -p pureflow-engine --example watcher_cancellation
 ```
 
 Expected workload output:
@@ -253,11 +253,11 @@ Files:
 Commands:
 
 ```bash
-cargo run -p conduit-cli -- validate examples/native-linear-etl.workflow.json
-cargo run -p conduit-cli -- inspect examples/native-linear-etl.workflow.json
-cargo run -p conduit-cli -- explain examples/native-linear-etl.workflow.json
-cargo run -p conduit-cli -- run examples/native-linear-etl.workflow.json /tmp/conduit-native-linear-etl.metadata.jsonl
-cargo run -p conduit-cli -- run --json examples/native-linear-etl.workflow.json /tmp/conduit-native-linear-etl.metadata.jsonl
+cargo run -p pureflow-cli -- validate examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- inspect examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- explain examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- run examples/native-linear-etl.workflow.json /tmp/pureflow-native-linear-etl.metadata.jsonl
+cargo run -p pureflow-cli -- run --json examples/native-linear-etl.workflow.json /tmp/pureflow-native-linear-etl.metadata.jsonl
 ```
 
 Expected `validate` output:
@@ -287,7 +287,7 @@ Expected text `run` output:
 ran workflow `native-linear-etl`
 nodes: 3
 edges: 2
-metadata: /tmp/conduit-native-linear-etl.metadata.jsonl
+metadata: /tmp/pureflow-native-linear-etl.metadata.jsonl
 records: 24
 ```
 
@@ -329,12 +329,12 @@ Surfaces exercised:
 
 File:
 
-- `crates/conduit-engine/examples/feedback_loop.rs`
+- `crates/pureflow-engine/examples/feedback_loop.rs`
 
 Command:
 
 ```bash
-cargo run -p conduit-engine --example feedback_loop
+cargo run -p pureflow-engine --example feedback_loop
 ```
 
 Expected output:
@@ -358,14 +358,14 @@ Surfaces exercised:
 
 Files:
 
-- `crates/conduit-wasm/examples/mixed_pipeline.rs`
-- `crates/conduit-wasm/examples/README.md`
-- `crates/conduit-wasm/fixtures/uppercase-guest/`
+- `crates/pureflow-wasm/examples/mixed_pipeline.rs`
+- `crates/pureflow-wasm/examples/README.md`
+- `crates/pureflow-wasm/fixtures/uppercase-guest/`
 
 Command:
 
 ```bash
-env -u RUSTFLAGS nix develop . --command cargo run -p conduit-wasm --example mixed_pipeline
+env -u RUSTFLAGS nix develop . --command cargo run -p pureflow-wasm --example mixed_pipeline
 ```
 
 Expected output:
@@ -399,7 +399,7 @@ Surfaces exercised:
 
 The CLI can load WASM component nodes from a manifest. This path is not yet a
 checked-in standalone workflow example, but it is the product surface used by
-`conduit run --wasm-components`.
+`pureflow run --wasm-components`.
 
 Manifest shape:
 
@@ -418,10 +418,10 @@ Manifest shape:
 Command shape:
 
 ```bash
-cargo run -p conduit-cli -- run \
+cargo run -p pureflow-cli -- run \
   --wasm-components wasm-components.json \
   workflow.json \
-  /tmp/conduit.metadata.jsonl
+  /tmp/pureflow.metadata.jsonl
 ```
 
 Expected output shape:
@@ -430,7 +430,7 @@ Expected output shape:
 ran workflow `<workflow-id>`
 nodes: <node-count>
 edges: <edge-count>
-metadata: /tmp/conduit.metadata.jsonl
+metadata: /tmp/pureflow.metadata.jsonl
 records: <record-count>
 ```
 
@@ -453,4 +453,4 @@ Surfaces exercised:
 - [../examples/workloads/ai-call-orchestration.md](../examples/workloads/ai-call-orchestration.md)
 - [../examples/workloads/watcher-cancellation.md](../examples/workloads/watcher-cancellation.md)
 - [../examples/native-linear-etl.md](../examples/native-linear-etl.md)
-- [../crates/conduit-wasm/examples/README.md](../crates/conduit-wasm/examples/README.md)
+- [../crates/pureflow-wasm/examples/README.md](../crates/pureflow-wasm/examples/README.md)

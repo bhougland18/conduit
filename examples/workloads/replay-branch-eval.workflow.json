@@ -1,5 +1,5 @@
 {
-  "conduit_version": "1",
+  "pureflow_version": "1",
   "id": "replay-branch-eval-workload",
   "nodes": [
     { "id": "source",    "inputs": [],         "outputs": ["out"] },

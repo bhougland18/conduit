@@ -13,15 +13,15 @@ not load user-defined ETL code yet.
 Validate, inspect, and explain the topology:
 
 ```bash
-cargo run -p conduit-cli -- validate examples/native-linear-etl.workflow.json
-cargo run -p conduit-cli -- inspect examples/native-linear-etl.workflow.json
-cargo run -p conduit-cli -- explain examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- validate examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- inspect examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- explain examples/native-linear-etl.workflow.json
 ```
 
 Run it and write metadata JSONL:
 
 ```bash
-cargo run -p conduit-cli -- run examples/native-linear-etl.workflow.json /tmp/conduit-native-linear-etl.metadata.jsonl
+cargo run -p pureflow-cli -- run examples/native-linear-etl.workflow.json /tmp/pureflow-native-linear-etl.metadata.jsonl
 ```
 
 Expected run summary:
@@ -30,7 +30,7 @@ Expected run summary:
 ran workflow `native-linear-etl`
 nodes: 3
 edges: 2
-metadata: /tmp/conduit-native-linear-etl.metadata.jsonl
+metadata: /tmp/pureflow-native-linear-etl.metadata.jsonl
 records: 24
 ```
 

@@ -23,10 +23,10 @@ branch.audit -> audit-log.audit
 Useful commands:
 
 ```bash
-cargo run -p conduit-cli -- validate examples/authoring/native-fanout.workflow.json
-cargo run -p conduit-cli -- inspect examples/authoring/native-fanout.workflow.json
-cargo run -p conduit-cli -- explain examples/authoring/native-fanout.workflow.json
-cargo run -p conduit-cli -- run examples/authoring/native-fanout.workflow.json /tmp/conduit-authoring-native-fanout.metadata.jsonl
+cargo run -p pureflow-cli -- validate examples/authoring/native-fanout.workflow.json
+cargo run -p pureflow-cli -- inspect examples/authoring/native-fanout.workflow.json
+cargo run -p pureflow-cli -- explain examples/authoring/native-fanout.workflow.json
+cargo run -p pureflow-cli -- run examples/authoring/native-fanout.workflow.json /tmp/pureflow-authoring-native-fanout.metadata.jsonl
 ```
 
 Expected `validate` output:
@@ -49,7 +49,7 @@ Expected run summary:
 ran workflow `authoring-native-fanout`
 nodes: 4
 edges: 3
-metadata: /tmp/conduit-authoring-native-fanout.metadata.jsonl
+metadata: /tmp/pureflow-authoring-native-fanout.metadata.jsonl
 records: 35
 ```
 
@@ -70,10 +70,10 @@ join.joined -> sink.joined
 Useful commands:
 
 ```bash
-cargo run -p conduit-cli -- validate examples/authoring/native-join.workflow.yaml
-cargo run -p conduit-cli -- inspect examples/authoring/native-join.workflow.yaml
-cargo run -p conduit-cli -- explain examples/authoring/native-join.workflow.yaml
-cargo run -p conduit-cli -- run examples/authoring/native-join.workflow.yaml /tmp/conduit-authoring-native-join.metadata.jsonl
+cargo run -p pureflow-cli -- validate examples/authoring/native-join.workflow.yaml
+cargo run -p pureflow-cli -- inspect examples/authoring/native-join.workflow.yaml
+cargo run -p pureflow-cli -- explain examples/authoring/native-join.workflow.yaml
+cargo run -p pureflow-cli -- run examples/authoring/native-join.workflow.yaml /tmp/pureflow-authoring-native-join.metadata.jsonl
 ```
 
 Expected `validate` output:
@@ -97,7 +97,7 @@ Expected run summary:
 ran workflow `authoring-native-join`
 nodes: 4
 edges: 3
-metadata: /tmp/conduit-authoring-native-join.metadata.jsonl
+metadata: /tmp/pureflow-authoring-native-join.metadata.jsonl
 records: 35
 ```
 
@@ -112,7 +112,7 @@ Build the guest fixture before validating or running the manifest:
 
 ```bash
 cargo build \
-  --manifest-path crates/conduit-wasm/fixtures/uppercase-guest/Cargo.toml \
+  --manifest-path crates/pureflow-wasm/fixtures/uppercase-guest/Cargo.toml \
   --target wasm32-wasip2 \
   --release
 ```
@@ -120,15 +120,15 @@ cargo build \
 Useful commands:
 
 ```bash
-cargo run -p conduit-cli -- validate examples/authoring/wasm-uppercase.workflow.json
-cargo run -p conduit-cli -- validate-manifest \
+cargo run -p pureflow-cli -- validate examples/authoring/wasm-uppercase.workflow.json
+cargo run -p pureflow-cli -- validate-manifest \
   --workflow examples/authoring/wasm-uppercase.workflow.json \
   examples/authoring/wasm-uppercase.components.json
-cargo run -p conduit-cli -- explain examples/authoring/wasm-uppercase.workflow.json
-cargo run -p conduit-cli -- run \
+cargo run -p pureflow-cli -- explain examples/authoring/wasm-uppercase.workflow.json
+cargo run -p pureflow-cli -- run \
   --wasm-components examples/authoring/wasm-uppercase.components.json \
   examples/authoring/wasm-uppercase.workflow.json \
-  /tmp/conduit-authoring-wasm-uppercase.metadata.jsonl
+  /tmp/pureflow-authoring-wasm-uppercase.metadata.jsonl
 ```
 
 Expected `validate` output:
@@ -153,21 +153,21 @@ Expected run summary:
 ran workflow `authoring-wasm-uppercase`
 nodes: 3
 edges: 2
-metadata: /tmp/conduit-authoring-wasm-uppercase.metadata.jsonl
+metadata: /tmp/pureflow-authoring-wasm-uppercase.metadata.jsonl
 records: 19
 ```
 
 The WASM manifest path is resolved relative to
 `examples/authoring/wasm-uppercase.components.json`, so it points two
-directories up to the fixture build output under `crates/conduit-wasm`.
+directories up to the fixture build output under `crates/pureflow-wasm`.
 
 ## Schema Commands
 
 Generate schemas while building tooling around these files:
 
 ```bash
-cargo run -p conduit-cli -- schema workflow
-cargo run -p conduit-cli -- schema wasm-manifest
+cargo run -p pureflow-cli -- schema workflow
+cargo run -p pureflow-cli -- schema wasm-manifest
 ```
 
 Use `pureflow validate` and `pureflow validate-manifest --workflow` as the final

@@ -18,10 +18,10 @@ can inspect.
 
 Pureflow runtime behavior is coordinated by three layers:
 
-- `conduit-cli` handles input/output and user-facing options.
-- `conduit-engine` validates execution preconditions, builds run context, and
+- `pureflow-cli` handles input/output and user-facing options.
+- `pureflow-engine` validates execution preconditions, builds run context, and
   orchestrates node execution.
-- `conduit-runtime` bridges engine scheduling into the underlying async runtime
+- `pureflow-runtime` bridges engine scheduling into the underlying async runtime
   and observer hooks.
 
 That split is not accidental. It keeps the user-facing command path, the policy
@@ -29,9 +29,9 @@ layer, and the execution substrate from collapsing into one giant abstraction.
 
 At a high level, execution follows this order:
 
-1. Parse workflow document (`conduit-workflow-format`).
-2. Build/validate graph shape (`conduit-workflow`).
-3. Validate contracts and capabilities (`conduit-contract` + `conduit-core`).
+1. Parse workflow document (`pureflow-workflow-format`).
+2. Build/validate graph shape (`pureflow-workflow`).
+3. Validate contracts and capabilities (`pureflow-contract` + `pureflow-core`).
 4. Construct runtime registry for node executors (native and/or WASM).
 5. Schedule nodes and move packets over bounded ports.
 6. Emit lifecycle/queue/message/error metadata records.
@@ -59,9 +59,9 @@ This table is the simple map of who does what during a run.
     [#text(fill: rgb("#ffffff"))[*What it does*]],
     [#text(fill: rgb("#ffffff"))[*Reader takeaway*]],
   ),
-  [`conduit-cli`], [`Accepts input, prints results, and exposes commands.`], [`This is the human and automation entrypoint.`],
-  [`conduit-engine`], [`Validates the run, builds context, and orchestrates execution.`], [`This is where workflow policy turns into scheduling.`],
-  [`conduit-runtime`], [`Bridges engine calls into the async substrate and observers.`], [`This is the execution seam, not the public model.`],
+  [`pureflow-cli`], [`Accepts input, prints results, and exposes commands.`], [`This is the human and automation entrypoint.`],
+  [`pureflow-engine`], [`Validates the run, builds context, and orchestrates execution.`], [`This is where workflow policy turns into scheduling.`],
+  [`pureflow-runtime`], [`Bridges engine calls into the async substrate and observers.`], [`This is the execution seam, not the public model.`],
 )
 ```
 

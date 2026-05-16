@@ -6,38 +6,38 @@ AI-assisted editors, and manifest generators.
 Generate the workflow document schema:
 
 ```bash
-cargo run -p conduit-cli -- schema workflow
+cargo run -p pureflow-cli -- schema workflow
 ```
 
 Generate the WASM component manifest schema:
 
 ```bash
-cargo run -p conduit-cli -- schema wasm-manifest
+cargo run -p pureflow-cli -- schema wasm-manifest
 ```
 
 Redirect output when a tool expects a schema file:
 
 ```bash
-cargo run -p conduit-cli -- schema workflow > /tmp/conduit-workflow.schema.json
-cargo run -p conduit-cli -- schema wasm-manifest > /tmp/conduit-wasm-manifest.schema.json
+cargo run -p pureflow-cli -- schema workflow > /tmp/pureflow-workflow.schema.json
+cargo run -p pureflow-cli -- schema wasm-manifest > /tmp/pureflow-wasm-manifest.schema.json
 ```
 
 Schema generation lives in the CLI tooling layer so workflow parsing crates do
 not need schema-generation dependencies. The schemas mirror the current Serde
 boundary types and are intended for authoring feedback, editor completion, and
-early validation. `conduit validate` and `conduit validate-manifest` remain the
+early validation. `pureflow validate` and `pureflow validate-manifest` remain the
 authoritative validators because they also enforce semantic rules such as
 identifier validity, graph connectivity, duplicate manifest nodes, readable
 component paths, and workflow-node membership.
 
 ## Workflow Schema
 
-`conduit schema workflow` emits a JSON Schema for workflow documents accepted by
-`conduit validate`, `conduit inspect`, `conduit explain`, and `conduit run`.
+`pureflow schema workflow` emits a JSON Schema for workflow documents accepted by
+`pureflow validate`, `pureflow inspect`, `pureflow explain`, and `pureflow run`.
 
 The schema represents these current expectations:
 
-- `conduit_version` is required and must be `"1"`.
+- `pureflow_version` is required and must be `"1"`.
 - Unknown top-level, node, edge, and endpoint fields are rejected with
   `additionalProperties: false`.
 - Workflow, node, and port identifiers are non-empty strings without
@@ -51,8 +51,8 @@ from the input file extension.
 
 ## WASM Manifest Schema
 
-`conduit schema wasm-manifest` emits a JSON Schema for the manifest passed to
-`conduit validate-manifest` and `conduit run --wasm-components`.
+`pureflow schema wasm-manifest` emits a JSON Schema for the manifest passed to
+`pureflow validate-manifest` and `pureflow run --wasm-components`.
 
 The schema represents these current expectations:
 

@@ -4,17 +4,17 @@ Question recorded while assessing `cdt-mcu.2`.
 
 Current constraint:
 
-- `BatchExecutor`, `BatchInputs`, and `BatchOutputs` are runtime-neutral in `conduit-core`.
-- `conduit-wasm` should hide Wasmtime churn behind that batch boundary.
+- `BatchExecutor`, `BatchInputs`, and `BatchOutputs` are runtime-neutral in `pureflow-core`.
+- `pureflow-wasm` should hide Wasmtime churn behind that batch boundary.
 - The proposals say the host calls a WASM component with message metadata and payload bytes, then validates outputs before sending through `PortsOut`.
 
 Open decision:
 
-- What guest ABI should `conduit-wasm` implement for the first Wasmtime adapter?
+- What guest ABI should `pureflow-wasm` implement for the first Wasmtime adapter?
 
 Options:
 
-- Core Wasm export convention: guest exports memory plus a `conduit_invoke(input_ptr, input_len) -> output_handle` style function, with explicit allocation/free exports.
+- Core Wasm export convention: guest exports memory plus a `pureflow_invoke(input_ptr, input_len) -> output_handle` style function, with explicit allocation/free exports.
 - Component Model/WIT convention: define a WIT package for batch inputs and outputs, then generate bindings with `wit-bindgen`.
 - Host-function pull/push convention: guest calls imported host functions to read input packets and emit output packets while still not seeing channels directly.
 

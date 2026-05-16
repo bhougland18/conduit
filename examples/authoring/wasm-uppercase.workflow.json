@@ -1,5 +1,5 @@
 {
-  "conduit_version": "1",
+  "pureflow_version": "1",
   "id": "authoring-wasm-uppercase",
   "nodes": [
     { "id": "source", "inputs": [], "outputs": ["out"] },

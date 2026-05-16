@@ -1,5 +1,5 @@
 {
-  "conduit_version": "1",
+  "pureflow_version": "1",
   "id": "stream-join-window-workload",
   "nodes": [
     { "id": "event-source", "inputs": [], "outputs": ["events"] },

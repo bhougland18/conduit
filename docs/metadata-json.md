@@ -3,7 +3,7 @@
 Pureflow emits machine-facing runtime facts in two related JSON surfaces:
 
 - Metadata JSONL: one JSON object per runtime observation.
-- CLI run summary JSON: one JSON document describing a completed `conduit run --json` invocation.
+- CLI run summary JSON: one JSON document describing a completed `pureflow run --json` invocation.
 
 These shapes are intended for automation. Consumers should read fields by name
 and tolerate additive fields. Required identifiers use their validated string
@@ -26,7 +26,7 @@ observation order and can change when future runtimes add concurrency.
 The CLI writes metadata JSONL with:
 
 ```bash
-cargo run -p conduit-cli -- run examples/native-linear-etl.workflow.json /tmp/conduit.metadata.jsonl
+cargo run -p pureflow-cli -- run examples/native-linear-etl.workflow.json /tmp/pureflow.metadata.jsonl
 ```
 
 Each line has a `record_type` discriminator.
@@ -263,7 +263,7 @@ timestamps, or durations in this metadata family.
 The CLI emits run summary JSON with:
 
 ```bash
-cargo run -p conduit-cli -- run --json examples/native-linear-etl.workflow.json /tmp/conduit.metadata.jsonl
+cargo run -p pureflow-cli -- run --json examples/native-linear-etl.workflow.json /tmp/pureflow.metadata.jsonl
 ```
 
 The command still writes metadata JSONL to the requested path. The JSON summary
@@ -279,7 +279,7 @@ is printed to stdout.
     "edge_count": 2
   },
   "metadata": {
-    "path": "/tmp/conduit.metadata.jsonl",
+    "path": "/tmp/pureflow.metadata.jsonl",
     "record_count": 24
   },
   "summary": {

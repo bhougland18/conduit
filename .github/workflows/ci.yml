@@ -41,10 +41,10 @@ jobs:
           -W clippy::redundant_clone
 
       - name: Metadata benchmark compile
-        run: nix develop . --command cargo bench -p conduit-core --bench metadata_overhead --no-run
+        run: nix develop . --command cargo bench -p pureflow-core --bench metadata_overhead --no-run
 
       - name: Backpressure benchmark compile
-        run: nix develop . --command cargo bench -p conduit-engine --bench backpressure_capacity --no-run
+        run: nix develop . --command cargo bench -p pureflow-engine --bench backpressure_capacity --no-run
 
       - name: Dylint local lint pass
         run: |

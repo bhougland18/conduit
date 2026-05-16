@@ -19,20 +19,20 @@ disciplined, and the error / capability / metadata seams are in place. What is
 
 | Layer | Crate | Status |
 | --- | --- | --- |
-| Identifier primitives | `conduit-types` | Validated newtypes (`WorkflowId`, `NodeId`, `PortId`, `ExecutionId`, `MessageId`); whitespace/control rejection; property tests. **No length cap.** |
-| Static graph | `conduit-workflow` | `WorkflowDefinition`/`WorkflowGraph` with deterministic dup-node, dup-port, unknown-endpoint, and direction-mismatch validation. **No cycle detection. No serde.** |
-| Boundary types | `conduit-core` | `NodeExecutor` trait (async via GAT `RunFuture<'a>`), `NodeContext`, `CancellationHandle`/`Token`, `ExecutionMetadata`, `MessageEnvelope`, `NodeCapabilities`, `LifecycleHook`, `MetadataSink`, `ConduitError` taxonomy with stable codes. |
-| Port surface | `conduit-core::ports` | `PortsIn`/`PortsOut` over `asupersync::channel::mpsc` with reserve/commit permits, fan-out via cloned `Sender`s, `try_recv`/`try_send` only. **No async `recv().await`/`send().await` surface.** |
-| Runtime wrapper | `conduit-runtime` | `AsupersyncRuntime` wraps `RuntimeBuilder`; `block_on` one-node execution; cancellation handle bridge; lifecycle + metadata observer dispatch; deterministic `current_thread` test ctor. |
-| Orchestration | `conduit-engine` | `run_workflow` iterates nodes **sequentially in declaration order**, wires edges as bounded channels with capacity 1. Node ordering is not topological. |
-| Test kit | `conduit-test-kit` | Builders, `RecordingExecutor`, `FailingExecutor`, identifier strategy. |
-| CLI | `conduit-cli` | `PrintExecutor` over an empty workflow. |
+| Identifier primitives | `pureflow-types` | Validated newtypes (`WorkflowId`, `NodeId`, `PortId`, `ExecutionId`, `MessageId`); whitespace/control rejection; property tests. **No length cap.** |
+| Static graph | `pureflow-workflow` | `WorkflowDefinition`/`WorkflowGraph` with deterministic dup-node, dup-port, unknown-endpoint, and direction-mismatch validation. **No cycle detection. No serde.** |
+| Boundary types | `pureflow-core` | `NodeExecutor` trait (async via GAT `RunFuture<'a>`), `NodeContext`, `CancellationHandle`/`Token`, `ExecutionMetadata`, `MessageEnvelope`, `NodeCapabilities`, `LifecycleHook`, `MetadataSink`, `PureflowError` taxonomy with stable codes. |
+| Port surface | `pureflow-core::ports` | `PortsIn`/`PortsOut` over `asupersync::channel::mpsc` with reserve/commit permits, fan-out via cloned `Sender`s, `try_recv`/`try_send` only. **No async `recv().await`/`send().await` surface.** |
+| Runtime wrapper | `pureflow-runtime` | `AsupersyncRuntime` wraps `RuntimeBuilder`; `block_on` one-node execution; cancellation handle bridge; lifecycle + metadata observer dispatch; deterministic `current_thread` test ctor. |
+| Orchestration | `pureflow-engine` | `run_workflow` iterates nodes **sequentially in declaration order**, wires edges as bounded channels with capacity 1. Node ordering is not topological. |
+| Test kit | `pureflow-test-kit` | Builders, `RecordingExecutor`, `FailingExecutor`, identifier strategy. |
+| CLI | `pureflow-cli` | `PrintExecutor` over an empty workflow. |
 
 The scaffold is **lint-clean, formatted, dylint-clean, and tested**
 (see `docs/handoff_2026-04-26.md`). The error model and lifecycle hook gaps the
 last audit flagged are now closed.
 
-The single largest divergence from v4 is in `conduit-engine`:
+The single largest divergence from v4 is in `pureflow-engine`:
 
 > `run_workflow` (engine/lib.rs:22) walks `workflow.nodes()` once, sequentially,
 > awaiting each node to completion before starting the next. That is a
@@ -77,7 +77,7 @@ The single highest-leverage change. Today every node runs once. FBP wants every
 node to run *as a process* until it self-terminates, all upstreams disconnect,
 or the workflow is cancelled.
 
-Proposed shape (lives in `conduit-engine`):
+Proposed shape (lives in `pureflow-engine`):
 
 ```text
 WorkflowSupervisor
@@ -95,11 +95,11 @@ beyond that can land later. The important invariants:
 - Drop semantics close edges. When a node returns, its `PortsOut` drops, which
   drops the contained `mpsc::Sender`s. Downstream `try_recv` then yields
   `Disconnected`, which is already mapped to `PortRecvError::Disconnected` in
-  `crates/conduit-core/src/ports.rs:155-170`.
+  `crates/pureflow-core/src/ports.rs:155-170`.
 - Cancellation is shared. `CancellationHandle::token` is already cloneable and
   mutex-backed; attach it to every `NodeContext` at spawn time.
 - The supervisor owns wiring. `build_port_wiring` in
-  `crates/conduit-engine/src/lib.rs:51-72` already builds the right map; reuse
+  `crates/pureflow-engine/src/lib.rs:51-72` already builds the right map; reuse
   it. The bug is not in wiring, only in execution shape.
 
 ### 3.2 Add an Async Receive/Send Surface to Ports
@@ -120,7 +120,7 @@ impl PortsOut {
 
 Implementation backs onto `asupersync::channel::mpsc::Receiver::recv` and
 `Sender::reserve` (both `async`). The Pureflow-owned wrapper preserves the
-boundary contract documented in `crates/conduit-core/src/ports.rs:1-27`.
+boundary contract documented in `crates/pureflow-core/src/ports.rs:1-27`.
 
 `recv_any` is the FBP "pick from any input" primitive. Implement by polling
 each receiver's `recv` future inside `futures::future::select_all`. This is
@@ -129,7 +129,7 @@ control input) expressible.
 
 ### 3.3 Topological Ordering and Cycle Policy
 
-`WorkflowGraph::validate` (`crates/conduit-workflow/src/lib.rs:294`) is
+`WorkflowGraph::validate` (`crates/pureflow-workflow/src/lib.rs:294`) is
 structural only. Add a topological sort (`petgraph` or hand-rolled Kahn's
 algorithm — the graphs are small) used for two purposes:
 
@@ -208,10 +208,10 @@ v4 §2.9 names YAML/JSON/TOML. Concretely:
 
 - `serde` derives on `WorkflowDefinition`, `NodeDefinition`, `EdgeDefinition`,
   `EdgeCapacity`, `NodeCapabilities`, `EffectCapability` — gated behind
-  `serde` feature on `conduit-workflow` and `conduit-core`.
-- A new `conduit-workflow-format` crate owns parsing (separate so the
+  `serde` feature on `pureflow-workflow` and `pureflow-core`.
+- A new `pureflow-workflow-format` crate owns parsing (separate so the
   in-memory crates do not pull `serde_json`/`serde_yml`/`toml` by default).
-- Format versioning via a top-level `conduit_version: "1"` field, rejected
+- Format versioning via a top-level `pureflow_version: "1"` field, rejected
   with a typed error if missing or unknown. Cheap, prevents the worst kind of
   silent breakage.
 
@@ -237,7 +237,7 @@ pub struct NodeIntrospection {
 ```
 
 Render to JSON via `serde` for AI consumers. Schema descriptions hook in once
-the structured-tier `DataPacket` lands (§3.6). Keep this in `conduit-core`
+the structured-tier `DataPacket` lands (§3.6). Keep this in `pureflow-core`
 behind the `serde` feature so it does not become a runtime dependency.
 
 ### 3.9 WASM Boundary (Defer the Engine, Define the Edge)
@@ -246,7 +246,7 @@ v4 §2.5 / §5 commits to "host owns channels, WASM operates on batches". That
 is the right model. **Do not pick a WASM engine yet.** What to do now:
 
 - Define `WasmNode` purely as a trait with a batch-in / batch-out shape inside
-  `conduit-core`:
+  `pureflow-core`:
   ```rust
   pub trait BatchExecutor {
       fn invoke(&self, inputs: BatchInputs) -> Result<BatchOutputs>;
@@ -266,11 +266,11 @@ features so consumers compile only what they use:
 
 | Crate | Feature | Adds |
 | --- | --- | --- |
-| `conduit-core` | `serde` | `Serialize`/`Deserialize` derives on public types |
-| `conduit-core` | `arrow` | `PacketPayload::Arrow` variant |
-| `conduit-workflow` | `serde` | derives on graph types |
-| `conduit-workflow-format` (new) | `yaml`, `json`, `toml` | one parser per feature |
-| `conduit-runtime` | `tracing` | `tracing` events at lifecycle/metadata seams |
+| `pureflow-core` | `serde` | `Serialize`/`Deserialize` derives on public types |
+| `pureflow-core` | `arrow` | `PacketPayload::Arrow` variant |
+| `pureflow-workflow` | `serde` | derives on graph types |
+| `pureflow-workflow-format` (new) | `yaml`, `json`, `toml` | one parser per feature |
+| `pureflow-runtime` | `tracing` | `tracing` events at lifecycle/metadata seams |
 
 `asupersync` already depends on `tracing`; the `tracing` feature here only
 controls Pureflow's emission, not its presence in the dep tree.
@@ -283,7 +283,7 @@ The numbering matches the order I would actually land beads.
 
 ### 4.1 (Bead candidate) — Async port surface
 
-**Files:** `crates/conduit-core/src/ports.rs`, `crates/conduit-core/src/lib.rs`.
+**Files:** `crates/pureflow-core/src/ports.rs`, `crates/pureflow-core/src/lib.rs`.
 
 Add `recv` / `recv_any` / `send` / `reserve` async methods that delegate to
 `asupersync::channel::mpsc::Receiver::recv` and `Sender::reserve`. Preserve
@@ -291,9 +291,9 @@ Add `recv` / `recv_any` / `send` / `reserve` async methods that delegate to
 existing `PortRecvError` / `PortSendError` taxonomy. Add tests in the same
 shape as the existing reserve/commit tests at `ports.rs:643-723`.
 
-### 4.2 — Long-lived process scheduler in `conduit-engine`
+### 4.2 — Long-lived process scheduler in `pureflow-engine`
 
-**Files:** `crates/conduit-engine/src/lib.rs`.
+**Files:** `crates/pureflow-engine/src/lib.rs`.
 
 Replace `run_workflow`'s sequential loop with a supervisor that spawns each
 node on `AsupersyncRuntime`. Wire shared cancellation via a single
@@ -305,8 +305,8 @@ The existing `build_port_wiring` is reusable as-is.
 
 ### 4.3 — Edge capacity in `EdgeDefinition`
 
-**Files:** `crates/conduit-workflow/src/lib.rs`,
-`crates/conduit-engine/src/lib.rs`, `crates/conduit-test-kit/src/lib.rs`.
+**Files:** `crates/pureflow-workflow/src/lib.rs`,
+`crates/pureflow-engine/src/lib.rs`, `crates/pureflow-test-kit/src/lib.rs`.
 
 Add `EdgeCapacity` enum, default `64`. Threaded through
 `WorkflowBuilder::edge` with a new `edge_with_capacity` variant. Existing
@@ -314,7 +314,7 @@ tests stay green because `Default` resolves to a non-zero capacity.
 
 ### 4.4 — Topological order + cycle detection
 
-**Files:** `crates/conduit-workflow/src/lib.rs`.
+**Files:** `crates/pureflow-workflow/src/lib.rs`.
 
 Add `WorkflowGraph::topological_order` returning `Result<Vec<NodeId>,
 WorkflowValidationError::CycleDetected>`. Default `WorkflowGraph::new` calls
@@ -329,7 +329,7 @@ algorithms are needed.
 
 ### 4.5 — Identifier length cap
 
-**Files:** `crates/conduit-types/src/lib.rs`.
+**Files:** `crates/pureflow-types/src/lib.rs`.
 
 Audit recommendation AB-10 from `docs/audits/Audit_4_23.md`. Add
 `MAX_IDENTIFIER_LEN = 256` (rationale: well above any human-typed identifier,
@@ -339,8 +339,8 @@ within the cap continues to validate.
 
 ### 4.6 — Metadata sink emits `Message` records
 
-**Files:** `crates/conduit-core/src/ports.rs`,
-`crates/conduit-runtime/src/lib.rs`.
+**Files:** `crates/pureflow-core/src/ports.rs`,
+`crates/pureflow-runtime/src/lib.rs`.
 
 Plumb the metadata sink reference into `PortsOut` (likely as a clonable
 `Arc<dyn MetadataSink>`). On `PortSendPermit::send`, emit
@@ -349,31 +349,31 @@ Plumb the metadata sink reference into `PortsOut` (likely as a clonable
 
 ### 4.7 — Tiered payload type
 
-**Files:** `crates/conduit-core/src/message.rs`,
-`crates/conduit-core/src/ports.rs`.
+**Files:** `crates/pureflow-core/src/message.rs`,
+`crates/pureflow-core/src/ports.rs`.
 
 Introduce `PacketPayload` enum (Control / Bytes / Structured / Arrow). Make
 `PortPacket = MessageEnvelope<PacketPayload>`. Gate `Arrow` behind a feature.
 Existing `Vec<u8>` call sites convert via `PacketPayload::Bytes(Bytes::from(vec))`.
 
-### 4.8 — `serde` features and `conduit-workflow-format` crate
+### 4.8 — `serde` features and `pureflow-workflow-format` crate
 
-**Files:** new `crates/conduit-workflow-format/`, plus feature gates on
-`conduit-core` and `conduit-workflow`.
+**Files:** new `crates/pureflow-workflow-format/`, plus feature gates on
+`pureflow-core` and `pureflow-workflow`.
 
 Adds JSON parsing first (smallest surface), then YAML and TOML behind their
 own features. Top-level version field, typed error on missing/unknown.
 
 ### 4.9 — Introspection rendering
 
-**Files:** new module `crates/conduit-core/src/introspection.rs`.
+**Files:** new module `crates/pureflow-core/src/introspection.rs`.
 
 Pure functions over already-validated types. `serde::Serialize` impls behind
 the `serde` feature. CLI subcommand to dump JSON.
 
 ### 4.10 — Replace `block_on(futures::executor)` in CLI with `AsupersyncRuntime`
 
-**Files:** `crates/conduit-cli/src/main.rs`.
+**Files:** `crates/pureflow-cli/src/main.rs`.
 
 Currently `cli/main.rs:38` uses `futures::executor::block_on`. The runtime
 crate exists for exactly this; switching closes the consistency gap before any
@@ -442,8 +442,8 @@ nodes ever need typed interfaces).
 
 - **`asupersync`.** Single-vendor, recently published (`0.2.9`). Watch
   upstream cadence; if a quarter passes without releases, fork into
-  `crates/conduit-asupersync/` so Pureflow can patch independently. The
-  boundary documented in `crates/conduit-runtime/src/lib.rs:11-19` is
+  `crates/pureflow-asupersync/` so Pureflow can patch independently. The
+  boundary documented in `crates/pureflow-runtime/src/lib.rs:11-19` is
   precisely the seam that makes a fork cheap.
 - **`serde_yml`.** Already a fork. If its release pace stalls, the workflow
   format crate is small enough to swap to a hand-rolled parser using
@@ -473,12 +473,12 @@ nodes ever need typed interfaces).
 
 ```text
 +-------------------------------------------------------------+
-|                       conduit-cli                           |
+|                       pureflow-cli                           |
 |         (subcommands, format parsing, introspection)        |
 +----------------------------+--------------------------------+
                              |
 +----------------------------v--------------------------------+
-|                     conduit-engine                          |
+|                     pureflow-engine                          |
 |   WorkflowSupervisor:                                       |
 |     - spawn one task per NodeDefinition                     |
 |     - bounded edge channels (capacity per EdgeDefinition)   |
@@ -487,18 +487,18 @@ nodes ever need typed interfaces).
 +----------------------------+--------------------------------+
                              |
 +-----------------+----------v----------+----------------------+
-| conduit-runtime | conduit-core         | conduit-workflow    |
+| pureflow-runtime | pureflow-core         | pureflow-workflow    |
 |  AsupersyncRT   |  NodeExecutor        |  WorkflowDefinition |
 |  lifecycle disp.|  PortsIn/PortsOut    |  topo + cycle check |
 |  metadata disp. |  Cancellation*       |  serde derives      |
-|  cancel bridge  |  Capabilities        |  conduit-workflow-  |
+|  cancel bridge  |  Capabilities        |  pureflow-workflow-  |
 |                 |  MetadataRecord      |    format (parsing) |
 |                 |  Introspection       |                     |
 +--------+--------+--------+-------------+----------+----------+
          |                 |                        |
          |                 |                        |
 +--------v---------+   +---v-------------+   +------v---------+
-|   asupersync     |   | conduit-types   |   | optional crates|
+|   asupersync     |   | pureflow-types   |   | optional crates|
 |  Runtime, mpsc,  |   | NewType IDs +   |   | arrow, wasm-   |
 |  Cx, JoinError   |   | length cap      |   | time, etc.     |
 +------------------+   +-----------------+   +----------------+
@@ -571,10 +571,10 @@ metadata.
 | --- | --- | --- | --- |
 | B1 | Plumb metadata sink into `PortsOut` | M | §3.5(1). |
 | B2 | `TieredMetadataSink` adapter | S | §3.5(2). |
-| B3 | `tracing` feature on `conduit-runtime` | S | Lifecycle + cancellation events. |
+| B3 | `tracing` feature on `pureflow-runtime` | S | Lifecycle + cancellation events. |
 | B4 | `PacketPayload` tiered enum (no Arrow yet) | M | §3.6 minus the Arrow variant. |
 | B5 | Introspection types + JSON renderer | M | §3.8. |
-| B6 | CLI subcommand `conduit inspect <workflow>` | S | Smoke test for B5. |
+| B6 | CLI subcommand `pureflow inspect <workflow>` | S | Smoke test for B5. |
 
 Exit criteria: an AI consumer can fetch a workflow's structural and
 capability surface as JSON; per-message lineage is emitted at the port boundary.
@@ -583,11 +583,11 @@ capability surface as JSON; per-message lineage is emitted at the port boundary.
 
 | Order | Item | Size | Notes |
 | --- | --- | --- | --- |
-| C1 | `serde` feature on `conduit-core`, `conduit-workflow` | M | Derives only; no parsing. |
-| C2 | `conduit-workflow-format` crate, JSON parser | M | Top-level `conduit_version` field. |
+| C1 | `serde` feature on `pureflow-core`, `pureflow-workflow` | M | Derives only; no parsing. |
+| C2 | `pureflow-workflow-format` crate, JSON parser | M | Top-level `pureflow_version` field. |
 | C3 | YAML parser via `serde_yml` | S | Behind `yaml` feature. |
 | C4 | TOML parser | S | Behind `toml` feature. |
-| C5 | CLI subcommand `conduit run <file.{json,yaml,toml}>` | S | Closes the loop end-to-end. |
+| C5 | CLI subcommand `pureflow run <file.{json,yaml,toml}>` | S | Closes the loop end-to-end. |
 
 Exit criteria: a hand-written YAML workflow parses, validates, executes, and
 emits metadata. AI-generated workflows can be validated before run.
@@ -597,7 +597,7 @@ emits metadata. AI-generated workflows can be validated before run.
 | Order | Item | Size | Notes |
 | --- | --- | --- | --- |
 | D1 | `BatchExecutor` trait + `WasmModule` adapter | M | §3.9. |
-| D2 | `wasmtime` integration crate `conduit-wasm` | L | Host-owned channels; batch in/out. |
+| D2 | `wasmtime` integration crate `pureflow-wasm` | L | Host-owned channels; batch in/out. |
 | D3 | One example WASM node + integration test | M | Mirrors v4 §7 MVP slice. |
 | D4 | `EffectCapability` enforcement at WASM boundary | M | Strict mode; native stays advisory. |
 
@@ -621,12 +621,12 @@ generic warnings.
 - **Severity:** High. Pureflow's runtime substrate is a single-vendor crate at
   `0.2.9`.
 - **Likelihood:** Moderate; experimental research crates churn.
-- **Mitigation:** The boundary in `crates/conduit-core/src/error.rs:404-442`
-  and `crates/conduit-runtime/src/lib.rs:11-19` is already kept narrow.
+- **Mitigation:** The boundary in `crates/pureflow-core/src/error.rs:404-442`
+  and `crates/pureflow-runtime/src/lib.rs:11-19` is already kept narrow.
   *Verify the boundary is leak-free* by adding a `cargo deny` rule (or a test
   that greps `pub` symbols) ensuring no `asupersync` types are reachable from
-  `conduit-core`'s public surface. If upstream stalls, fork into
-  `crates/conduit-asupersync/` and patch via `[patch.crates-io]`.
+  `pureflow-core`'s public surface. If upstream stalls, fork into
+  `crates/pureflow-asupersync/` and patch via `[patch.crates-io]`.
 
 ### 8.2 `serde_yaml` archived; YAML support is on a fork
 

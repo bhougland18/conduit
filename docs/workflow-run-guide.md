@@ -16,7 +16,7 @@ The examples use `examples/native-linear-etl.workflow.json`.
 Use `validate` first when editing workflow JSON:
 
 ```bash
-cargo run -p conduit-cli -- validate examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- validate examples/native-linear-etl.workflow.json
 ```
 
 Expected output:
@@ -28,7 +28,7 @@ edges: 2
 ```
 
 `validate` checks the external JSON format and the static graph structure. It
-rejects malformed JSON, missing or unsupported `conduit_version`, invalid
+rejects malformed JSON, missing or unsupported `pureflow_version`, invalid
 identifiers, duplicate nodes or ports, unknown edge endpoints, invalid edge
 capacity, and cycles unless a later runtime path explicitly opts into cycle
 execution.
@@ -39,7 +39,7 @@ Use `inspect` when tooling or review needs a machine-readable view of the
 workflow boundary:
 
 ```bash
-cargo run -p conduit-cli -- inspect examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- inspect examples/native-linear-etl.workflow.json
 ```
 
 The command prints JSON containing the workflow id, nodes, ports, edge
@@ -56,7 +56,7 @@ Use `inspect` output for automation that needs stable topology data. Use
 Use `explain` before a run when you want a compact text summary:
 
 ```bash
-cargo run -p conduit-cli -- explain examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- explain examples/native-linear-etl.workflow.json
 ```
 
 The output includes:
@@ -75,7 +75,7 @@ the declared graph.
 Run a workflow and write metadata JSONL:
 
 ```bash
-cargo run -p conduit-cli -- run examples/native-linear-etl.workflow.json /tmp/conduit-native-linear-etl.metadata.jsonl
+cargo run -p pureflow-cli -- run examples/native-linear-etl.workflow.json /tmp/pureflow-native-linear-etl.metadata.jsonl
 ```
 
 Expected text summary:
@@ -84,7 +84,7 @@ Expected text summary:
 ran workflow `native-linear-etl`
 nodes: 3
 edges: 2
-metadata: /tmp/conduit-native-linear-etl.metadata.jsonl
+metadata: /tmp/pureflow-native-linear-etl.metadata.jsonl
 records: 24
 ```
 
@@ -102,7 +102,7 @@ domain-specific ETL code.
 Use `--json` when automation needs a stable run summary:
 
 ```bash
-cargo run -p conduit-cli -- run --json examples/native-linear-etl.workflow.json /tmp/conduit-native-linear-etl.metadata.jsonl
+cargo run -p pureflow-cli -- run --json examples/native-linear-etl.workflow.json /tmp/pureflow-native-linear-etl.metadata.jsonl
 ```
 
 The metadata file is still written to the requested path. Standard output is a
@@ -132,7 +132,7 @@ surface honest until the CLI also exposes feedback-loop execution policy.
 
 Library callers that intentionally run feedback-loop workflows can configure
 `WorkflowRunPolicy::feedback_loops(...).with_watchdog(...)` through
-`conduit-engine`. When the watchdog fires, the run summary reports
+`pureflow-engine`. When the watchdog fires, the run summary reports
 `terminal_state: "failed"`, captures `summary.deadlock_diagnostic`, and writes a
 workflow-level error metadata record with the same diagnostic payload.
 
@@ -142,10 +142,10 @@ To run one or more workflow nodes as WASM components, pass a component manifest
 to `run`:
 
 ```bash
-cargo run -p conduit-cli -- run \
+cargo run -p pureflow-cli -- run \
   --wasm-components wasm-components.json \
   workflow.json \
-  /tmp/conduit.metadata.jsonl
+  /tmp/pureflow.metadata.jsonl
 ```
 
 Manifest shape:

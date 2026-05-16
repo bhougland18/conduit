@@ -34,8 +34,8 @@ cargo fmt --all --check
 cargo check --workspace --all-targets
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -W clippy::pedantic -W clippy::nursery -W clippy::perf -W clippy::redundant_clone
-cargo bench -p conduit-core --bench metadata_overhead --no-run
-cargo bench -p conduit-engine --bench backpressure_capacity --no-run
+cargo bench -p pureflow-core --bench metadata_overhead --no-run
+cargo bench -p pureflow-engine --bench backpressure_capacity --no-run
 cargo-dylint-nightly --all
 git diff --check
 ```
@@ -53,31 +53,31 @@ git diff --check
 - [ ] `validate` accepts the native example workflow:
 
 ```bash
-cargo run -p conduit-cli -- validate examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- validate examples/native-linear-etl.workflow.json
 ```
 
 - [ ] `inspect` emits JSON for the native example workflow:
 
 ```bash
-cargo run -p conduit-cli -- inspect examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- inspect examples/native-linear-etl.workflow.json
 ```
 
 - [ ] `explain` emits topology and metadata policy text:
 
 ```bash
-cargo run -p conduit-cli -- explain examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- explain examples/native-linear-etl.workflow.json
 ```
 
 - [ ] `run` writes metadata JSONL and reports 24 records for the native example:
 
 ```bash
-cargo run -p conduit-cli -- run examples/native-linear-etl.workflow.json /tmp/conduit-native-linear-etl.metadata.jsonl
+cargo run -p pureflow-cli -- run examples/native-linear-etl.workflow.json /tmp/pureflow-native-linear-etl.metadata.jsonl
 ```
 
 - [ ] `run --json` prints a completed summary with `error: null`:
 
 ```bash
-cargo run -p conduit-cli -- run --json examples/native-linear-etl.workflow.json /tmp/conduit-native-linear-etl.metadata.jsonl
+cargo run -p pureflow-cli -- run --json examples/native-linear-etl.workflow.json /tmp/pureflow-native-linear-etl.metadata.jsonl
 ```
 
 - [ ] `run --wasm-components` is smoke-tested with a manifest-backed component
@@ -95,13 +95,13 @@ cargo run -p conduit-cli -- run --json examples/native-linear-etl.workflow.json 
 - [ ] Engine feedback-loop example succeeds:
 
 ```bash
-cargo run -p conduit-engine --example feedback_loop
+cargo run -p pureflow-engine --example feedback_loop
 ```
 
 - [ ] WASM mixed pipeline example succeeds through the Nix devshell:
 
 ```bash
-env -u RUSTFLAGS nix develop . --command cargo run -p conduit-wasm --example mixed_pipeline
+env -u RUSTFLAGS nix develop . --command cargo run -p pureflow-wasm --example mixed_pipeline
 ```
 
 - [ ] If the ambient shell lacks `wasm32-wasip2`, confirm the docs still direct
@@ -127,13 +127,13 @@ env -u RUSTFLAGS nix develop . --command cargo run -p conduit-wasm --example mix
 - [ ] Metadata benchmark compiles:
 
 ```bash
-cargo bench -p conduit-core --bench metadata_overhead --no-run
+cargo bench -p pureflow-core --bench metadata_overhead --no-run
 ```
 
 - [ ] Backpressure benchmark compiles:
 
 ```bash
-cargo bench -p conduit-engine --bench backpressure_capacity --no-run
+cargo bench -p pureflow-engine --bench backpressure_capacity --no-run
 ```
 
 - [ ] If performance claims are made, run measurement benchmarks and summarize

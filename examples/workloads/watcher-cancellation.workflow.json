@@ -1,5 +1,5 @@
 {
-  "conduit_version": "1",
+  "pureflow_version": "1",
   "id": "watcher-cancellation-workload",
   "nodes": [
     { "id": "change-source", "inputs": [], "outputs": ["changes"] },

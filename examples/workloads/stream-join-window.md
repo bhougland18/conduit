@@ -14,7 +14,7 @@ Workflow file:
 
 Runnable native executor example:
 
-- `crates/conduit-engine/examples/stream_join_window.rs`
+- `crates/pureflow-engine/examples/stream_join_window.rs`
 
 Shape:
 
@@ -32,9 +32,9 @@ three joined rows, then records unmatched window state after both inputs close.
 ## Validate And Inspect
 
 ```bash
-cargo run -p conduit-cli -- validate examples/workloads/stream-join-window.workflow.json
-cargo run -p conduit-cli -- inspect examples/workloads/stream-join-window.workflow.json
-cargo run -p conduit-cli -- explain examples/workloads/stream-join-window.workflow.json
+cargo run -p pureflow-cli -- validate examples/workloads/stream-join-window.workflow.json
+cargo run -p pureflow-cli -- inspect examples/workloads/stream-join-window.workflow.json
+cargo run -p pureflow-cli -- explain examples/workloads/stream-join-window.workflow.json
 ```
 
 Expected `validate` output:
@@ -65,7 +65,7 @@ native execution mode, and receive/emit port capabilities.
 ## Run
 
 ```bash
-cargo run -p conduit-engine --example stream_join_window
+cargo run -p pureflow-engine --example stream_join_window
 ```
 
 Expected output:

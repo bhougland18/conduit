@@ -21,10 +21,10 @@ should use it.]`
 Summarize the user-facing surfaces present in this checkpoint:
 
 - Validated canonical JSON workflow documents.
-- Workflow topology inspection and text explanation through `conduit inspect`
-  and `conduit explain`.
+- Workflow topology inspection and text explanation through `pureflow inspect`
+  and `pureflow explain`.
 - Native workflow execution with bounded ports and JSONL metadata.
-- Stable `conduit run --json` summary fields for machine-facing callers.
+- Stable `pureflow run --json` summary fields for machine-facing callers.
 - Native node executor registry and reusable test helpers.
 - Wasmtime Component Model batch node support through manifest-loaded WASM
   components.
@@ -49,8 +49,8 @@ Record the full gate from [validation-matrix.md](validation-matrix.md):
 | Workspace compile | `cargo check --workspace --all-targets` | `[pass/fail/skipped]` | `[notes]` |
 | Workspace tests | `cargo test --workspace` | `[pass/fail/skipped]` | `[notes]` |
 | Strict Clippy | `cargo clippy --workspace --all-targets -- -W clippy::pedantic -W clippy::nursery -W clippy::perf -W clippy::redundant_clone` | `[pass/fail/skipped]` | `[notes]` |
-| Metadata bench compile | `cargo bench -p conduit-core --bench metadata_overhead --no-run` | `[pass/fail/skipped]` | `[notes]` |
-| Backpressure bench compile | `cargo bench -p conduit-engine --bench backpressure_capacity --no-run` | `[pass/fail/skipped]` | `[notes]` |
+| Metadata bench compile | `cargo bench -p pureflow-core --bench metadata_overhead --no-run` | `[pass/fail/skipped]` | `[notes]` |
+| Backpressure bench compile | `cargo bench -p pureflow-engine --bench backpressure_capacity --no-run` | `[pass/fail/skipped]` | `[notes]` |
 | Dylint | `cargo-dylint-nightly --all` | `[pass/fail/skipped]` | `[notes]` |
 | Diff whitespace | `git diff --check` | `[pass/fail/skipped]` | `[notes]` |
 

@@ -1,5 +1,5 @@
 {
-  "conduit_version": "1",
+  "pureflow_version": "1",
   "id": "ai-call-orchestration-workload",
   "nodes": [
     { "id": "prompter",       "inputs": [],          "outputs": ["prompt"]      },

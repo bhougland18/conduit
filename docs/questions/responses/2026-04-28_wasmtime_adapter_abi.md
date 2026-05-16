@@ -2,7 +2,7 @@
 
 Reviewing the question against `proposal_final.md` §6.10, `proposal_1.md`
 §5.5 and §6 (recommended deps), and the current shapes of `BatchExecutor`,
-`PacketPayload`, and `MessageMetadata` in `conduit-core`.
+`PacketPayload`, and `MessageMetadata` in `pureflow-core`.
 
 ## Recommendation
 
@@ -23,11 +23,11 @@ Rank: WIT (preferred) > core export (acceptable spike) > host pull/push
   metadata and payload bytes." "Component" is a load-bearing word here:
   Wasmtime's `Component` API and core `Module` API are different code
   paths. Picking the WIT route is the documented direction.
-- **It is the wrapper boundary `conduit-wasm` already promises.**
+- **It is the wrapper boundary `pureflow-wasm` already promises.**
   `proposal_final.md` §6.10 says to hide Wasmtime release churn behind
-  `conduit-wasm` and `BatchExecutor`. The WIT package *is* the part of
+  `pureflow-wasm` and `BatchExecutor`. The WIT package *is* the part of
   that wrapper that guest authors and AI tooling actually see — versioning
-  it (e.g., `conduit:batch@0.1.0`) gives us the explicit ABI handle we
+  it (e.g., `pureflow:batch@0.1.0`) gives us the explicit ABI handle we
   need to evolve payload tiers (`cdt-rpk.4`, `cdt-rpk.5`, future Arrow)
   without rewriting every guest. A core-Wasm export convention pushes
   that evolution onto manual length-prefix / version-byte juggling that
@@ -64,7 +64,7 @@ option; it is the only one that fights the host-owned-channel invariant.
 
 ## Why core-Wasm export is only a fallback
 
-A `conduit_invoke(input_ptr, input_len) -> output_handle` ABI plus
+A `pureflow_invoke(input_ptr, input_len) -> output_handle` ABI plus
 `alloc` / `dealloc` exports is genuinely the smallest path to a working
 demo, and it has the benefit of not depending on `wit-bindgen` tooling.
 But once you write the second guest in a non-Rust language, or once you
@@ -82,7 +82,7 @@ The MVP package only needs to encode what `BatchInputs` / `BatchOutputs`
 already carry. A first cut:
 
 ```wit
-package conduit:batch@0.1.0;
+package pureflow:batch@0.1.0;
 
 interface batch {
     record endpoint {
@@ -130,7 +130,7 @@ interface batch {
     invoke: func(inputs: list<port-batch>) -> result<list<port-batch>, batch-error>;
 }
 
-world conduit-node {
+world pureflow-node {
     export batch;
 }
 ```
@@ -138,12 +138,12 @@ world conduit-node {
 Notes on the sketch:
 
 - `list<port-batch>` mirrors the `BTreeMap<PortId, Vec<PortPacket>>` in
-  `conduit-core/src/batch.rs:11` and `:61` while avoiding the question of
+  `pureflow-core/src/batch.rs:11` and `:61` while avoiding the question of
   Component Model map representation. Order is preserved. The host can
   reject duplicate `port-id` entries on the way back into `BatchOutputs`.
 - `payload` matches today's `PacketPayload::Bytes` and
-  `PacketPayload::Control` (`conduit-core/src/message.rs:11`). When Arrow
-  lands, it becomes a third variant gated by a feature in `conduit-wasm`,
+  `PacketPayload::Control` (`pureflow-core/src/message.rs:11`). When Arrow
+  lands, it becomes a third variant gated by a feature in `pureflow-wasm`,
   and the WIT package version bumps to `0.2.0`. Older guests still link.
 - `control(string)` carries JSON as text for the MVP. That avoids
   introducing a Component Model representation for arbitrary
@@ -156,15 +156,15 @@ Notes on the sketch:
   `NodeCapabilities` declares the matching effect.
 - Errors crossing the boundary are a `result<_, batch-error>`. The
   Wasmtime adapter maps `batch-error::guest-failure` to
-  `ConduitError::Execution` (visible) and any host-side decode failure to
-  `ConduitError::Execution` with an internal-visibility code, so the
+  `PureflowError::Execution` (visible) and any host-side decode failure to
+  `PureflowError::Execution` with an internal-visibility code, so the
   failure shape is uniform in `metadata::MetadataRecord`.
 
 ## Concrete next steps for `cdt-mcu.2`
 
-- Add the WIT package above under `crates/conduit-wasm/wit/` and pin
+- Add the WIT package above under `crates/pureflow-wasm/wit/` and pin
   `wit-bindgen` and `wasmtime` versions in that crate's `Cargo.toml`. Do
-  not re-export them from `conduit-core`.
+  not re-export them from `pureflow-core`.
 - Build guests as `wasm32-wasip2` components (not core modules). Load via
   `wasmtime::component::Component::new` + a `Linker` that imports
   *nothing* in the MVP world.
@@ -178,7 +178,7 @@ Notes on the sketch:
 - Pin a single Component Model preview level (currently preview2 / WASI
   0.2). Document the choice on the WIT file's package version line so
   future ABI bumps are visible to reviewers.
-- Add one example guest under `crates/conduit-wasm/examples/echo/` that
+- Add one example guest under `crates/pureflow-wasm/examples/echo/` that
   implements the `batch` export by mirroring inputs to outputs. That
   satisfies the §8 Phase 4 "one sample WASM node" deliverable and gives
   `wasm-native-mixed-example` (`cdt-32` in the bead numbering) something

@@ -5,10 +5,10 @@ compatibility before any DataFusion or broader data-tier work resumes.
 
 ## Current State
 
-`conduit-core` already exposes `PacketPayload::Arrow(RecordBatch)` behind the
+`pureflow-core` already exposes `PacketPayload::Arrow(RecordBatch)` behind the
 optional `arrow` feature. Default builds remain Arrow-free.
 
-`conduit-contract` already has `SchemaRef`, an opaque non-empty string attached
+`pureflow-contract` already has `SchemaRef`, an opaque non-empty string attached
 to contract ports. Edge schema compatibility is exact equality when both
 endpoints declare a schema. No schema registry, Arrow parser, or structural
 comparison exists today.

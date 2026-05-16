@@ -32,10 +32,10 @@ chart.
     [#text(fill: rgb("#ffffff"))[*Crates*]],
     [#text(fill: rgb("#ffffff"))[*What it keeps separate*]],
   ),
-  [`Definition and validation`], [`conduit-types`, `conduit-workflow-format`, `conduit-workflow`], [`Identifiers, file parsing, and graph shape.`],
-  [`Contract and policy`], [`conduit-contract`, `conduit-core`, `conduit-introspection`], [`What a node promises, what it may do, and how we inspect it.`],
-  [`Execution and adapter`], [`conduit-engine`, `conduit-runtime`, `conduit-wasm`], [`Orchestration, runtime substrate, and WASM boundaries.`],
-  [`Surface and test`], [`conduit-cli`, `conduit-test-kit`], [`User entrypoints and repeatable fixtures.`],
+  [`Definition and validation`], [`pureflow-types`, `pureflow-workflow-format`, `pureflow-workflow`], [`Identifiers, file parsing, and graph shape.`],
+  [`Contract and policy`], [`pureflow-contract`, `pureflow-core`, `pureflow-introspection`], [`What a node promises, what it may do, and how we inspect it.`],
+  [`Execution and adapter`], [`pureflow-engine`, `pureflow-runtime`, `pureflow-wasm`], [`Orchestration, runtime substrate, and WASM boundaries.`],
+  [`Surface and test`], [`pureflow-cli`, `pureflow-test-kit`], [`User entrypoints and repeatable fixtures.`],
 )
 ```
 

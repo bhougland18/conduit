@@ -5,7 +5,7 @@
 - `NodeContract` uses `NodeId` directly instead of a separate contract-id wrapper.
 - `SchemaRef` is an opaque string handle for now.
 - Schema compatibility is treated as exact equality when both sides declare a schema.
-- Capability descriptors stay in `conduit-core`; `conduit-contract` validates against them instead of redefining them.
+- Capability descriptors stay in `pureflow-core`; `pureflow-contract` validates against them instead of redefining them.
 
 ## Open Follow-Ups
 

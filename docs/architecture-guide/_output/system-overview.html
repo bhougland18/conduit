@@ -334,7 +334,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 data-number="2.9" class="anchored" data-anchor-id="why-asupersync-instead-of-tokio"><span class="header-section-number">2.9</span> Why <code>asupersync</code> Instead of Tokio</h2>
 <p>Tokio is a strong general-purpose async ecosystem, but Pureflow does not need a general-purpose app runtime to explain its own model. It needs a substrate that stays out of the way while still giving the engine task-tree execution, cancellation, and bounded channel behavior.</p>
 <p>The goal is to keep the runtime layer boring in the right way: it should execute Pureflow’s model, not define a second one.</p>
-<p>That is why <code>asupersync</code> sits underneath <code>conduit-runtime</code> rather than being the public model itself.</p>
+<p>That is why <code>asupersync</code> sits underneath <code>pureflow-runtime</code> rather than being the public model itself.</p>
 <ul>
 <li>Pureflow owns the graph, ports, contracts, metadata, and capability story.</li>
 <li><code>asupersync</code> provides the execution machinery that makes those ideas run.</li>
@@ -349,7 +349,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>Pureflow emits two machine-facing outputs:</p>
 <ul>
 <li>metadata JSONL stream (event records),</li>
-<li><code>conduit run --json</code> terminal summary.</li>
+<li><code>pureflow run --json</code> terminal summary.</li>
 </ul>
 <p>The short version: JSONL is the play-by-play, while the summary JSON is the box score at the end of the game.</p>
 <p>The two outputs serve different readers. One is for tracing the run while it is happening. The other is for the final yes/no decision when the run is over.</p>
@@ -368,20 +368,20 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="cli-usage" class="level3" data-number="2.11.1">
 <h3 data-number="2.11.1" class="anchored" data-anchor-id="cli-usage"><span class="header-section-number">2.11.1</span> CLI usage</h3>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Validate workflow structure and format</span></span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> run <span class="at">-p</span> conduit-cli <span class="at">--</span> validate examples/native-linear-etl.workflow.json</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> run <span class="at">-p</span> pureflow-cli <span class="at">--</span> validate examples/native-linear-etl.workflow.json</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Inspect topology/contracts/capabilities</span></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> run <span class="at">-p</span> conduit-cli <span class="at">--</span> inspect examples/native-linear-etl.workflow.json</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> run <span class="at">-p</span> pureflow-cli <span class="at">--</span> inspect examples/native-linear-etl.workflow.json</span>
 <span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Run and emit machine-facing summary</span></span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> run <span class="at">-p</span> conduit-cli <span class="at">--</span> run <span class="at">--json</span> <span class="dt">\</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> run <span class="at">-p</span> pureflow-cli <span class="at">--</span> run <span class="at">--json</span> <span class="dt">\</span></span>
 <span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  examples/native-linear-etl.workflow.json <span class="dt">\</span></span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  /tmp/conduit-native-linear.metadata.jsonl</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  /tmp/pureflow-native-linear.metadata.jsonl</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="workflow-document-shape" class="level3" data-number="2.11.2">
 <h3 data-number="2.11.2" class="anchored" data-anchor-id="workflow-document-shape"><span class="header-section-number">2.11.2</span> Workflow document shape</h3>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode json code-with-copy"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"conduit_version"</span><span class="fu">:</span> <span class="st">"1"</span><span class="fu">,</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"pureflow_version"</span><span class="fu">:</span> <span class="st">"1"</span><span class="fu">,</span></span>
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"id"</span><span class="fu">:</span> <span class="st">"native-linear-etl"</span><span class="fu">,</span></span>
 <span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">"nodes"</span><span class="fu">:</span> <span class="ot">[</span></span>
 <span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="fu">{</span> <span class="dt">"id"</span><span class="fu">:</span> <span class="st">"source"</span><span class="fu">,</span> <span class="dt">"inputs"</span><span class="fu">:</span> <span class="ot">[]</span><span class="fu">,</span> <span class="dt">"outputs"</span><span class="fu">:</span> <span class="ot">[</span><span class="st">"rows"</span><span class="ot">]</span> <span class="fu">}</span><span class="ot">,</span></span>
@@ -399,11 +399,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="contractcapability-alignment-example-rust" class="level3" data-number="2.11.3">
 <h3 data-number="2.11.3" class="anchored" data-anchor-id="contractcapability-alignment-example-rust"><span class="header-section-number">2.11.3</span> Contract/capability alignment example (Rust)</h3>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode rust code-with-copy"><code class="sourceCode rust"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">use</span> <span class="pp">conduit_contract::</span><span class="op">{</span></span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode rust code-with-copy"><code class="sourceCode rust"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">use</span> <span class="pp">pureflow_contract::</span><span class="op">{</span></span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    Determinism<span class="op">,</span> ExecutionMode<span class="op">,</span> NodeContract<span class="op">,</span> PortContract<span class="op">,</span> SchemaRef<span class="op">,</span></span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    validate_workflow_contracts<span class="op">,</span></span>
 <span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="op">};</span></span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="kw">use</span> <span class="pp">conduit_core::</span><span class="op">{</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="kw">use</span> <span class="pp">pureflow_core::</span><span class="op">{</span></span>
 <span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    RetryDisposition<span class="op">,</span></span>
 <span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="pp">capability::</span><span class="op">{</span>NodeCapabilities<span class="op">,</span> PortCapability<span class="op">,</span> PortCapabilityDirection<span class="op">},</span></span>
 <span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="op">};</span></span>

@@ -457,147 +457,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "conduit-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "clap_complete",
- "conduit-contract",
- "conduit-core",
- "conduit-engine",
- "conduit-introspection",
- "conduit-runtime",
- "conduit-types",
- "conduit-wasm",
- "conduit-workflow",
- "conduit-workflow-format",
- "insta",
- "serde",
- "serde_json",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "conduit-contract"
-version = "0.1.0"
-dependencies = [
- "conduit-core",
- "conduit-test-kit",
- "conduit-types",
- "conduit-workflow",
- "quickcheck",
-]
-
-[[package]]
-name = "conduit-core"
-version = "0.1.0"
-dependencies = [
- "arrow-array",
- "arrow-schema",
- "asupersync",
- "bytes",
- "conduit-types",
- "conduit-workflow",
- "criterion",
- "quickcheck",
- "serde_json",
-]
-
-[[package]]
-name = "conduit-engine"
-version = "0.1.0"
-dependencies = [
- "conduit-contract",
- "conduit-core",
- "conduit-runtime",
- "conduit-test-kit",
- "conduit-types",
- "conduit-workflow",
- "criterion",
- "futures",
-]
-
-[[package]]
-name = "conduit-introspection"
-version = "0.1.0"
-dependencies = [
- "conduit-contract",
- "conduit-core",
- "conduit-test-kit",
- "conduit-types",
- "conduit-workflow",
- "insta",
- "serde_json",
-]
-
-[[package]]
-name = "conduit-runtime"
-version = "0.1.0"
-dependencies = [
- "asupersync",
- "conduit-core",
- "conduit-test-kit",
- "futures",
- "tracing",
-]
-
-[[package]]
-name = "conduit-test-kit"
-version = "0.1.0"
-dependencies = [
- "conduit-core",
- "conduit-runtime",
- "conduit-types",
- "conduit-workflow",
- "proptest",
-]
-
-[[package]]
-name = "conduit-types"
-version = "0.1.0"
-dependencies = [
- "proptest",
-]
-
-[[package]]
-name = "conduit-wasm"
-version = "0.1.0"
-dependencies = [
- "conduit-core",
- "conduit-engine",
- "conduit-types",
- "conduit-workflow",
- "futures",
- "quickcheck",
- "serde",
- "serde_json",
- "wasmtime",
- "wit-bindgen 0.57.1",
-]
-
-[[package]]
-name = "conduit-workflow"
-version = "0.1.0"
-dependencies = [
- "conduit-types",
- "proptest",
- "quickcheck",
-]
-
-[[package]]
-name = "conduit-workflow-format"
-version = "0.1.0"
-dependencies = [
- "conduit-types",
- "conduit-workflow",
- "quickcheck",
- "serde",
- "serde_json",
- "serde_yml",
- "toml",
-]
-
-[[package]]
 name = "console"
 version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1845,6 +1704,147 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "pureflow-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "clap_complete",
+ "insta",
+ "pureflow-contract",
+ "pureflow-core",
+ "pureflow-engine",
+ "pureflow-introspection",
+ "pureflow-runtime",
+ "pureflow-types",
+ "pureflow-wasm",
+ "pureflow-workflow",
+ "pureflow-workflow-format",
+ "serde",
+ "serde_json",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "pureflow-contract"
+version = "0.1.0"
+dependencies = [
+ "pureflow-core",
+ "pureflow-test-kit",
+ "pureflow-types",
+ "pureflow-workflow",
+ "quickcheck",
+]
+
+[[package]]
+name = "pureflow-core"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "asupersync",
+ "bytes",
+ "criterion",
+ "pureflow-types",
+ "pureflow-workflow",
+ "quickcheck",
+ "serde_json",
+]
+
+[[package]]
+name = "pureflow-engine"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "futures",
+ "pureflow-contract",
+ "pureflow-core",
+ "pureflow-runtime",
+ "pureflow-test-kit",
+ "pureflow-types",
+ "pureflow-workflow",
+]
+
+[[package]]
+name = "pureflow-introspection"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "pureflow-contract",
+ "pureflow-core",
+ "pureflow-test-kit",
+ "pureflow-types",
+ "pureflow-workflow",
+ "serde_json",
+]
+
+[[package]]
+name = "pureflow-runtime"
+version = "0.1.0"
+dependencies = [
+ "asupersync",
+ "futures",
+ "pureflow-core",
+ "pureflow-test-kit",
+ "tracing",
+]
+
+[[package]]
+name = "pureflow-test-kit"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "pureflow-core",
+ "pureflow-runtime",
+ "pureflow-types",
+ "pureflow-workflow",
+]
+
+[[package]]
+name = "pureflow-types"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
+name = "pureflow-wasm"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "pureflow-core",
+ "pureflow-engine",
+ "pureflow-types",
+ "pureflow-workflow",
+ "quickcheck",
+ "serde",
+ "serde_json",
+ "wasmtime",
+ "wit-bindgen 0.57.1",
+]
+
+[[package]]
+name = "pureflow-workflow"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "pureflow-types",
+ "quickcheck",
+]
+
+[[package]]
+name = "pureflow-workflow-format"
+version = "0.1.0"
+dependencies = [
+ "pureflow-types",
+ "pureflow-workflow",
+ "quickcheck",
+ "serde",
+ "serde_json",
+ "serde_yml",
+ "toml",
 ]
 
 [[package]]

@@ -26,14 +26,14 @@ and Wasmtime Component Model batch nodes.
 - Validate and inspect the sample workflow:
 
   ```bash
-  cargo run -p conduit-cli -- validate examples/native-linear-etl.workflow.json
-  cargo run -p conduit-cli -- inspect examples/native-linear-etl.workflow.json
+  cargo run -p pureflow-cli -- validate examples/native-linear-etl.workflow.json
+  cargo run -p pureflow-cli -- inspect examples/native-linear-etl.workflow.json
   ```
 
 - Run the native linear ETL workflow:
 
   ```bash
-  cargo run -p conduit-cli -- run examples/native-linear-etl.workflow.json /tmp/conduit-native-linear-etl.metadata.jsonl
+  cargo run -p pureflow-cli -- run examples/native-linear-etl.workflow.json /tmp/pureflow-native-linear-etl.metadata.jsonl
   ```
 
 - Use the Nix devshell for build and test commands:
@@ -74,17 +74,17 @@ workloads justify them.
 
 ## Repo Layout
 
-- `crates/conduit-types` - validated identifier primitives
-- `crates/conduit-workflow` - static workflow graph model and validation
-- `crates/conduit-workflow-format` - versioned external workflow format parsing
-- `crates/conduit-core` - runtime-facing traits, ports, metadata, capability, and error types
-- `crates/conduit-contract` - node contract data and validation
-- `crates/conduit-introspection` - pure workflow/contract/capability projections
-- `crates/conduit-runtime` - `asupersync` runtime adapter and node observer boundary
-- `crates/conduit-engine` - workflow orchestration, registry execution, backpressure, policies, and summaries
-- `crates/conduit-wasm` - Wasmtime-backed Component Model batch adapter and WIT boundary
-- `crates/conduit-cli` - validation, inspection, explanation, and run commands
-- `crates/conduit-test-kit` - reusable builders, doubles, and test helpers
+- `crates/pureflow-types` - validated identifier primitives
+- `crates/pureflow-workflow` - static workflow graph model and validation
+- `crates/pureflow-workflow-format` - versioned external workflow format parsing
+- `crates/pureflow-core` - runtime-facing traits, ports, metadata, capability, and error types
+- `crates/pureflow-contract` - node contract data and validation
+- `crates/pureflow-introspection` - pure workflow/contract/capability projections
+- `crates/pureflow-runtime` - `asupersync` runtime adapter and node observer boundary
+- `crates/pureflow-engine` - workflow orchestration, registry execution, backpressure, policies, and summaries
+- `crates/pureflow-wasm` - Wasmtime-backed Component Model batch adapter and WIT boundary
+- `crates/pureflow-cli` - validation, inspection, explanation, and run commands
+- `crates/pureflow-test-kit` - reusable builders, doubles, and test helpers
 - `examples/` - runnable workflow examples
 - `docs/` - proposal, epic planning, audit notes, and handoff material
 
@@ -114,28 +114,28 @@ nightly toolchain and driver wiring for that command directly.
 Validate, inspect, and explain a workflow:
 
 ```bash
-cargo run -p conduit-cli -- validate examples/native-linear-etl.workflow.json
-cargo run -p conduit-cli -- inspect examples/native-linear-etl.workflow.json
-cargo run -p conduit-cli -- explain examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- validate examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- inspect examples/native-linear-etl.workflow.json
+cargo run -p pureflow-cli -- explain examples/native-linear-etl.workflow.json
 ```
 
 Run the native linear ETL topology and write metadata JSONL:
 
 ```bash
-cargo run -p conduit-cli -- run examples/native-linear-etl.workflow.json /tmp/conduit-native-linear-etl.metadata.jsonl
+cargo run -p pureflow-cli -- run examples/native-linear-etl.workflow.json /tmp/pureflow-native-linear-etl.metadata.jsonl
 ```
 
 Validate a WASM component manifest before running (catches unknown fields,
 invalid node IDs, duplicate entries, and unreadable component paths):
 
 ```bash
-cargo run -p conduit-cli -- validate-manifest wasm-components.json
+cargo run -p pureflow-cli -- validate-manifest wasm-components.json
 ```
 
 Pass `--workflow` to also verify that every manifest node exists in the workflow:
 
 ```bash
-cargo run -p conduit-cli -- validate-manifest --workflow workflow.json wasm-components.json
+cargo run -p pureflow-cli -- validate-manifest --workflow workflow.json wasm-components.json
 ```
 
 For the complete WASM smoke path, see `examples/wasm-uppercase.md`.
@@ -156,7 +156,7 @@ To load WASM component nodes through the CLI, pass a component manifest to
 ```
 
 ```bash
-cargo run -p conduit-cli -- run --wasm-components wasm-components.json workflow.json /tmp/conduit.metadata.jsonl
+cargo run -p pureflow-cli -- run --wasm-components wasm-components.json workflow.json /tmp/pureflow.metadata.jsonl
 ```
 
 More examples and command-by-command walkthroughs live in:
@@ -172,8 +172,8 @@ More examples and command-by-command walkthroughs live in:
 Every command has built-in help:
 
 ```bash
-cargo run -p conduit-cli -- --help
-cargo run -p conduit-cli -- run --help
+cargo run -p pureflow-cli -- --help
+cargo run -p pureflow-cli -- run --help
 ```
 
 ## Shell Completions
@@ -182,13 +182,13 @@ Generate completions for your shell and source them in your shell profile:
 
 ```bash
 # Bash
-cargo run -p conduit-cli -- completions bash >> ~/.bash_completion
+cargo run -p pureflow-cli -- completions bash >> ~/.bash_completion
 
 # Zsh
-cargo run -p conduit-cli -- completions zsh > ~/.zfunc/_pureflow
+cargo run -p pureflow-cli -- completions zsh > ~/.zfunc/_pureflow
 
 # Fish
-cargo run -p conduit-cli -- completions fish > ~/.config/fish/completions/pureflow.fish
+cargo run -p pureflow-cli -- completions fish > ~/.config/fish/completions/pureflow.fish
 ```
 
 Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.

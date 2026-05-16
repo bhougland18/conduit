@@ -35,7 +35,7 @@ inside the dev shell:
 
 ```bash
 cargo build \
-  --manifest-path crates/conduit-wasm/fixtures/uppercase-guest/Cargo.toml \
+  --manifest-path crates/pureflow-wasm/fixtures/uppercase-guest/Cargo.toml \
   --target wasm32-wasip2 \
   --release
 ```
@@ -43,11 +43,11 @@ cargo build \
 The compiled component is written to:
 
 ```text
-crates/conduit-wasm/fixtures/uppercase-guest/target/wasm32-wasip2/release/conduit_wasm_uppercase_guest_fixture.wasm
+crates/pureflow-wasm/fixtures/uppercase-guest/target/wasm32-wasip2/release/pureflow_wasm_uppercase_guest_fixture.wasm
 ```
 
 This path is what `examples/wasm-uppercase.components.json` references (resolved
-relative to the manifest file, so `../crates/conduit-wasm/...`).
+relative to the manifest file, so `../crates/pureflow-wasm/...`).
 
 ## Step 2 — Validate the Component Manifest
 
@@ -55,7 +55,7 @@ Use `validate-manifest` with the workflow to verify the manifest is well-formed
 and that every declared component node exists in the workflow:
 
 ```bash
-cargo run -p conduit-cli -- validate-manifest \
+cargo run -p pureflow-cli -- validate-manifest \
   --workflow examples/wasm-uppercase.workflow.json \
   examples/wasm-uppercase.components.json
 ```
@@ -82,7 +82,7 @@ error: invalid WASM component manifest: component path `...uppercase_guest_fixtu
 ## Step 3 — Validate the Workflow
 
 ```bash
-cargo run -p conduit-cli -- validate examples/wasm-uppercase.workflow.json
+cargo run -p pureflow-cli -- validate examples/wasm-uppercase.workflow.json
 ```
 
 Expected output:
@@ -96,7 +96,7 @@ edges: 2
 ## Step 4 — Explain the Workflow (optional)
 
 ```bash
-cargo run -p conduit-cli -- explain examples/wasm-uppercase.workflow.json
+cargo run -p pureflow-cli -- explain examples/wasm-uppercase.workflow.json
 ```
 
 Expected output:
@@ -120,7 +120,7 @@ edges:
 ## Step 5 — Run the Workflow
 
 ```bash
-cargo run -p conduit-cli -- run \
+cargo run -p pureflow-cli -- run \
   --wasm-components examples/wasm-uppercase.components.json \
   examples/wasm-uppercase.workflow.json \
   /tmp/wasm-uppercase.metadata.jsonl
@@ -139,7 +139,7 @@ records: 22
 For a machine-facing JSON summary instead:
 
 ```bash
-cargo run -p conduit-cli -- run \
+cargo run -p pureflow-cli -- run \
   --json \
   --wasm-components examples/wasm-uppercase.components.json \
   examples/wasm-uppercase.workflow.json \
@@ -186,7 +186,7 @@ The compiled WASM component is in `target/` (excluded by `.gitignore`). To clean
 
 ```bash
 cargo clean \
-  --manifest-path crates/conduit-wasm/fixtures/uppercase-guest/Cargo.toml \
+  --manifest-path crates/pureflow-wasm/fixtures/uppercase-guest/Cargo.toml \
   --target wasm32-wasip2
 ```
 
@@ -194,7 +194,7 @@ Or clean the entire fixture build:
 
 ```bash
 cargo clean \
-  --manifest-path crates/conduit-wasm/fixtures/uppercase-guest/Cargo.toml
+  --manifest-path crates/pureflow-wasm/fixtures/uppercase-guest/Cargo.toml
 ```
 
 Do not commit `target/` directories or `.wasm` files. The
@@ -213,5 +213,5 @@ Running this smoke path exercises the real CLI component-loading path:
 - Metadata records are emitted for the WASM node lifecycle identically to
   native nodes
 
-See `crates/conduit-wasm/fixtures/uppercase-guest/README.md` for the authoring
+See `crates/pureflow-wasm/fixtures/uppercase-guest/README.md` for the authoring
 guide and WIT contract reference.

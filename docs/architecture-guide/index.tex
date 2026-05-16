@@ -217,7 +217,7 @@
 
 \bookmarksetup{startatroot}
 
-\chapter{Pureflow Architecture Guide}\label{conduit-architecture-guide}
+\chapter{Pureflow Architecture Guide}\label{pureflow-architecture-guide}
 
 \section{Audience}\label{audience}
 
@@ -277,20 +277,20 @@ At a high level, Pureflow separates:
 \begin{Shaded}
 \begin{Highlighting}[]
 \NormalTok{flowchart TD}
-\NormalTok{    WF[Workflow Documents\textbackslash{}nJSON/TOML/YAML] {-}{-}\textgreater{} WFF[conduit{-}workflow{-}format\textbackslash{}nRaw parse + version checks]}
-\NormalTok{    WFF {-}{-}\textgreater{} W[conduit{-}workflow\textbackslash{}nGraph structure validation]}
+\NormalTok{    WF[Workflow Documents\textbackslash{}nJSON/TOML/YAML] {-}{-}\textgreater{} WFF[pureflow{-}workflow{-}format\textbackslash{}nRaw parse + version checks]}
+\NormalTok{    WFF {-}{-}\textgreater{} W[pureflow{-}workflow\textbackslash{}nGraph structure validation]}
 
-\NormalTok{    W {-}{-}\textgreater{} C[conduit{-}contract\textbackslash{}nContracts + schema compatibility]}
-\NormalTok{    W {-}{-}\textgreater{} I[conduit{-}introspection\textbackslash{}nPure projections]}
+\NormalTok{    W {-}{-}\textgreater{} C[pureflow{-}contract\textbackslash{}nContracts + schema compatibility]}
+\NormalTok{    W {-}{-}\textgreater{} I[pureflow{-}introspection\textbackslash{}nPure projections]}
 \NormalTok{    C {-}{-}\textgreater{} I}
-\NormalTok{    CAP[conduit{-}core capability model] {-}{-}\textgreater{} C}
+\NormalTok{    CAP[pureflow{-}core capability model] {-}{-}\textgreater{} C}
 
-\NormalTok{    C {-}{-}\textgreater{} E[conduit{-}engine\textbackslash{}nWorkflow orchestration]}
-\NormalTok{    CORE[conduit{-}core\textbackslash{}nPorts, metadata, errors, traits] {-}{-}\textgreater{} E}
-\NormalTok{    R[conduit{-}runtime\textbackslash{}nasupersync adapter] {-}{-}\textgreater{} E}
-\NormalTok{    WASM[conduit{-}wasm\textbackslash{}nWasmtime batch adapter] {-}{-}\textgreater{} E}
+\NormalTok{    C {-}{-}\textgreater{} E[pureflow{-}engine\textbackslash{}nWorkflow orchestration]}
+\NormalTok{    CORE[pureflow{-}core\textbackslash{}nPorts, metadata, errors, traits] {-}{-}\textgreater{} E}
+\NormalTok{    R[pureflow{-}runtime\textbackslash{}nasupersync adapter] {-}{-}\textgreater{} E}
+\NormalTok{    WASM[pureflow{-}wasm\textbackslash{}nWasmtime batch adapter] {-}{-}\textgreater{} E}
 
-\NormalTok{    E {-}{-}\textgreater{} CLI[conduit{-}cli\textbackslash{}nvalidate/inspect/explain/run]}
+\NormalTok{    E {-}{-}\textgreater{} CLI[pureflow{-}cli\textbackslash{}nvalidate/inspect/explain/run]}
 \NormalTok{    I {-}{-}\textgreater{} CLI}
 \end{Highlighting}
 \end{Shaded}
@@ -313,26 +313,26 @@ Used by
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-\texttt{conduit-types} & Validated identifier primitives
+\texttt{pureflow-types} & Validated identifier primitives
 (\texttt{WorkflowId}, \texttt{NodeId}, \texttt{PortId}) & all crates \\
-\texttt{conduit-workflow-format} & External format decode + versioning
-(\texttt{conduit\_version}) & CLI + loaders \\
-\texttt{conduit-workflow} & Static topology model + structural
+\texttt{pureflow-workflow-format} & External format decode + versioning
+(\texttt{pureflow\_version}) & CLI + loaders \\
+\texttt{pureflow-workflow} & Static topology model + structural
 validation & contract/introspection/engine \\
-\texttt{conduit-core} & Runtime-facing traits, ports, metadata, errors,
+\texttt{pureflow-core} & Runtime-facing traits, ports, metadata, errors,
 capabilities & runtime/engine/cli/wasm \\
-\texttt{conduit-contract} & Node contract model + validation against
+\texttt{pureflow-contract} & Node contract model + validation against
 workflow/capabilities & engine/introspection/cli \\
-\texttt{conduit-introspection} & Read-only workflow+contract+capability
+\texttt{pureflow-introspection} & Read-only workflow+contract+capability
 projections & CLI inspect/explain \\
-\texttt{conduit-runtime} & \texttt{asupersync} runtime wrapper + node
+\texttt{pureflow-runtime} & \texttt{asupersync} runtime wrapper + node
 observer boundary & engine \\
-\texttt{conduit-engine} & Workflow orchestration, registry scheduling,
+\texttt{pureflow-engine} & Workflow orchestration, registry scheduling,
 summary/policy & CLI \\
-\texttt{conduit-wasm} & Wasmtime Component Model batch execution adapter
+\texttt{pureflow-wasm} & Wasmtime Component Model batch execution adapter
 & engine/CLI \\
-\texttt{conduit-cli} & User and automation entrypoint & humans/CI \\
-\texttt{conduit-test-kit} & Builders and helpers for tests/examples &
+\texttt{pureflow-cli} & User and automation entrypoint & humans/CI \\
+\texttt{pureflow-test-kit} & Builders and helpers for tests/examples &
 tests/docs \\
 \end{longtable}
 
@@ -342,11 +342,11 @@ tests/docs \\
 \begin{Highlighting}[]
 \NormalTok{sequenceDiagram}
 \NormalTok{    participant User}
-\NormalTok{    participant CLI as conduit{-}cli}
+\NormalTok{    participant CLI as pureflow{-}cli}
 \NormalTok{    participant Format as workflow{-}format}
 \NormalTok{    participant Graph as workflow/contract}
-\NormalTok{    participant Engine as conduit{-}engine}
-\NormalTok{    participant Runtime as conduit{-}runtime}
+\NormalTok{    participant Engine as pureflow{-}engine}
+\NormalTok{    participant Runtime as pureflow{-}runtime}
 \NormalTok{    participant Node as Native or WASM node}
 \NormalTok{    participant Sink as Metadata JSONL}
 
@@ -373,7 +373,7 @@ Pureflow emits two machine-facing outputs:
 \item
   metadata JSONL stream (event records),
 \item
-  \texttt{conduit\ run\ -\/-json} terminal summary.
+  \texttt{pureflow\ run\ -\/-json} terminal summary.
 \end{itemize}
 
 \subsection{Metadata JSONL record
@@ -453,15 +453,15 @@ outcome snapshot \\
 \begin{Shaded}
 \begin{Highlighting}[]
 \CommentTok{\# Validate workflow structure and format}
-\ExtensionTok{cargo}\NormalTok{ run }\AttributeTok{{-}p}\NormalTok{ conduit{-}cli }\AttributeTok{{-}{-}}\NormalTok{ validate examples/native{-}linear{-}etl.workflow.json}
+\ExtensionTok{cargo}\NormalTok{ run }\AttributeTok{{-}p}\NormalTok{ pureflow{-}cli }\AttributeTok{{-}{-}}\NormalTok{ validate examples/native{-}linear{-}etl.workflow.json}
 
 \CommentTok{\# Inspect topology/contracts/capabilities}
-\ExtensionTok{cargo}\NormalTok{ run }\AttributeTok{{-}p}\NormalTok{ conduit{-}cli }\AttributeTok{{-}{-}}\NormalTok{ inspect examples/native{-}linear{-}etl.workflow.json}
+\ExtensionTok{cargo}\NormalTok{ run }\AttributeTok{{-}p}\NormalTok{ pureflow{-}cli }\AttributeTok{{-}{-}}\NormalTok{ inspect examples/native{-}linear{-}etl.workflow.json}
 
 \CommentTok{\# Run and emit machine{-}facing summary}
-\ExtensionTok{cargo}\NormalTok{ run }\AttributeTok{{-}p}\NormalTok{ conduit{-}cli }\AttributeTok{{-}{-}}\NormalTok{ run }\AttributeTok{{-}{-}json} \DataTypeTok{\textbackslash{}}
+\ExtensionTok{cargo}\NormalTok{ run }\AttributeTok{{-}p}\NormalTok{ pureflow{-}cli }\AttributeTok{{-}{-}}\NormalTok{ run }\AttributeTok{{-}{-}json} \DataTypeTok{\textbackslash{}}
 \NormalTok{  examples/native{-}linear{-}etl.workflow.json }\DataTypeTok{\textbackslash{}}
-\NormalTok{  /tmp/conduit{-}native{-}linear.metadata.jsonl}
+\NormalTok{  /tmp/pureflow{-}native{-}linear.metadata.jsonl}
 \end{Highlighting}
 \end{Shaded}
 
@@ -470,7 +470,7 @@ outcome snapshot \\
 \begin{Shaded}
 \begin{Highlighting}[]
 \FunctionTok{\{}
-  \DataTypeTok{"conduit\_version"}\FunctionTok{:} \StringTok{"1"}\FunctionTok{,}
+  \DataTypeTok{"pureflow\_version"}\FunctionTok{:} \StringTok{"1"}\FunctionTok{,}
   \DataTypeTok{"id"}\FunctionTok{:} \StringTok{"native{-}linear{-}etl"}\FunctionTok{,}
   \DataTypeTok{"nodes"}\FunctionTok{:} \OtherTok{[}
     \FunctionTok{\{} \DataTypeTok{"id"}\FunctionTok{:} \StringTok{"source"}\FunctionTok{,} \DataTypeTok{"inputs"}\FunctionTok{:} \OtherTok{[]}\FunctionTok{,} \DataTypeTok{"outputs"}\FunctionTok{:} \OtherTok{[}\StringTok{"rows"}\OtherTok{]} \FunctionTok{\}}\OtherTok{,}
@@ -493,11 +493,11 @@ outcome snapshot \\
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\KeywordTok{use} \PreprocessorTok{conduit\_contract::}\OperatorTok{\{}
+\KeywordTok{use} \PreprocessorTok{pureflow\_contract::}\OperatorTok{\{}
 \NormalTok{    Determinism}\OperatorTok{,}\NormalTok{ ExecutionMode}\OperatorTok{,}\NormalTok{ NodeContract}\OperatorTok{,}\NormalTok{ PortContract}\OperatorTok{,}\NormalTok{ SchemaRef}\OperatorTok{,}
 \NormalTok{    validate\_workflow\_contracts}\OperatorTok{,}
 \OperatorTok{\};}
-\KeywordTok{use} \PreprocessorTok{conduit\_core::}\OperatorTok{\{}
+\KeywordTok{use} \PreprocessorTok{pureflow\_core::}\OperatorTok{\{}
 \NormalTok{    RetryDisposition}\OperatorTok{,}
     \PreprocessorTok{capability::}\OperatorTok{\{}\NormalTok{NodeCapabilities}\OperatorTok{,}\NormalTok{ PortCapability}\OperatorTok{,}\NormalTok{ PortCapabilityDirection}\OperatorTok{\},}
 \OperatorTok{\};}
@@ -516,17 +516,17 @@ before execution.
 \begin{itemize}
 \tightlist
 \item
-  \texttt{conduit-workflow} validates structural graph honesty only.
+  \texttt{pureflow-workflow} validates structural graph honesty only.
 \item
-  \texttt{conduit-contract} validates contract/capability alignment plus
+  \texttt{pureflow-contract} validates contract/capability alignment plus
   schema compatibility across connected ports.
 \item
-  \texttt{conduit-core} owns runtime interfaces and metadata shape.
+  \texttt{pureflow-core} owns runtime interfaces and metadata shape.
 \item
-  \texttt{conduit-runtime} is an adapter over \texttt{asupersync}, not
+  \texttt{pureflow-runtime} is an adapter over \texttt{asupersync}, not
   the public model.
 \item
-  \texttt{conduit-wasm} isolates Wasmtime and WIT/component ABI details
+  \texttt{pureflow-wasm} isolates Wasmtime and WIT/component ABI details
   from core.
 \end{itemize}
 

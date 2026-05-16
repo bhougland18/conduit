@@ -29,9 +29,9 @@ Useful state terms:
 
 Ownership model:
 
-- `conduit-cli` handles input and output.
-- `conduit-engine` owns orchestration and policy decisions.
-- `conduit-runtime` bridges into the async substrate and observer hooks.
+- `pureflow-cli` handles input and output.
+- `pureflow-engine` owns orchestration and policy decisions.
+- `pureflow-runtime` bridges into the async substrate and observer hooks.
 - Node execution sees Pureflow-owned context and port semantics rather than raw runtime types.
 
 ## Failure Handling

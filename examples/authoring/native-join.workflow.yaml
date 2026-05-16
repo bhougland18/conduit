@@ -1,4 +1,4 @@
-conduit_version: "1"
+pureflow_version: "1"
 id: authoring-native-join
 nodes:
   - id: left-source

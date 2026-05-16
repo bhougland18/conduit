@@ -8,15 +8,15 @@ and emits machine-facing metadata and run summaries.
 
 The architecture is intentionally layered:
 
-- `conduit-cli` is the human and automation entrypoint.
-- `conduit-engine` validates execution preconditions and orchestrates runs.
-- `conduit-runtime` bridges engine scheduling into the async substrate.
-- `conduit-core` owns runtime-facing types, ports, metadata, errors, and capabilities.
-- `conduit-workflow` owns structural workflow validation.
-- `conduit-contract` owns node contracts and capability/schema alignment.
-- `conduit-wasm` owns Wasmtime and WIT/component ABI details.
-- `conduit-introspection` provides read-only projections for inspect/explain flows.
-- `conduit-test-kit` provides builders and fixtures for tests and examples.
+- `pureflow-cli` is the human and automation entrypoint.
+- `pureflow-engine` validates execution preconditions and orchestrates runs.
+- `pureflow-runtime` bridges engine scheduling into the async substrate.
+- `pureflow-core` owns runtime-facing types, ports, metadata, errors, and capabilities.
+- `pureflow-workflow` owns structural workflow validation.
+- `pureflow-contract` owns node contracts and capability/schema alignment.
+- `pureflow-wasm` owns Wasmtime and WIT/component ABI details.
+- `pureflow-introspection` provides read-only projections for inspect/explain flows.
+- `pureflow-test-kit` provides builders and fixtures for tests and examples.
 
 ## Core Responsibilities
 
@@ -46,7 +46,7 @@ Primary ingress and egress:
 
 Boundary facts to remember:
 
-- `conduit-runtime` may use `asupersync` internally.
-- `conduit-core` should not expose raw `asupersync` or Wasmtime types in its public API.
+- `pureflow-runtime` may use `asupersync` internally.
+- `pureflow-core` should not expose raw `asupersync` or Wasmtime types in its public API.
 - WASM guests use a Pureflow-defined WIT world and host-owned channels.
 - Capability enforcement is explicit and becomes a real boundary for WASM and future process-backed nodes.

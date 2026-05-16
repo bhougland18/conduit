@@ -8,20 +8,20 @@ demo handoff, not a crates.io publication.
 
 Workspace crates audited:
 
-- `crates/conduit-cli`
-- `crates/conduit-core`
-- `crates/conduit-contract`
-- `crates/conduit-engine`
-- `crates/conduit-introspection`
-- `crates/conduit-runtime`
-- `crates/conduit-test-kit`
-- `crates/conduit-types`
-- `crates/conduit-wasm`
-- `crates/conduit-workflow`
-- `crates/conduit-workflow-format`
+- `crates/pureflow-cli`
+- `crates/pureflow-core`
+- `crates/pureflow-contract`
+- `crates/pureflow-engine`
+- `crates/pureflow-introspection`
+- `crates/pureflow-runtime`
+- `crates/pureflow-test-kit`
+- `crates/pureflow-types`
+- `crates/pureflow-wasm`
+- `crates/pureflow-workflow`
+- `crates/pureflow-workflow-format`
 
 The WASM uppercase guest fixture at
-`crates/conduit-wasm/fixtures/uppercase-guest` is intentionally excluded from
+`crates/pureflow-wasm/fixtures/uppercase-guest` is intentionally excluded from
 the root workspace. It is a standalone fixture workspace used to build a
 Component Model guest. Its package metadata is explicit rather than inherited:
 `version = "0.1.0"`, `edition = "2024"`, `license = "MIT"`, and

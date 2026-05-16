@@ -1,6 +1,6 @@
 # Response: Identifier Length Cap
 
-Reviewing `crates/conduit-types/src/lib.rs` (`MAX_IDENTIFIER_LEN = 256`,
+Reviewing `crates/pureflow-types/src/lib.rs` (`MAX_IDENTIFIER_LEN = 256`,
 `IdentifierError::TooLong { kind, limit }`).
 
 ## Decision: stay with raw UTF-8 bytes. Park the scalar-value follow-up.
@@ -12,7 +12,7 @@ user-facing identifier surface, which it does not currently have.
 ### Why bytes is the right unit here
 
 - These identifiers are opaque slugs/keys, not user-facing prose. The existing
-  validation in `conduit-types` already rejects whitespace and control
+  validation in `pureflow-types` already rejects whitespace and control
   characters, which steers callers toward ASCII-typical forms. With those
   rules in place, "256 bytes" and "256 scalars" are nearly identical in
   practice for the inputs the system will actually see.

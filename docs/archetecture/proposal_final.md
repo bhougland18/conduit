@@ -10,7 +10,7 @@ metadata-first, AI-inspectable Flow-Based Programming runtime built on
 capability, and introspection APIs.
 
 The highest-priority correction is execution semantics. The repository has
-good boundaries, but `conduit-engine::run_workflow` is still a sequential
+good boundaries, but `pureflow-engine::run_workflow` is still a sequential
 scaffold. It wires bounded channels, then awaits each node to completion before
 starting the next node. That is not yet FBP.
 
@@ -41,7 +41,7 @@ The second proposal adds several practical ideas that should be incorporated:
 | Edge capacity in `EdgeDefinition` | Adopt. The current capacity of `1` is useful for backpressure tests but too restrictive as a default. |
 | Topological ordering and explicit cycle policy | Adopt with nuance. FBP can support cycles, but cycles should be rejected by default until explicitly enabled. |
 | Identifier length cap | Adopt. It closes a low-cost robustness gap. |
-| Separate `conduit-workflow-format` crate | Adopt. Keeps in-memory graph types free from parser dependencies. |
+| Separate `pureflow-workflow-format` crate | Adopt. Keeps in-memory graph types free from parser dependencies. |
 | Feature hygiene | Adopt. `serde`, `yaml`, `toml`, `arrow`, `wasm`, and `tracing` should be explicit features. |
 | Introspection as pure data over workflow + contracts | Adopt. AI tooling should inspect before execution. |
 | Benchmark and concurrency test beads | Adopt. Backpressure and metadata overhead need measured guardrails. |
@@ -57,12 +57,12 @@ The current codebase is boundary-complete and execution-light:
 
 | Layer | Current state | Gap |
 | --- | --- | --- |
-| `conduit-types` | Validated ID newtypes for workflow, execution, message, node, and port | No length cap |
-| `conduit-workflow` | Deterministic static graph validation for nodes, ports, and edges | No serde, no capacity, no cycle policy, no implementation refs |
-| `conduit-core` | `NodeExecutor`, context, cancellation, message metadata, capabilities, lifecycle, metadata sink, error taxonomy, bounded ports | Ports are only non-blocking; metadata is not emitted at message boundaries |
-| `conduit-runtime` | `AsupersyncRuntime`, one-node execution, lifecycle/metadata observers, cancellation bridge, deterministic test runtime | No workflow supervisor |
-| `conduit-engine` | Wires edges as bounded channels and invokes nodes sequentially | Not a long-lived FBP process graph |
-| `conduit-cli` | Temporary empty-workflow print scaffold | No validate/run/inspect commands |
+| `pureflow-types` | Validated ID newtypes for workflow, execution, message, node, and port | No length cap |
+| `pureflow-workflow` | Deterministic static graph validation for nodes, ports, and edges | No serde, no capacity, no cycle policy, no implementation refs |
+| `pureflow-core` | `NodeExecutor`, context, cancellation, message metadata, capabilities, lifecycle, metadata sink, error taxonomy, bounded ports | Ports are only non-blocking; metadata is not emitted at message boundaries |
+| `pureflow-runtime` | `AsupersyncRuntime`, one-node execution, lifecycle/metadata observers, cancellation bridge, deterministic test runtime | No workflow supervisor |
+| `pureflow-engine` | Wires edges as bounded channels and invokes nodes sequentially | Not a long-lived FBP process graph |
+| `pureflow-cli` | Temporary empty-workflow print scaffold | No validate/run/inspect commands |
 
 The important architectural boundary is already correct: `asupersync` is the
 runtime substrate, not the public programming model. That boundary must remain
@@ -202,7 +202,7 @@ Semantics:
 
 ### 6.2 Replace Sequential Execution With A Workflow Supervisor
 
-Replace the primary `conduit-engine::run_workflow` semantics with a supervised
+Replace the primary `pureflow-engine::run_workflow` semantics with a supervised
 concurrent runner:
 
 ```rust
@@ -279,8 +279,8 @@ Recommended changes:
 
 ### 6.5 Add Node Contracts Before Schema Execution
 
-Keep `conduit-workflow` focused on topology. Add contract types in a separate
-crate, likely `conduit-contract`:
+Keep `pureflow-workflow` focused on topology. Add contract types in a separate
+crate, likely `pureflow-contract`:
 
 - `NodeContractId`
 - `NodeContract`
@@ -302,15 +302,15 @@ This is the right place to connect AI-generated workflows to safe validation.
 
 ### 6.6 Add External Workflow Definitions In A Format Crate
 
-Create `crates/conduit-workflow-format` instead of putting parsers directly in
-`conduit-workflow`.
+Create `crates/pureflow-workflow-format` instead of putting parsers directly in
+`pureflow-workflow`.
 
 Format strategy:
 
 - JSON is canonical and always supported by the format crate.
 - TOML is supported for human-authored workflows.
 - YAML is optional and feature-gated.
-- every file includes `conduit_version = "1"` or equivalent.
+- every file includes `pureflow_version = "1"` or equivalent.
 - missing/unknown versions produce typed errors.
 - raw serde structs parse into validated domain types.
 
@@ -396,7 +396,7 @@ pub trait BatchExecutor {
 }
 ```
 
-Then implement `conduit-wasm` with Wasmtime later:
+Then implement `pureflow-wasm` with Wasmtime later:
 
 - host reads batches from `PortsIn`
 - host invokes the WASM component
@@ -412,14 +412,14 @@ Recommended features:
 
 | Crate | Feature | Adds |
 | --- | --- | --- |
-| `conduit-core` | `serde` | serialization for public data/metadata/introspection |
-| `conduit-core` | `arrow` | Arrow payload variant |
-| `conduit-workflow` | `serde` | serialization for graph domain types |
-| `conduit-workflow-format` | `json` | JSON parser |
-| `conduit-workflow-format` | `toml` | TOML parser |
-| `conduit-workflow-format` | `yaml` | YAML parser |
-| `conduit-runtime` | `tracing` | tracing bridge at lifecycle/metadata seams |
-| `conduit-wasm` | `wasi` | WASI support only when needed |
+| `pureflow-core` | `serde` | serialization for public data/metadata/introspection |
+| `pureflow-core` | `arrow` | Arrow payload variant |
+| `pureflow-workflow` | `serde` | serialization for graph domain types |
+| `pureflow-workflow-format` | `json` | JSON parser |
+| `pureflow-workflow-format` | `toml` | TOML parser |
+| `pureflow-workflow-format` | `yaml` | YAML parser |
+| `pureflow-runtime` | `tracing` | tracing bridge at lifecycle/metadata seams |
+| `pureflow-wasm` | `wasi` | WASI support only when needed |
 
 ## 7. Library Recommendations
 
@@ -469,9 +469,9 @@ Crates intentionally not recommended:
 Fork posture:
 
 - do not fork preemptively
-- keep `asupersync` behind `conduit-runtime` so a fork remains cheap if needed
-- keep YAML behind `conduit-workflow-format` so parser choice is swappable
-- keep Wasmtime behind `conduit-wasm` so runtime churn does not leak into core
+- keep `asupersync` behind `pureflow-runtime` so a fork remains cheap if needed
+- keep YAML behind `pureflow-workflow-format` so parser choice is swappable
+- keep Wasmtime behind `pureflow-wasm` so runtime churn does not leak into core
 
 ## 8. Roadmap
 
@@ -499,8 +499,8 @@ Exit criteria:
 
 Deliver:
 
-- `conduit-contract`
-- `conduit-workflow-format`
+- `pureflow-contract`
+- `pureflow-workflow-format`
 - JSON/TOML loaders
 - optional YAML loader
 - versioned workflow files
@@ -534,7 +534,7 @@ Exit criteria:
 Deliver:
 
 - `BatchExecutor`
-- `conduit-wasm`
+- `pureflow-wasm`
 - Wasmtime host adapter
 - one sample WASM node
 - capability enforcement at the WASM boundary
@@ -569,7 +569,7 @@ Exit criteria:
 | Fan-out partial delivery | High | Preserve reserve/commit across all downstream senders |
 | Metadata overhead breaks zero-cost goal | Medium | Add `NoopMetadataSink` benchmarks and `TieredMetadataSink` |
 | YAML parser maintenance risk | Medium | JSON canonical; YAML feature-gated and isolated |
-| Wasmtime release churn | Medium | Hide behind `conduit-wasm` and `BatchExecutor` |
+| Wasmtime release churn | Medium | Hide behind `pureflow-wasm` and `BatchExecutor` |
 | Native capabilities mistaken for sandboxing | Medium | Mark native enforcement as advisory in contracts and introspection |
 | AI workflows bypass validation | High | CLI/API must validate before run; no best-effort execution |
 | Arrow/DataFusion complexity lands too early | Medium | Defer until byte-message runtime and WASM boundary are stable |
@@ -609,9 +609,9 @@ from `proposal_2`.
    cycles-allowed construction path.
 8. `types-identifier-length-cap`: add a maximum identifier length and typed
    `TooLong` error.
-9. `contracts-core`: add `conduit-contract` with node contracts, port
+9. `contracts-core`: add `pureflow-contract` with node contracts, port
    contracts, schema refs, execution modes, and contract validation.
-10. `workflow-format-crate`: add `conduit-workflow-format` with versioned raw
+10. `workflow-format-crate`: add `pureflow-workflow-format` with versioned raw
     workflow definitions.
 11. `workflow-format-json`: add JSON parser and round-trip tests.
 12. `workflow-format-toml`: add TOML parser behind a feature.
@@ -629,7 +629,7 @@ from `proposal_2`.
     feature, deferred until Phase 5.
 22. `runtime-tracing-feature`: add optional tracing bridge for lifecycle and
     cancellation events.
-23. `cli-use-conduit-runtime`: replace temporary CLI `futures::executor`
+23. `cli-use-pureflow-runtime`: replace temporary CLI `futures::executor`
     execution with `AsupersyncRuntime`.
 24. `cli-validate-inspect`: add `validate` and `inspect` commands.
 25. `cli-run-explain`: add `run` and `explain` commands once metadata sinks
@@ -642,7 +642,7 @@ from `proposal_2`.
     expose `asupersync` types.
 29. `wasm-batch-trait`: add runtime-neutral `BatchExecutor`,
     `BatchInputs`, and `BatchOutputs`.
-30. `wasm-wasmtime-adapter`: add `conduit-wasm` with Wasmtime host-owned batch
+30. `wasm-wasmtime-adapter`: add `pureflow-wasm` with Wasmtime host-owned batch
     execution.
 31. `wasm-capability-enforcement`: enforce declared capabilities for WASM
     nodes.
@@ -655,10 +655,10 @@ from `proposal_2`.
 - Strategy request: `docs/archetecture/strategy/proposal_request.md`
 - First strategy proposal: `docs/archetecture/proposal_1.md`
 - Second strategy proposal: `docs/archetecture/proposal_2.md`
-- Current engine scaffold: `crates/conduit-engine/src/lib.rs`
-- Current runtime boundary: `crates/conduit-runtime/src/lib.rs`
-- Current port adapters: `crates/conduit-core/src/ports.rs`
-- Current workflow validation: `crates/conduit-workflow/src/lib.rs`
+- Current engine scaffold: `crates/pureflow-engine/src/lib.rs`
+- Current runtime boundary: `crates/pureflow-runtime/src/lib.rs`
+- Current port adapters: `crates/pureflow-core/src/ports.rs`
+- Current workflow validation: `crates/pureflow-workflow/src/lib.rs`
 - `bytes`: https://docs.rs/crate/bytes/latest
 - `serde`: https://docs.rs/crate/serde/latest
 - `serde_json`: https://docs.rs/crate/serde_json/latest

@@ -1,6 +1,6 @@
 # Response: Metadata Boundary Questions
 
-Reviewing `crates/conduit-core/src/metadata.rs` and `ports.rs` against the
+Reviewing `crates/pureflow-core/src/metadata.rs` and `ports.rs` against the
 current leanings in the question. The existing implementation already lines
 up well with the right answers — these responses mostly confirm direction
 and call out one place where the current draft should hold the line.

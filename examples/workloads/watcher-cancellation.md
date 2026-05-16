@@ -5,7 +5,7 @@ cancellation. A change source fans out file-change byte messages to both the
 watcher and a shutdown controller. The controller drains the same change stream
 and sends one control message after source closure. The watcher receives changes
 and control with `recv_any`; when it sees the control message, it returns
-`ConduitError::cancelled`.
+`PureflowError::cancelled`.
 
 Run commands from the repository root.
 
@@ -17,7 +17,7 @@ Workflow file:
 
 Runnable native executor example:
 
-- `crates/conduit-engine/examples/watcher_cancellation.rs`
+- `crates/pureflow-engine/examples/watcher_cancellation.rs`
 
 Shape:
 
@@ -34,9 +34,9 @@ result because the watcher has been asked to stop cleanly.
 ## Validate And Inspect
 
 ```bash
-cargo run -p conduit-cli -- validate examples/workloads/watcher-cancellation.workflow.json
-cargo run -p conduit-cli -- inspect examples/workloads/watcher-cancellation.workflow.json
-cargo run -p conduit-cli -- explain examples/workloads/watcher-cancellation.workflow.json
+cargo run -p pureflow-cli -- validate examples/workloads/watcher-cancellation.workflow.json
+cargo run -p pureflow-cli -- inspect examples/workloads/watcher-cancellation.workflow.json
+cargo run -p pureflow-cli -- explain examples/workloads/watcher-cancellation.workflow.json
 ```
 
 Expected `validate` output:
@@ -64,7 +64,7 @@ metadata: jsonl lifecycle, message, and queue-pressure records with tiered contr
 ## Run
 
 ```bash
-cargo run -p conduit-engine --example watcher_cancellation
+cargo run -p pureflow-engine --example watcher_cancellation
 ```
 
 Expected output:

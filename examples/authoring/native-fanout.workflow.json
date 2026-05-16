@@ -1,5 +1,5 @@
 {
-  "conduit_version": "1",
+  "pureflow_version": "1",
   "id": "authoring-native-fanout",
   "nodes": [
     { "id": "source", "inputs": [], "outputs": ["rows"] },

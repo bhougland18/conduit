@@ -1,6 +1,6 @@
 # Response: WASM Batch Trait Questions
 
-Reviewing `crates/conduit-core/src/batch.rs` against `proposal_final.md`
+Reviewing `crates/pureflow-core/src/batch.rs` against `proposal_final.md`
 sections 6.10, 8 (Phase 4), and the §9 risk register.
 
 ## Q1. Empty input batches: accept everywhere, or per-adapter minimum policy?
@@ -12,7 +12,7 @@ Reasoning grounded in the current code:
 
 - `BatchInputs` is a `BTreeMap<PortId, Vec<PortPacket>>` and the only readers
   in the public surface are `packets(port_id) -> &[PortPacket]` and
-  `packets_by_port()` (`conduit-core/src/batch.rs:42`, `:48`). The data shape
+  `packets_by_port()` (`pureflow-core/src/batch.rs:42`, `:48`). The data shape
   already permits "this port has zero packets" and "no ports at all" without
   a separate signal — adding a minimum policy now means inventing a new
   failure mode the type does not currently have.
@@ -26,9 +26,9 @@ Reasoning grounded in the current code:
   adapter is still `cdt-mcu.2` and unbuilt, so we have no concrete WASM node
   whose semantics demand a non-zero floor. The risk register in §9 lists
   "Wasmtime release churn" as the relevant medium risk; the mitigation is to
-  hide engine-specific policy *behind* `conduit-wasm`, not inside the trait.
+  hide engine-specific policy *behind* `pureflow-wasm`, not inside the trait.
 - The current `EchoBatchExecutor` test
-  (`conduit-core/src/batch.rs:185`) already implicitly relies on permissive
+  (`pureflow-core/src/batch.rs:185`) already implicitly relies on permissive
   input handling: it iterates `packets(&port_id("in"))`, which returns `&[]`
   when absent. Tightening to "must be non-empty" would either break that
   pattern or force every adapter to add a zero-input branch.
@@ -71,15 +71,15 @@ Reasoning:
   drifting semantics; the engine boundary is the only place that gives one
   enforcement point for all execution modes.
 - Engine-side validation also lines up with the existing
-  `validate_workflow_contracts` work in `conduit-core::capability` — that
+  `validate_workflow_contracts` work in `pureflow-core::capability` — that
   module is already where "permitted port use" is decided. Output envelope
-  checking belongs next to it, not inside `conduit-wasm`.
+  checking belongs next to it, not inside `pureflow-wasm`.
 
 Concrete refinements:
 
 - When the engine consumes a `BatchOutputs`, it should reject any port id
   not present in the node's declared `Emit` `PortCapability` set, mapping
-  the failure to `ConduitError::Validation` (so it surfaces with the existing
+  the failure to `PureflowError::Validation` (so it surfaces with the existing
   `User`-visibility error code rather than as an opaque adapter error).
 - The Wasmtime adapter should still *trap* obvious shape errors from the
   guest (e.g., malformed envelope bytes that fail to deserialize into a
@@ -111,7 +111,7 @@ Reasoning:
   traps. That mechanism does not require the trait to be async. The
   `CancellationHandle` plumbed through `cdt-rtb.7` already gives us a place
   to wire that bump on cancellation, sitting next to the existing
-  `Cancellation` error variant in `conduit-core::error`.
+  `Cancellation` error variant in `pureflow-core::error`.
 - Async-at-the-trait costs more than it buys here. Making `invoke` return a
   `Future` would either force `BoxFuture<'_, Result<BatchOutputs>>` (an
   allocation per call) or introduce a GAT (`type InvokeFuture<'a>`),
@@ -156,4 +156,4 @@ Concrete refinements:
 
 All three answers preserve the §6.10 invariant that the batch trait is the
 runtime-neutral seam and that engine-specific concerns live in
-`conduit-wasm`.
+`pureflow-wasm`.

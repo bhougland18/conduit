@@ -1,6 +1,6 @@
 # Response: Contracts Core Questions
 
-Reviewing `crates/conduit-contract/src/lib.rs` against `proposal_final.md`
+Reviewing `crates/pureflow-contract/src/lib.rs` against `proposal_final.md`
 sections 6.5 and 9.
 
 ## Q1. Schema compatibility: exact-equality vs. policy object
@@ -9,7 +9,7 @@ sections 6.5 and 9.
 
 Reasoning grounded in current code:
 
-- `SchemaRef` is an opaque `String` today (`conduit-contract/src/lib.rs:30`).
+- `SchemaRef` is an opaque `String` today (`pureflow-contract/src/lib.rs:30`).
   There is nothing structural to negotiate over. A "policy object" right now
   would be a wrapper around `==` with no actual decision logic to dispatch on,
   which is exactly the kind of premature abstraction `proposal_final.md` warns
@@ -62,7 +62,7 @@ Reasoning:
   (introspection JSON would have to special-case missing descriptors), which
   contradicts §6.7's "introspection as pure data over workflow + contracts."
 - The cost of requiring it everywhere is low. Looking at
-  `conduit_core::capability::NodeCapabilities`, a "no effects" descriptor is
+  `pureflow_core::capability::NodeCapabilities`, a "no effects" descriptor is
   just `NodeCapabilities::new(node_id, port_capabilities, [])`. The redundancy
   with workflow port topology is intentional and called out in
   `capability-port-claims` — so making port-capability authoring ergonomic is

@@ -19,7 +19,7 @@ Workflow file:
 
 Runnable native executor example:
 
-- `crates/conduit-engine/examples/ai_call_orchestration.rs`
+- `crates/pureflow-engine/examples/ai_call_orchestration.rs`
 
 Shape:
 
@@ -42,9 +42,9 @@ Each node models one stage of a single-turn ReAct-style exchange:
 ## Validate And Inspect
 
 ```bash
-cargo run -p conduit-cli -- validate examples/workloads/ai-call-orchestration.workflow.json
-cargo run -p conduit-cli -- inspect examples/workloads/ai-call-orchestration.workflow.json
-cargo run -p conduit-cli -- explain examples/workloads/ai-call-orchestration.workflow.json
+cargo run -p pureflow-cli -- validate examples/workloads/ai-call-orchestration.workflow.json
+cargo run -p pureflow-cli -- inspect examples/workloads/ai-call-orchestration.workflow.json
+cargo run -p pureflow-cli -- explain examples/workloads/ai-call-orchestration.workflow.json
 ```
 
 Expected `validate` output:
@@ -80,7 +80,7 @@ edges:
 ## Run
 
 ```bash
-cargo run -p conduit-engine --example ai_call_orchestration
+cargo run -p pureflow-engine --example ai_call_orchestration
 ```
 
 Expected output:
@@ -139,7 +139,7 @@ What a multi-turn policy would require:
 
 The current `WorkflowRunPolicy::acyclic` (CLI default) rejects cycles at
 validation time. The feedback-loop policy is available via the library API
-(`conduit-engine`) and already exercised by `crates/conduit-engine/examples/feedback_loop.rs`.
+(`pureflow-engine`) and already exercised by `crates/pureflow-engine/examples/feedback_loop.rs`.
 
 ### 2. External-effect capability enforcement
 

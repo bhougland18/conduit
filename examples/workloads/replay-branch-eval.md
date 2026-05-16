@@ -15,7 +15,7 @@ Workflow file:
 
 Runnable native executor example:
 
-- `crates/conduit-engine/examples/replay_branch_eval.rs`
+- `crates/pureflow-engine/examples/replay_branch_eval.rs`
 
 Shape:
 
@@ -34,9 +34,9 @@ draining, making metadata attributable to each branch separately.
 ## Validate And Inspect
 
 ```bash
-cargo run -p conduit-cli -- validate examples/workloads/replay-branch-eval.workflow.json
-cargo run -p conduit-cli -- inspect examples/workloads/replay-branch-eval.workflow.json
-cargo run -p conduit-cli -- explain examples/workloads/replay-branch-eval.workflow.json
+cargo run -p pureflow-cli -- validate examples/workloads/replay-branch-eval.workflow.json
+cargo run -p pureflow-cli -- inspect examples/workloads/replay-branch-eval.workflow.json
+cargo run -p pureflow-cli -- explain examples/workloads/replay-branch-eval.workflow.json
 ```
 
 Expected `validate` output:
@@ -71,7 +71,7 @@ edges:
 ## Run
 
 ```bash
-cargo run -p conduit-engine --example replay_branch_eval
+cargo run -p pureflow-engine --example replay_branch_eval
 ```
 
 Expected output:

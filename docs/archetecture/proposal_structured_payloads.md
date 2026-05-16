@@ -7,7 +7,7 @@ Extends: `docs/archetecture/proposal_final.md` §6.9 (payload tiering)
 ## 1. Summary
 
 Add a `Structured(Arc<dyn DataPacket>)` variant to `PacketPayload` and a
-`DataPacket` trait in `conduit-core`. Provide an optional, feature-gated
+`DataPacket` trait in `pureflow-core`. Provide an optional, feature-gated
 `PostcardPacket<T>` impl behind `serde-postcard`. Pureflow core remains
 format-agnostic; postcard becomes the obvious zero-boilerplate path for
 consumers that opt in. Arrow, JSON, and bytes paths are unchanged.
@@ -25,7 +25,7 @@ This addresses two real consumer needs:
 
 ## 2. Current state
 
-`crates/conduit-core/src/message.rs`:
+`crates/pureflow-core/src/message.rs`:
 
 ```rust
 #[derive(Debug, Clone, PartialEq)]
@@ -47,7 +47,7 @@ not leak it. That boundary stays intact under this proposal.
 
 ## 3. Proposed shape
 
-### 3.1 Trait in `conduit-core` (no new deps)
+### 3.1 Trait in `pureflow-core` (no new deps)
 
 ```rust
 use std::any::Any;
@@ -113,7 +113,7 @@ ill-defined).
 ### 3.3 Postcard impl behind `serde-postcard` feature
 
 ```rust
-// conduit-core, only compiled with feature = "serde-postcard"
+// pureflow-core, only compiled with feature = "serde-postcard"
 
 pub struct PostcardPacket<T> {
     inner: Arc<T>,
@@ -202,7 +202,7 @@ schema-versioning policy.
 workflow declares `port_in_schema = SchemaId("zeroflat::Form/v1")` and
 `port_out_schema = SchemaId("zeroflat::Form/v1")`, validation can
 reject mismatched edges at workflow-load time without running the
-graph. This belongs to the `conduit-contract` crate work tracked in
+graph. This belongs to the `pureflow-contract` crate work tracked in
 proposal_final.md §6.5, not to this bead set. Mentioned only so that
 `SchemaId` is shaped right today for that future use.
 
@@ -212,9 +212,9 @@ Re-check before pinning. Versions current at 2026-05-03.
 
 | Crate | Version | Where | Why |
 |---|---|---|---|
-| `postcard` | `1.1.3` | `conduit-core` dev/feature-gated | Compact serde codec, no_std-friendly, stable since 1.0 |
+| `postcard` | `1.1.3` | `pureflow-core` dev/feature-gated | Compact serde codec, no_std-friendly, stable since 1.0 |
 | `serde` | `1.0.228` (workspace) | already present | Required by `postcard` impl |
-| `thiserror` | `2.0.18` | `conduit-core` (already used) | `SerializeError` typed variants |
+| `thiserror` | `2.0.18` | `pureflow-core` (already used) | `SerializeError` typed variants |
 
 No new mandatory deps. `postcard` activates only with `serde-postcard`.
 
@@ -237,7 +237,7 @@ Concrete bead breakdown for the user to file via `bd`/`br`. Sized for
 one JJ change each.
 
 1. `core-data-packet-trait`: add `DataPacket`, `SchemaId`,
-   `SerializeError` to `conduit-core` (no postcard dep). Pure trait +
+   `SerializeError` to `pureflow-core` (no postcard dep). Pure trait +
    types + unit tests for downcast and equality semantics.
 2. `core-structured-variant`: add `PacketPayload::Structured(Arc<dyn
    DataPacket>)`, helper constructors (`structured`, `as_structured`,
@@ -290,8 +290,8 @@ work resumes.
 ## 12. References
 
 - `docs/archetecture/proposal_final.md` §6.9 — payload tiering
-- `crates/conduit-core/src/message.rs` — current `PacketPayload`
-- `crates/conduit-core/src/batch.rs` — current `BatchInputs`/`BatchOutputs`
+- `crates/pureflow-core/src/message.rs` — current `PacketPayload`
+- `crates/pureflow-core/src/batch.rs` — current `BatchInputs`/`BatchOutputs`
 - `docs/questions/2026-04-28_wasm_batch_trait.md` — WASM boundary open
   follow-ups (relevant to bead 5)
 - `postcard`: https://docs.rs/postcard/latest
